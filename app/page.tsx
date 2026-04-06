@@ -1,6 +1,34 @@
+import { getUser, getUserRole, signOut } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 import { COMPANY_COLORS } from '@/lib/theme'
 
-export default function Home() {
+const ROLE_LABELS: Record<string, string> = {
+  manager: 'Manager',
+  sales: 'Sales',
+  crew: 'Crew',
+  sales_crew: 'Sales / Crew',
+}
+
+const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
+  manager: { bg: 'var(--accent-purple-dim)', text: 'var(--accent-purple)' },
+  sales: { bg: 'var(--accent-blue-dim)', text: 'var(--accent-blue)' },
+  crew: { bg: 'var(--accent-amber-dim)', text: 'var(--accent-amber)' },
+  sales_crew: { bg: 'var(--accent-dim)', text: 'var(--accent)' },
+}
+
+export default async function Home() {
+  const user = await getUser()
+  if (!user) redirect('/login')
+
+  const role = (await getUserRole(user.id)) ?? 'crew'
+  const name =
+    user.user_metadata?.full_name ??
+    user.user_metadata?.name ??
+    user.email?.split('@')[0] ??
+    'Unknown'
+
+  const roleColor = ROLE_COLORS[role] ?? ROLE_COLORS.crew
+
   return (
     <div
       className="flex flex-1 items-center justify-center min-h-screen"
@@ -13,14 +41,91 @@ export default function Home() {
           border: '1px solid var(--border-subtle)',
         }}
       >
-        {/* Heading */}
+        {/* User header */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h1
+              className="text-2xl font-bold tracking-tight"
+              style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}
+            >
+              Welcome, {name}
+            </h1>
+            <p
+              className="text-sm"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {user.email}
+            </p>
+          </div>
+
+          {/* Role badge */}
+          <span
+            className="inline-flex items-center px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium shrink-0"
+            style={{
+              backgroundColor: roleColor.bg,
+              color: roleColor.text,
+            }}
+          >
+            {ROLE_LABELS[role] ?? role}
+          </span>
+        </div>
+
+        {/* Sign out */}
+        <form
+          action={async () => {
+            'use server'
+            await signOut()
+            redirect('/login')
+          }}
+        >
+          <button
+            type="submit"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--bg-elevated)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+            }}
+          >
+            {/* Log out icon */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Sign out
+          </button>
+        </form>
+
+        {/* Divider */}
+        <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)' }} />
+
+        {/* Design system test card content */}
         <div className="flex flex-col gap-1">
-          <h1
-            className="text-2xl font-bold tracking-tight"
+          <h2
+            className="text-base font-bold tracking-tight"
             style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}
           >
             RoofCRM
-          </h1>
+          </h2>
           <p
             className="text-sm"
             style={{ color: 'var(--text-secondary)' }}
