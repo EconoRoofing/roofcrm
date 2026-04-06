@@ -1,0 +1,41 @@
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+const NAV_LINKS = [
+  { href: '/pipeline', label: 'Pipeline' },
+  { href: '/list', label: 'List' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/dashboard', label: 'Dashboard' },
+]
+
+export default function ManagerTopNav() {
+  const pathname = usePathname()
+
+  return (
+    <nav style={{ display: 'flex', gap: '4px', flex: 1 }}>
+      {NAV_LINKS.map(({ href, label }) => {
+        const isActive = pathname === href || pathname.startsWith(href + '/')
+        return (
+          <Link
+            key={href}
+            href={href}
+            style={{
+              padding: '6px 16px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 500,
+              textDecoration: 'none',
+              color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor: isActive ? 'var(--accent-dim)' : 'transparent',
+              transition: 'color 0.15s, background-color 0.15s',
+            }}
+          >
+            {label}
+          </Link>
+        )
+      })}
+    </nav>
+  )
+}
