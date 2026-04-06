@@ -30,32 +30,34 @@ export async function GET(request: NextRequest) {
   const avatar_url = user.user_metadata?.avatar_url ?? null
   const provider_refresh_token = session.provider_refresh_token ?? null
 
-  // Build the upsert payload
-  const upsertPayload: {
-    id: string
-    email: string
-    name: string
-    avatar_url: string | null
-    role: string
-    google_refresh_token?: string | null
-  } = {
-    id: user.id,
-    email,
-    name,
-    avatar_url,
-    role: 'crew',
-  }
-
-  if (provider_refresh_token) {
-    upsertPayload.google_refresh_token = provider_refresh_token
-  }
-
-  await supabase
+  // Check if user already exists (don't overwrite their role)
+  const { data: existingUser } = await supabase
     .from('users')
-    .upsert(upsertPayload, {
-      onConflict: 'id',
-      ignoreDuplicates: false,
-    })
+    .select('id')
+    .eq('id', user.id)
+    .single()
+
+  if (existingUser) {
+    // Existing user — update name/avatar/refresh token but NOT role
+    const updatePayload: Record<string, unknown> = { name, avatar_url }
+    if (provider_refresh_token) {
+      updatePayload.google_refresh_token = provider_refresh_token
+    }
+    await supabase.from('users').update(updatePayload).eq('id', user.id)
+  } else {
+    // New user — insert with default role 'crew'
+    const insertPayload: Record<string, unknown> = {
+      id: user.id,
+      email,
+      name,
+      avatar_url,
+      role: 'crew',
+    }
+    if (provider_refresh_token) {
+      insertPayload.google_refresh_token = provider_refresh_token
+    }
+    await supabase.from('users').insert(insertPayload)
+  }
 
   return NextResponse.redirect(`${origin}/`)
 }
