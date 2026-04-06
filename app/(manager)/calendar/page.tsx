@@ -1,27 +1,12 @@
-export default function Page() {
+import { getJobs } from '@/lib/actions/jobs'
+import { CalendarView } from '@/components/manager/calendar-view'
+
+export default async function CalendarPage() {
+  const jobs = await getJobs()
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100%',
-        padding: '48px 24px',
-        backgroundColor: 'var(--bg-deep)',
-      }}
-    >
-      <span
-        style={{
-          fontFamily: 'var(--font-jetbrains-mono, monospace)',
-          fontSize: '13px',
-          fontWeight: 500,
-          color: 'var(--accent)',
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-        }}
-      >
-        Calendar View
-      </span>
-    </div>
+    <CalendarView
+      jobs={jobs as Parameters<typeof CalendarView>[0]['jobs']}
+    />
   )
 }

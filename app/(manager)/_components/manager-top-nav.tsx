@@ -7,6 +7,7 @@ const NAV_LINKS = [
   { href: '/pipeline', label: 'Pipeline' },
   { href: '/list', label: 'List' },
   { href: '/calendar', label: 'Calendar' },
+  { href: '/time-tracking', label: 'Time' },
   { href: '/dashboard', label: 'Dashboard' },
 ]
 

@@ -2,11 +2,14 @@ import type { Job, Company, User } from '@/lib/types/database'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
 import { JobActions } from '@/components/job-actions'
+import { getJobLaborCost } from '@/lib/actions/time-tracking'
+import { JobCostCard } from '@/components/manager/job-cost-card'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
 interface JobDetailProps {
   job: JobWithRelations
+  role?: string | null
 }
 
 function formatCurrency(amount: number | null): string {
@@ -40,9 +43,23 @@ function MonoValue({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function JobDetail({ job }: JobDetailProps) {
+export async function JobDetail({ job, role }: JobDetailProps) {
   const company = job.company
   const rep = job.rep
+
+  const isManager = role === 'manager'
+
+  let laborCost = 0
+  let laborHours = 0
+  if (isManager) {
+    try {
+      const labor = await getJobLaborCost(job.id)
+      laborCost = labor.totalCost
+      laborHours = labor.totalHours
+    } catch {
+      // silently fall back to zeros
+    }
+  }
 
   const fullAddress = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(fullAddress)}`
@@ -299,6 +316,16 @@ export function JobDetail({ job }: JobDetailProps) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Profitability Card (manager only) */}
+      {isManager && (
+        <JobCostCard
+          contractAmount={job.total_amount}
+          materialCost={null}
+          laborCost={laborCost}
+          laborHours={laborHours}
+        />
       )}
 
       {/* Site Notes */}

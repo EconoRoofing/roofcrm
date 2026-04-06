@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { getJob } from '@/lib/actions/jobs'
+import { getUser, getUserRole } from '@/lib/auth'
 import { JobDetail } from '@/components/job-detail'
 
 interface PageProps {
@@ -8,11 +9,14 @@ interface PageProps {
 
 export default async function JobPage({ params }: PageProps) {
   const { id } = await params
-  const job = await getJob(id)
+
+  const [job, user] = await Promise.all([getJob(id), getUser()])
 
   if (!job) {
     notFound()
   }
+
+  const role = user ? await getUserRole(user.id) : null
 
   return (
     <main
@@ -23,7 +27,7 @@ export default async function JobPage({ params }: PageProps) {
         paddingBottom: '32px',
       }}
     >
-      <JobDetail job={job} />
+      <JobDetail job={job} role={role} />
     </main>
   )
 }

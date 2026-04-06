@@ -201,7 +201,8 @@ export async function getJobs(filters?: JobFilters) {
     .from('jobs')
     .select(`
       *,
-      company:companies(id, name, color)
+      company:companies(id, name, color),
+      rep:users!jobs_rep_id_fkey(id, name)
     `)
     .order('created_at', { ascending: false })
 
