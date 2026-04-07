@@ -15,6 +15,7 @@ import {
   SpecsIcon,
   MiniMapsIcon,
   CheckIcon,
+  ExternalLinkIcon,
 } from '@/components/icons'
 import { formatJobType, buildMapsUrl } from '@/lib/utils'
 import type { Job, JobStatus } from '@/lib/types/database'
@@ -571,6 +572,37 @@ function ActiveCard({
           </span>
         )}
       </div>
+
+      {/* View Agreement — shown when a signed PDF exists */}
+      {job.estimate_pdf_url && (
+        <div style={{ padding: '0 12px 12px' }}>
+          <a
+            href={job.estimate_pdf_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              backgroundColor: 'var(--bg-elevated)',
+              border: '1px solid rgba(68,138,255,0.25)',
+              color: 'var(--accent-blue)',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            <ExternalLinkIcon size={12} />
+            View Agreement
+          </a>
+        </div>
+      )}
 
       {/* Clock-in / timer / clock-out section */}
       {!isCompleted && userId && (

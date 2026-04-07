@@ -178,7 +178,7 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
 
   const { data: currentJob, error: fetchError } = await supabase
     .from('jobs')
-    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id, rep_id, total_amount')
+    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id, rep_id, total_amount, warranty_manufacturer_years')
     .eq('id', id)
     .single()
 
@@ -211,6 +211,13 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   const updatePayload: Record<string, unknown> = { status: newStatus }
   if (newStatus === 'completed') {
     updatePayload.completed_date = new Date().toISOString()
+
+    // Auto-calculate warranty expiration
+    if (currentJob.warranty_manufacturer_years) {
+      const expiryDate = new Date()
+      expiryDate.setFullYear(expiryDate.getFullYear() + currentJob.warranty_manufacturer_years)
+      updatePayload.warranty_expiration = expiryDate.toISOString().split('T')[0]
+    }
   }
 
   const { data: job, error } = await supabase

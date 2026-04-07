@@ -2,10 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createJob } from '@/lib/actions/jobs'
+import { createJob, updateJob } from '@/lib/actions/jobs'
 import { FormInput, FormTextarea, FormSelect, labelStyle, fieldStyle } from '@/components/ui/form-field'
 import { APP_CONFIG } from '@/lib/config'
-import type { Company, User, JobType, UserRole } from '@/lib/types/database'
+import type { Company, User, JobType, UserRole, Job } from '@/lib/types/database'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'reroof', label: 'Reroof' },
@@ -23,26 +23,30 @@ interface JobFormProps {
   currentUserRole: UserRole
   currentUserId: string
   salesUsers?: User[]
+  existingJob?: Job
 }
 
-export function JobForm({ companies, currentUserRole, currentUserId, salesUsers = [] }: JobFormProps) {
+export function JobForm({ companies, currentUserRole, currentUserId, salesUsers = [], existingJob }: JobFormProps) {
   const router = useRouter()
+  const isEditing = Boolean(existingJob)
 
-  const [companyId, setCompanyId] = useState<string>('')
-  const [customerName, setCustomerName] = useState('')
-  const [address, setAddress] = useState('')
-  const [city, setCity] = useState<string>(APP_CONFIG.DEFAULT_CITY)
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [jobType, setJobType] = useState<JobType | ''>('')
-  const [repId, setRepId] = useState<string>(currentUserRole === 'manager' ? '' : currentUserId)
-  const [scheduledDate, setScheduledDate] = useState('')
-  const [notes, setNotes] = useState('')
+  const [companyId, setCompanyId] = useState<string>(existingJob?.company_id ?? '')
+  const [customerName, setCustomerName] = useState(existingJob?.customer_name ?? '')
+  const [address, setAddress] = useState(existingJob?.address ?? '')
+  const [city, setCity] = useState<string>(existingJob?.city ?? APP_CONFIG.DEFAULT_CITY)
+  const [phone, setPhone] = useState(existingJob?.phone ?? '')
+  const [email, setEmail] = useState(existingJob?.email ?? '')
+  const [jobType, setJobType] = useState<JobType | ''>(existingJob?.job_type ?? '')
+  const [repId, setRepId] = useState<string>(
+    existingJob?.rep_id ?? (currentUserRole === 'manager' ? '' : currentUserId)
+  )
+  const [scheduledDate, setScheduledDate] = useState(existingJob?.scheduled_date ?? '')
+  const [notes, setNotes] = useState(existingJob?.notes ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isInsuranceClaim, setIsInsuranceClaim] = useState(false)
-  const [insuranceCompany, setInsuranceCompany] = useState('')
-  const [claimNumber, setClaimNumber] = useState('')
+  const [isInsuranceClaim, setIsInsuranceClaim] = useState(existingJob?.insurance_claim ?? false)
+  const [insuranceCompany, setInsuranceCompany] = useState(existingJob?.insurance_company ?? '')
+  const [claimNumber, setClaimNumber] = useState(existingJob?.claim_number ?? '')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -53,26 +57,46 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
 
     setLoading(true)
     try {
-      const newJob = await createJob({
-        company_id: companyId,
-        customer_name: customerName,
-        address,
-        city,
-        phone: phone || null,
-        email: email || null,
-        job_type: jobType as JobType,
-        rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
-        notes: notes || null,
-        scheduled_date: scheduledDate || null,
-        ...(isInsuranceClaim && {
-          insurance_claim: true,
-          insurance_company: insuranceCompany || null,
-          claim_number: claimNumber || null,
-        }),
-      })
-      router.push(`/jobs/${newJob.id}`)
+      if (isEditing && existingJob) {
+        await updateJob(existingJob.id, {
+          customer_name: customerName,
+          address,
+          city,
+          phone: phone || null,
+          email: email || null,
+          job_type: jobType as JobType,
+          rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
+          notes: notes || null,
+          scheduled_date: scheduledDate || null,
+          ...(isInsuranceClaim && {
+            insurance_company: insuranceCompany || null,
+            claim_number: claimNumber || null,
+          }),
+        })
+        router.push(`/jobs/${existingJob.id}`)
+        router.refresh()
+      } else {
+        const newJob = await createJob({
+          company_id: companyId,
+          customer_name: customerName,
+          address,
+          city,
+          phone: phone || null,
+          email: email || null,
+          job_type: jobType as JobType,
+          rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
+          notes: notes || null,
+          scheduled_date: scheduledDate || null,
+          ...(isInsuranceClaim && {
+            insurance_claim: true,
+            insurance_company: insuranceCompany || null,
+            claim_number: claimNumber || null,
+          }),
+        })
+        router.push(`/jobs/${newJob.id}`)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create job. Please try again.')
+      setError(err instanceof Error ? err.message : 'Failed to save job. Please try again.')
       setLoading(false)
     }
   }
@@ -350,7 +374,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
           letterSpacing: '0.3px',
         }}
       >
-        {loading ? 'Saving...' : 'Add Lead'}
+        {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Lead'}
       </button>
     </form>
   )

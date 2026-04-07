@@ -106,5 +106,21 @@ export async function signEstimate(
     )
   }
 
+  // 8. Auto-advance status to 'sold' if currently 'pending' (estimate was given, now signed)
+  const { data: freshJob } = await supabase
+    .from('jobs')
+    .select('status')
+    .eq('id', jobId)
+    .single()
+
+  if (freshJob?.status === 'pending') {
+    try {
+      const { updateJobStatus } = await import('./jobs')
+      await updateJobStatus(jobId, 'sold')
+    } catch {
+      // Status advance is best-effort — don't fail the signature flow
+    }
+  }
+
   return { pdfUrl }
 }

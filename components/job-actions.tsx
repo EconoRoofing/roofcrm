@@ -1,13 +1,15 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import type { Job, Company, User, JobStatus } from '@/lib/types/database'
-import { CallIcon, TextIcon, NavigateIcon } from '@/components/icons'
+import { CallIcon, TextIcon, NavigateIcon, DocumentIcon } from '@/components/icons'
 
 interface JobActionsProps {
   job: Job & { company?: Company; rep?: User }
+  role?: string | null
 }
 
 const NEXT_STATUS: Partial<Record<JobStatus, { status: JobStatus; label: string }>> = {
@@ -45,7 +47,7 @@ function quickLinkLeave(e: React.MouseEvent<HTMLAnchorElement>) {
   e.currentTarget.style.filter = ''
 }
 
-export function JobActions({ job }: JobActionsProps) {
+export function JobActions({ job, role }: JobActionsProps) {
   const router = useRouter()
   const [advancing, setAdvancing] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -57,6 +59,7 @@ export function JobActions({ job }: JobActionsProps) {
 
   const next = NEXT_STATUS[job.status]
   const canCancel = job.status !== 'completed' && job.status !== 'cancelled'
+  const canManageEstimate = role === 'manager' || role === 'sales' || role === 'sales_crew'
 
   async function handleAdvance() {
     if (!next) return
@@ -125,6 +128,37 @@ export function JobActions({ job }: JobActionsProps) {
           Map
         </a>
       </div>
+
+      {/* Estimate quick action — sales/manager only */}
+      {canManageEstimate && (
+        <Link
+          href={`/jobs/${job.id}/estimate`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            width: '100%',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            backgroundColor: 'var(--bg-elevated)',
+            border: '1px solid var(--accent-blue)',
+            color: 'var(--accent-blue)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: '14px',
+            fontWeight: '700',
+            textDecoration: 'none',
+            letterSpacing: '-0.01em',
+            transition: 'filter 0.15s ease',
+            boxSizing: 'border-box',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.filter = 'brightness(1.2)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.filter = '' }}
+        >
+          <DocumentIcon size={16} />
+          {job.estimate_pdf_url ? 'Edit Estimate' : 'Create Estimate'}
+        </Link>
+      )}
 
       {/* Status advancement button */}
       {next && (

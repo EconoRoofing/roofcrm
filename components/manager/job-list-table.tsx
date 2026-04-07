@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
 import { hexToRgba, formatAmount } from '@/lib/utils'
-import { SortAscIcon, SortDescIcon, SortNeutralIcon } from '@/components/icons'
+import { SortAscIcon, SortDescIcon, SortNeutralIcon, DownloadIcon } from '@/components/icons'
+import { exportJobsCSV } from '@/lib/actions/export'
 import type { Job, Company, JobStatus } from '@/lib/types/database'
 
 type JobWithRelations = Job & {
@@ -48,6 +49,7 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('job_number')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [exporting, setExporting] = useState(false)
 
   // Count per status tab
   const countByStatus = useMemo(() => {
@@ -114,6 +116,30 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
     } else {
       setSortKey(key)
       setSortDir('asc')
+    }
+  }
+
+  async function handleExportCSV() {
+    setExporting(true)
+    try {
+      const csv = await exportJobsCSV({
+        companyId: selectedCompany ?? undefined,
+        status: activeTab !== 'all' ? activeTab : undefined,
+      })
+      if (!csv) return
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `jobs-${activeTab}-${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      // silently fail
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -227,6 +253,39 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
             </button>
           )
         })}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Export CSV button */}
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          disabled={exporting}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 14px',
+            marginRight: '0',
+            borderRadius: '8px',
+            border: '1px solid var(--border-subtle)',
+            backgroundColor: 'var(--bg-elevated)',
+            color: exporting ? 'var(--text-muted)' : 'var(--text-secondary)',
+            fontSize: '11px',
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+            cursor: exporting ? 'not-allowed' : 'pointer',
+            flexShrink: 0,
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+          onMouseEnter={(e) => { if (!exporting) { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.borderColor = 'var(--accent-blue)' } }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-subtle)' }}
+        >
+          <DownloadIcon size={12} />
+          {exporting ? 'Exporting...' : 'Export CSV'}
+        </button>
       </div>
 
       {/* Company filter chips */}

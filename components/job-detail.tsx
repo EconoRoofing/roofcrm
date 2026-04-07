@@ -9,7 +9,9 @@ import { JobCostCard } from '@/components/manager/job-cost-card'
 import { JobCalendarWarning } from '@/components/job-calendar-warning'
 import { CompanyCamLinker } from '@/components/companycam-linker'
 import { JobMessages } from '@/components/job-messages'
-import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon } from '@/components/icons'
+import { JobAssignment } from '@/components/job-assignment'
+import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
+import { createClient } from '@/lib/supabase/server'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -50,6 +52,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const rep = job.rep
 
   const isManager = role === 'manager'
+  const canManageEstimate = role === 'manager' || role === 'sales' || role === 'sales_crew'
 
   let laborCost = 0
   let laborHours = 0
@@ -60,6 +63,23 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       laborHours = labor.totalHours
     } catch {
       // silently fall back to zeros
+    }
+  }
+
+  // Fetch crew members for assignment — manager only
+  let crewMembers: Array<{ id: string; name: string }> = []
+  if (isManager) {
+    try {
+      const supabase = await createClient()
+      const { data } = await supabase
+        .from('users')
+        .select('id, name')
+        .in('role', ['crew', 'sales_crew'])
+        .eq('is_active', true)
+        .order('name')
+      crewMembers = data ?? []
+    } catch {
+      // best-effort
     }
   }
 
@@ -93,7 +113,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           gap: '12px',
         }}
       >
-        {/* Company + job number + status */}
+        {/* Company + job number + status + edit link */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {company && (
             <CompanyTag name={company.name} color={company.color} />
@@ -113,6 +133,29 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             {job.job_number}
           </code>
           <StatusBadge status={job.status} />
+          {canManageEstimate && (
+            <Link
+              href={`/jobs/${job.id}/edit`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: 'auto',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle)',
+                backgroundColor: 'var(--bg-elevated)',
+                color: 'var(--text-muted)',
+                fontSize: '11px',
+                fontFamily: 'var(--font-sans)',
+                fontWeight: '600',
+                textDecoration: 'none',
+              }}
+            >
+              <PencilIcon size={11} />
+              Edit
+            </Link>
+          )}
         </div>
 
         {/* Customer name */}
@@ -518,6 +561,109 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         />
       </div>
 
+      {/* Crew Assignment — manager only */}
+      {isManager && (
+        <JobAssignment
+          jobId={job.id}
+          currentCrewId={job.assigned_crew_id ?? null}
+          currentDate={job.scheduled_date ?? null}
+          crewMembers={crewMembers}
+        />
+      )}
+
+      {/* Estimate — sales/manager only */}
+      {canManageEstimate && (
+        <div
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '20px',
+            border: '1px solid var(--border-subtle)',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Estimate
+          </h2>
+
+          {job.estimate_pdf_url ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <a
+                href={job.estimate_pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(0,230,118,0.06)',
+                  border: '1px solid rgba(0,230,118,0.2)',
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  textDecoration: 'none',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                <ExternalLinkIcon size={14} />
+                View Signed Agreement
+              </a>
+              <Link
+                href={`/jobs/${job.id}/estimate`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  border: '1px solid var(--accent-blue)',
+                  color: 'var(--accent-blue)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  textDecoration: 'none',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                <DocumentIcon size={14} />
+                Edit Estimate
+              </Link>
+            </div>
+          ) : (
+            <Link
+              href={`/jobs/${job.id}/estimate`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '14px 16px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--bg-elevated)',
+                border: '1px solid var(--accent-blue)',
+                color: 'var(--accent-blue)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '15px',
+                fontWeight: '800',
+                textDecoration: 'none',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              <DocumentIcon size={16} />
+              Create Estimate
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div
         style={{
@@ -527,7 +673,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           padding: '20px',
         }}
       >
-        <JobActions job={job} />
+        <JobActions job={job} role={role} />
       </div>
     </div>
   )

@@ -1,0 +1,30 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+
+export interface SearchResult {
+  id: string
+  job_number: string
+  customer_name: string
+  address: string
+  city: string
+  status: string
+  company: { name: string; color: string } | null
+}
+
+export async function searchJobs(query: string): Promise<SearchResult[]> {
+  if (!query || query.trim().length < 2) return []
+
+  const supabase = await createClient()
+
+  const { data } = await supabase
+    .from('jobs')
+    .select('id, job_number, customer_name, address, city, status, company:companies(name, color)')
+    .or(
+      `customer_name.ilike.%${query}%,address.ilike.%${query}%,job_number.ilike.%${query}%,city.ilike.%${query}%`
+    )
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  return (data ?? []) as unknown as SearchResult[]
+}
