@@ -20,7 +20,7 @@ export default function SalesBottomNav() {
       style={{
         backgroundColor: 'var(--bg-nav)',
         borderTop: '1px solid var(--border-subtle)',
-        padding: '8px 16px 24px',
+        padding: '8px 16px max(24px, env(safe-area-inset-bottom))',
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'flex-start',

@@ -5,6 +5,7 @@ import { getTimeEntries } from '@/lib/actions/time-tracking'
 import { GpsIcon, FlagIcon } from '@/components/icons'
 import { formatElapsed } from '@/lib/utils'
 import type { TimeEntry } from '@/lib/types/time-tracking'
+import CrewMap from './crew-map'
 
 type ActiveEntry = TimeEntry & {
   job?: { job_number: string; customer_name: string; address: string; city: string }
@@ -207,6 +208,7 @@ interface LiveCrewStatusProps {
 
 export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) {
   const [entries, setEntries] = useState<ActiveEntry[]>(initialEntries)
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
 
   const refresh = useCallback(async () => {
     try {
@@ -238,19 +240,56 @@ export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) 
     >
       {/* Section header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '12px',
-            fontWeight: 700,
-            color: 'var(--text-muted)',
-            margin: 0,
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-          }}
-        >
-          Live Crew Status
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2
+            style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: '12px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              margin: 0,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+            }}
+          >
+            Live Crew Status
+          </h2>
+          {/* Map / List toggle */}
+          <div
+            style={{
+              display: 'flex',
+              gap: '2px',
+              backgroundColor: 'var(--bg-elevated)',
+              borderRadius: '8px',
+              padding: '2px',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            {(['list', 'map'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  textTransform: 'capitalize',
+                  cursor: 'pointer',
+                  backgroundColor: viewMode === mode ? 'var(--accent-dim)' : 'transparent',
+                  color: viewMode === mode ? 'var(--accent)' : 'var(--text-muted)',
+                  transition: 'background-color 0.15s, color 0.15s',
+                }}
+              >
+                {mode === 'list' ? 'List' : 'Map'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div
             style={{
@@ -289,6 +328,8 @@ export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) 
             No crew clocked in right now
           </span>
         </div>
+      ) : viewMode === 'map' ? (
+        <CrewMap entries={entries} />
       ) : (
         <div
           style={{

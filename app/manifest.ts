@@ -7,6 +7,9 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'Roofing business management for DeHart, Econo, and Nushake',
     start_url: '/',
     display: 'standalone',
+    orientation: 'portrait',
+    categories: ['business', 'productivity'],
+    prefer_related_applications: false,
     background_color: '#08090d',
     theme_color: '#00e676',
     icons: [

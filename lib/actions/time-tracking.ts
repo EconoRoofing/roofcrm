@@ -54,7 +54,8 @@ export async function clockIn(
   jobId: string,
   lat: number | null,
   lng: number | null,
-  photoUrl?: string
+  photoUrl?: string,
+  costCode?: string
 ): Promise<{ entry: TimeEntry; geofence: GeofenceResult | null }> {
   const supabase = await createClient()
   const user = await getUser()
@@ -123,6 +124,7 @@ export async function clockIn(
       hourly_rate: userData.hourly_rate ?? 0,
       day_rate: userData.day_rate ?? 0,
       weather_conditions: weatherConditions,
+      cost_code: costCode ?? 'labor',
       flagged,
       flag_reason: flagReason,
     })
@@ -226,6 +228,41 @@ export async function clockOut(
     }
   }
 
+  // Anomaly flags (initialize early so 7th-day check can augment them)
+  let flagged = entry.flagged as boolean
+  let flagReason = entry.flag_reason as string | null
+
+  // 7th consecutive day check (CA law)
+  // A "workweek" is Mon-Sun. If the employee has worked all 6 prior days (Mon-Sat)
+  // and this is Sunday (day 7), all hours are at minimum 1.5×
+  // dayOfWeek already declared above from clockOutDate.getDay()
+  if (dayOfWeek === 0 && payType !== 'day_rate') {
+    // Check if they worked all 6 prior days (Mon-Sat)
+    const daysWorked = new Set<number>()
+    const { data: weekDayEntries } = await supabase
+      .from('time_entries')
+      .select('clock_in')
+      .eq('user_id', user.id)
+      .gte('clock_in', weekStart.toISOString())
+      .lt('clock_in', clockOut.toISOString())
+
+    for (const e of weekDayEntries ?? []) {
+      daysWorked.add(new Date(e.clock_in).getDay())
+    }
+
+    // If they worked Mon(1) through Sat(6) = 6 unique days
+    if (daysWorked.size >= 6) {
+      // 7th day: first 8hrs at 1.5×, after 8hrs at 2×
+      // Override the regular/OT split (takes priority over weekly OT calc)
+      regularHours = 0
+      overtimeHours = Math.min(workingHours, 8)    // first 8 at 1.5×
+      doubletimeHours = Math.max(0, workingHours - 8)  // after 8 at 2×
+
+      flagged = true
+      flagReason = (flagReason ? flagReason + '; ' : '') + '7th consecutive workday — CA premium pay applied'
+    }
+  }
+
   let totalCost: number
   if (payType === 'day_rate') {
     totalCost = dayRate
@@ -235,10 +272,6 @@ export async function clockOut(
       overtimeHours * hourlyRate * 1.5 +
       doubletimeHours * hourlyRate * 2.0
   }
-
-  // Anomaly flags
-  let flagged = entry.flagged as boolean
-  let flagReason = entry.flag_reason as string | null
 
   if (workingHours > 12) {
     flagged = true
@@ -467,7 +500,7 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
   if (error) throw new Error(`Failed to fetch entries for export: ${error.message}`)
 
   const rows: string[] = [
-    'Employee,Date,Job #,Clock In,Clock Out,Regular Hrs,OT Hrs,DT Hrs,Total Pay,Breaks',
+    'Employee,Date,Job #,Cost Code,Clock In,Clock Out,Regular Hrs,OT Hrs,DT Hrs,Total Pay,Breaks',
   ]
 
   for (const entry of data ?? []) {
@@ -476,6 +509,7 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
     const employee = e.user?.name ?? ''
     const date = e.clock_in ? new Date(e.clock_in).toLocaleDateString() : ''
     const jobNumber = e.job?.job_number ?? ''
+    const costCode = e.cost_code ?? 'labor'
     const clockIn = e.clock_in ? new Date(e.clock_in).toLocaleTimeString() : ''
     const clockOut = e.clock_out ? new Date(e.clock_out).toLocaleTimeString() : ''
     const regularHrs = Number(e.regular_hours ?? 0).toFixed(2)
@@ -499,6 +533,7 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
         col(employee),
         col(date),
         col(jobNumber),
+        col(costCode),
         col(clockIn),
         col(clockOut),
         regularHrs,

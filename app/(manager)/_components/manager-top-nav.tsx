@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: '/list', label: 'List' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/time-tracking', label: 'Time' },
+  { href: '/equipment', label: 'Equipment' },
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/team', label: 'Team' },
 ]

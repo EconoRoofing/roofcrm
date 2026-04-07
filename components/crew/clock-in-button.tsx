@@ -33,12 +33,13 @@ interface ClockInButtonProps {
 export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonProps) {
   const router = useRouter()
 
-  const [step, setStep] = useState<'idle' | 'gps' | 'photo' | 'done'>('idle')
+  const [step, setStep] = useState<'idle' | 'gps' | 'cost-code' | 'photo' | 'done'>('idle')
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('idle')
   const [gpsLat, setGpsLat] = useState<number | null>(null)
   const [gpsLng, setGpsLng] = useState<number | null>(null)
   const [distanceFt, setDistanceFt] = useState<number | null>(null)
   const [notes, setNotes] = useState('')
+  const [costCode, setCostCode] = useState<string>('labor')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -79,7 +80,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
   }, [jobLat, jobLng])
 
   const proceedToPhoto = useCallback(() => {
-    setStep('photo')
+    setStep('cost-code')
   }, [])
 
   const handlePhotoCapture = useCallback(
@@ -98,7 +99,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
   function doClockIn(photoUrl?: string) {
     startTransition(async () => {
       try {
-        await clockIn(jobId, gpsLat, gpsLng, photoUrl)
+        await clockIn(jobId, gpsLat, gpsLng, photoUrl, costCode)
         setStep('done')
         router.refresh()
       } catch (err) {
@@ -116,6 +117,16 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
     (requiresNotes && notes.trim().length >= 5)
 
   // ─── Render ───────────────────────────────────────────────────────────────
+
+  if (step === 'cost-code') {
+    return (
+      <CostCodeSelector
+        selected={costCode}
+        onSelect={setCostCode}
+        onContinue={() => setStep('photo')}
+      />
+    )
+  }
 
   if (step === 'photo') {
     return <PhotoCapture userId={userId} onCapture={handlePhotoCapture} onSkip={handlePhotoSkip} />
@@ -242,6 +253,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
             setStep('idle')
             setGpsStatus('idle')
             setNotes('')
+            setCostCode('labor')
             setError(null)
           }}
           style={{
@@ -377,6 +389,98 @@ function GpsPanel({
           />
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Cost Code Selector ───────────────────────────────────────────────────────
+
+const COST_CODES = [
+  { value: 'labor', label: 'Labor' },
+  { value: 'supervision', label: 'Supervision' },
+  { value: 'travel', label: 'Travel' },
+  { value: 'cleanup', label: 'Cleanup' },
+  { value: 'warranty', label: 'Warranty' },
+  { value: 'inspection', label: 'Inspection' },
+]
+
+function CostCodeSelector({
+  selected,
+  onSelect,
+  onContinue,
+}: {
+  selected: string
+  onSelect: (code: string) => void
+  onContinue: () => void
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: '12px',
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+        }}
+      >
+        Cost Code
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '8px',
+        }}
+      >
+        {COST_CODES.map(({ value, label }) => {
+          const isSelected = selected === value
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onSelect(value)}
+              style={{
+                padding: '10px 8px',
+                borderRadius: '8px',
+                border: isSelected
+                  ? '1px solid var(--accent)'
+                  : '1px solid var(--border-subtle)',
+                backgroundColor: isSelected ? 'var(--accent-dim)' : 'var(--bg-elevated)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: isSelected ? 'var(--accent)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                textAlign: 'center',
+                transition: 'background-color 0.15s, color 0.15s, border-color 0.15s',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <button
+        type="button"
+        onClick={onContinue}
+        style={{
+          width: '100%',
+          padding: '16px',
+          background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
+          border: 'none',
+          borderRadius: '8px',
+          fontFamily: 'var(--font-sans)',
+          fontSize: '15px',
+          fontWeight: 800,
+          color: 'var(--nav-text)',
+          cursor: 'pointer',
+          letterSpacing: '0.01em',
+        }}
+      >
+        Continue
+      </button>
     </div>
   )
 }
