@@ -55,7 +55,8 @@ export async function clockIn(
   lat: number | null,
   lng: number | null,
   photoUrl?: string,
-  costCode?: string
+  costCode?: string,
+  ppeVerified?: Record<string, boolean>
 ): Promise<{ entry: TimeEntry; geofence: GeofenceResult | null }> {
   const supabase = await createClient()
   const user = await getUser()
@@ -127,6 +128,7 @@ export async function clockIn(
       cost_code: costCode ?? 'labor',
       flagged,
       flag_reason: flagReason,
+      ppe_verified: ppeVerified ?? {},
     })
     .select()
     .single()

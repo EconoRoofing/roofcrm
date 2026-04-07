@@ -4,7 +4,7 @@ import { RoleToggle } from '@/components/crew/role-toggle'
 import { clearActiveProfile } from '@/lib/actions/profiles'
 import { SectionLabel } from '@/components/ui/section-label'
 import { ListItem } from '@/components/ui/list-item'
-import { PhoneIcon, AlertIcon, ClockIcon, PhotosIcon, MapIcon, BellIcon } from '@/components/icons'
+import { PhoneIcon, AlertIcon, ClockIcon, PhotosIcon, MapIcon, BellIcon, ShieldIcon, IncidentIcon } from '@/components/icons'
 import { APP_CONFIG } from '@/lib/config'
 
 const { OFFICE_PHONE, EMERGENCY_PHONE } = APP_CONFIG
@@ -42,6 +42,29 @@ export default async function MorePage() {
 
         {/* Role toggle — only for sales_crew */}
         {role === 'sales_crew' && <RoleToggle currentRole={role} />}
+      </div>
+
+      {/* Safety */}
+      <div>
+        <SectionLabel label="Safety" />
+        <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <ListItem
+            icon={<ShieldIcon />}
+            iconBg="var(--accent-dim)"
+            iconColor="var(--accent)"
+            label="Safety Talks"
+            sublabel="Toolbox talks & sign-off"
+            href="/safety/talks"
+          />
+          <ListItem
+            icon={<IncidentIcon />}
+            iconBg="var(--accent-red-dim)"
+            iconColor="var(--accent-red)"
+            label="Report Incident"
+            sublabel="Near miss, injury, damage"
+            href="/safety/incident"
+          />
+        </div>
       </div>
 
       {/* Quick Actions */}

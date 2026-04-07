@@ -4,6 +4,7 @@ import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { clockIn, clockOut } from '@/lib/actions/time-tracking'
 import { PhotoCapture } from './photo-capture'
+import { PpeChecklist } from '@/components/safety/ppe-checklist'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 import { GpsCheckIcon, GpsFlaggedIcon, GpsWarningIcon } from '@/components/icons'
 
@@ -33,7 +34,8 @@ interface ClockInButtonProps {
 export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonProps) {
   const router = useRouter()
 
-  const [step, setStep] = useState<'idle' | 'gps' | 'cost-code' | 'photo' | 'done'>('idle')
+  const [step, setStep] = useState<'idle' | 'gps' | 'cost-code' | 'ppe' | 'photo' | 'done'>('idle')
+  const [ppeVerified, setPpeVerified] = useState<Record<string, boolean>>({})
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('idle')
   const [gpsLat, setGpsLat] = useState<number | null>(null)
   const [gpsLng, setGpsLng] = useState<number | null>(null)
@@ -83,23 +85,28 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
     setStep('cost-code')
   }, [])
 
+  const handlePpeConfirmed = useCallback((verified: Record<string, boolean>) => {
+    setPpeVerified(verified)
+    setStep('photo')
+  }, [])
+
   const handlePhotoCapture = useCallback(
     (photoUrl: string) => {
       doClockIn(photoUrl)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gpsLat, gpsLng, notes]
+    [gpsLat, gpsLng, notes, ppeVerified]
   )
 
   const handlePhotoSkip = useCallback(() => {
     doClockIn(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gpsLat, gpsLng, notes])
+  }, [gpsLat, gpsLng, notes, ppeVerified])
 
   function doClockIn(photoUrl?: string) {
     startTransition(async () => {
       try {
-        await clockIn(jobId, gpsLat, gpsLng, photoUrl, costCode)
+        await clockIn(jobId, gpsLat, gpsLng, photoUrl, costCode, Object.keys(ppeVerified).length > 0 ? ppeVerified : undefined)
         setStep('done')
         router.refresh()
       } catch (err) {
@@ -123,7 +130,16 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
       <CostCodeSelector
         selected={costCode}
         onSelect={setCostCode}
-        onContinue={() => setStep('photo')}
+        onContinue={() => setStep('ppe')}
+      />
+    )
+  }
+
+  if (step === 'ppe') {
+    return (
+      <PpeChecklist
+        onConfirm={handlePpeConfirmed}
+        onBack={() => setStep('cost-code')}
       />
     )
   }

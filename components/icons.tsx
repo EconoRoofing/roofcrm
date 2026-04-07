@@ -641,3 +641,96 @@ export function AlertTriangleIcon({ size = 14, className }: IconProps) {
     </svg>
   )
 }
+
+// ─── Safety Module Icons ──────────────────────────────────────────────────────
+
+export function ShieldIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <path
+        d="M9 2L3 4.5V9C3 12.5 5.7 15.7 9 17C12.3 15.7 15 12.5 15 9V4.5L9 2Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M6.5 9L8 10.5L11.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function HardHatIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <path d="M3 12H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 12C2 12 2 8 9 6C16 8 16 12 16 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 6V4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 12V14H16V12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function ClipboardCheckIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <rect x="4" y="3" width="10" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7 2H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M6.5 9.5L8 11L11.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function CertBadgeIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <circle cx="9" cy="8" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M6 13.5L9 12L12 13.5V17L9 15.5L6 17V13.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M7 8L8.5 9.5L11 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function IncidentIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <path d="M9 1.5L16.5 14.5H1.5L9 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M9 7V10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="9" cy="12.5" r="0.8" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function SignatureIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <path d="M3 13C4.5 13 5 11 6 8C7 5 7.5 3 9 3C10.5 3 10.5 7 11 9C11.5 11 12 12 13.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M2 15H16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function TrashIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" className={className}>
+      <path d="M2 3.5H12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M5 3.5V2.5C5 2.2 5.2 2 5.5 2H8.5C8.8 2 9 2.2 9 2.5V3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3 3.5L3.7 11C3.7 11.6 4.2 12 4.8 12H9.2C9.8 12 10.3 11.6 10.3 11L11 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function PlusIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" className={className}>
+      <path d="M7 2V12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M2 7H12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function XIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" className={className}>
+      <path d="M2 2L12 12M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
