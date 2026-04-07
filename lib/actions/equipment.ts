@@ -114,22 +114,28 @@ export async function getOverdueEquipment(daysThreshold = 7): Promise<Equipment[
   const threshold = new Date()
   threshold.setDate(threshold.getDate() - daysThreshold)
 
-  // For each, check when it was last checked out
-  const overdue = []
-  for (const eq of inUseEquipment) {
-    const { data: lastLog } = await supabase
-      .from('equipment_logs')
-      .select('created_at')
-      .eq('equipment_id', eq.id)
-      .eq('action', 'checked_out')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+  // Batch query: get all checkout logs for in-use equipment in one query
+  const equipmentIds = inUseEquipment.map(eq => eq.id)
+  const { data: allLogs } = await supabase
+    .from('equipment_logs')
+    .select('equipment_id, created_at')
+    .in('equipment_id', equipmentIds)
+    .eq('action', 'checked_out')
+    .order('created_at', { ascending: false })
 
-    if (lastLog && new Date(lastLog.created_at) < threshold) {
-      overdue.push(eq)
+  // Group by equipment_id, take the most recent checkout per item
+  const lastCheckoutMap = new Map<string, Date>()
+  for (const log of allLogs ?? []) {
+    if (!lastCheckoutMap.has(log.equipment_id)) {
+      lastCheckoutMap.set(log.equipment_id, new Date(log.created_at))
     }
   }
+
+  // Filter to equipment checked out before the threshold
+  const overdue = inUseEquipment.filter(eq => {
+    const checkoutDate = lastCheckoutMap.get(eq.id)
+    return checkoutDate && checkoutDate < threshold
+  })
 
   return overdue as Equipment[]
 }
