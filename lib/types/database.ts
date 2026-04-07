@@ -47,6 +47,7 @@ export interface Company {
   phone: string | null
   license_number: string | null
   color: string
+  calendar_id?: string  // Google Calendar ID for this company's events (optional)
 }
 
 export interface User {

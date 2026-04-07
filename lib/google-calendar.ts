@@ -84,6 +84,7 @@ interface JobForCalendar {
   job_type: string
   scheduled_date?: string | null
   notes?: string | null
+  company_calendar_id?: string | null  // Google Calendar ID for this company's events
 }
 
 function buildEventBody(
@@ -134,6 +135,9 @@ function buildEventBody(
 
 /**
  * Create a Google Calendar event for a job.
+ * Uses the company-specific calendar if configured (via job.company_calendar_id),
+ * otherwise falls back to 'primary'. This allows events for DeHart, Econo, and
+ * Nushake to land on separate, color-coded calendars.
  * Returns the event ID, or null if Calendar is not connected for this user.
  */
 export async function createCalendarEvent(
@@ -146,7 +150,10 @@ export async function createCalendarEvent(
 
   const body = buildEventBody(job, eventType)
 
-  const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/primary/events`, {
+  // Use company-specific calendar if configured, otherwise fall back to primary
+  const calendarId = job.company_calendar_id ?? 'primary'
+
+  const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,

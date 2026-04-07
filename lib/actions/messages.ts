@@ -6,17 +6,22 @@ import { sendSMS } from '@/lib/twilio'
 // Auto-text templates by status
 const STATUS_TEMPLATES: Record<string, (vars: TemplateVars) => string> = {
   estimate_scheduled: (v) =>
-    `Hi ${v.customerName}, your roofing estimate with ${v.companyName} is confirmed for ${v.date}. Your estimator is ${v.repName}. Reply with any questions!`,
+    `Hi ${v.customerName}, your roofing estimate with ${v.companyName} is confirmed for ${v.date}. ${v.repName} will be your estimator. If you need to reschedule, reply to this text or call us at ${v.officePhone}.`,
+
   pending: (v) =>
-    `Hi ${v.customerName}, thanks for meeting with ${v.repName} from ${v.companyName}. Your estimate is ready — check your email for the proposal.`,
+    `Hi ${v.customerName}, thanks for meeting with ${v.repName} from ${v.companyName}. Your estimate is ready — check your email for the full proposal. Feel free to reply with any questions!`,
+
   sold: (v) =>
-    `Great news ${v.customerName}! Your roofing project with ${v.companyName} is confirmed. We'll contact you soon to schedule the installation.`,
+    `Great news ${v.customerName}! Your ${v.jobType} project with ${v.companyName} is confirmed. We'll be in touch soon to schedule your installation date.`,
+
   scheduled: (v) =>
-    `Hi ${v.customerName}, your ${v.jobType} with ${v.companyName} is scheduled for ${v.date}. Our crew will arrive in the morning. Please ensure driveway access.`,
+    `Hi ${v.customerName}, your ${v.jobType} with ${v.companyName} is scheduled for ${v.date}. Our crew will arrive between 7-8 AM. Please clear the driveway for our trucks and dumpster. Questions? Call ${v.officePhone}.`,
+
   in_progress: (v) =>
-    `Hi ${v.customerName}, our crew has arrived at ${v.address} and work is underway. We'll update you when the job is complete.`,
+    `Hi ${v.customerName}, our ${v.companyName} crew has arrived and started work on your ${v.jobType} at ${v.address}. We'll text you when the job is complete.`,
+
   completed: (v) =>
-    `Hi ${v.customerName}, your ${v.jobType} is complete! Thank you for choosing ${v.companyName}. Your warranty information has been emailed.`,
+    `Hi ${v.customerName}, your ${v.jobType} is complete! Thank you for choosing ${v.companyName}. Your ${v.warrantyYears}-year warranty is now active. We'll send your warranty details by email.`,
 }
 
 interface TemplateVars {
@@ -26,6 +31,8 @@ interface TemplateVars {
   jobType: string
   address: string
   date: string
+  officePhone: string      // company phone number
+  warrantyYears: string    // for completion message
 }
 
 export interface Message {
@@ -51,7 +58,8 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
     .from('jobs')
     .select(`
       id, phone, customer_name, address, city, job_type, scheduled_date,
-      company:companies(name),
+      warranty_manufacturer_years,
+      company:companies(name, phone),
       rep:users!jobs_rep_id_fkey(name)
     `)
     .eq('id', jobId)
@@ -81,6 +89,13 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
         day: 'numeric',
       })
     : 'a scheduled date'
+  const officePhone =
+    companyRaw && typeof companyRaw === 'object' && 'phone' in companyRaw
+      ? String((companyRaw as { phone: unknown }).phone ?? '')
+      : ''
+  const warrantyYears = (job as { warranty_manufacturer_years?: number | null }).warranty_manufacturer_years
+    ? String((job as { warranty_manufacturer_years: number }).warranty_manufacturer_years)
+    : '25'
 
   const vars: TemplateVars = {
     customerName: job.customer_name,
@@ -89,6 +104,8 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
     jobType,
     address,
     date,
+    officePhone,
+    warrantyYears,
   }
 
   const body = template(vars)

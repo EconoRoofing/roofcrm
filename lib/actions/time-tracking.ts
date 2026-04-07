@@ -187,12 +187,44 @@ export async function clockOut(
   const elapsedHours = (clockOutMs - clockInMs) / 1000 / 3600
   const workingHours = Math.max(0, elapsedHours - totalBreakMinutes / 60)
 
-  const { regularHours, overtimeHours, doubletimeHours } = calcOvertime(workingHours)
+  let { regularHours, overtimeHours, doubletimeHours } = calcOvertime(workingHours)
 
   // Cost calculation
   const payType = entry.pay_type as string
   const hourlyRate = Number(entry.hourly_rate ?? 0)
   const dayRate = Number(entry.day_rate ?? 0)
+
+  // Weekly OT check (CA law: hours over 40/week at 1.5×)
+  // Fetch all completed entries for this user in the current work week (Mon–Sun)
+  const clockOutDate = new Date()
+  const dayOfWeek = clockOutDate.getDay() // 0=Sun, 1=Mon…
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const weekStart = new Date(clockOutDate)
+  weekStart.setDate(clockOutDate.getDate() + mondayOffset)
+  weekStart.setHours(0, 0, 0, 0)
+
+  const { data: weekEntries } = await supabase
+    .from('time_entries')
+    .select('total_hours, regular_hours, overtime_hours, doubletime_hours')
+    .eq('user_id', user.id)
+    .gte('clock_in', weekStart.toISOString())
+    .not('id', 'eq', entry.id)  // exclude current entry
+
+  const priorWeeklyHours = (weekEntries ?? []).reduce(
+    (sum, e) => sum + (Number(e.total_hours) || 0), 0
+  )
+
+  const totalWeeklyHours = priorWeeklyHours + workingHours
+
+  // If total weekly hours > 40, any hours counted as "regular" above the 40hr threshold
+  // should be upgraded to OT (1.5×)
+  if (totalWeeklyHours > 40 && regularHours > 0 && payType !== 'day_rate') {
+    const weeklyOtHours = Math.min(regularHours, totalWeeklyHours - 40)
+    if (weeklyOtHours > 0) {
+      regularHours = Math.max(0, regularHours - weeklyOtHours)
+      overtimeHours = overtimeHours + weeklyOtHours
+    }
+  }
 
   let totalCost: number
   if (payType === 'day_rate') {

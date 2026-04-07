@@ -16,6 +16,7 @@ export interface MaterialCalcInput {
   eave_length_ft?: number
   gutter_length_ft?: number
   ridge_vent_ft?: number
+  hip_length_ft?: number  // if available from measurements
   waste_factor?: number  // default 0.10 (10%)
 }
 
@@ -123,6 +124,66 @@ export function calculateMaterials(input: MaterialCalcInput): MaterialItem[] {
       unit: 'sections (20ft)',
       formula: `${input.gutter_length_ft} lf / 20 ft/section`,
     })
+  }
+
+  // Pipe boots / roof jacks (estimate 1 per 500 sq ft of roof)
+  if (input.squares > 0) {
+    items.push({
+      name: 'Pipe Boots / Roof Jacks',
+      quantity: Math.max(2, Math.ceil(input.squares / 5)),  // at least 2, ~1 per 5 sq
+      unit: 'ea',
+      formula: `~1 per 5 squares (min 2)`,
+    })
+  }
+
+  // Step flashing (where roof meets walls, estimate 20% of eave length)
+  if (input.eave_length_ft && input.eave_length_ft > 0) {
+    const stepFlashingFt = Math.ceil(input.eave_length_ft * 0.2)
+    if (stepFlashingFt > 0) {
+      items.push({
+        name: 'Step Flashing',
+        quantity: Math.ceil(stepFlashingFt / 1),  // sold individually
+        unit: 'pieces',
+        formula: `~20% of eave length (${stepFlashingFt} ft)`,
+      })
+    }
+  }
+
+  // Caulk / Roofing Sealant (1 tube per 10 squares)
+  if (input.squares > 0) {
+    items.push({
+      name: 'Roofing Sealant / Caulk',
+      quantity: Math.max(2, Math.ceil(input.squares / 10)),
+      unit: 'tubes',
+      formula: `~1 tube per 10 squares (min 2)`,
+    })
+  }
+
+  // Plywood / OSB for decking repairs (estimate 5% of squares)
+  if (input.squares > 0) {
+    const deckingSheets = Math.ceil(input.squares * 0.05 * 3)  // 3 sheets per square for 5% repair
+    if (deckingSheets > 0) {
+      items.push({
+        name: 'Plywood/OSB Decking (4x8 sheets, 5% repair est.)',
+        quantity: deckingSheets,
+        unit: 'sheets',
+        formula: `${input.squares} sq × 5% repair × 3 sheets/sq`,
+      })
+    }
+  }
+
+  // Hip & ridge shingles (separate from ridge cap if valleys/hips exist)
+  if (input.ridge_length_ft && input.ridge_length_ft > 0) {
+    // Hip shingles: if the job has valleys, it likely has hips too
+    if (input.valley_length_ft && input.valley_length_ft > 0) {
+      const hipLength = Math.ceil(input.valley_length_ft * 1.2)  // rough estimate
+      items.push({
+        name: 'Hip Shingles',
+        quantity: Math.ceil(hipLength / 25),
+        unit: 'bundles',
+        formula: `~${hipLength} lf hips / 25 lf/bundle`,
+      })
+    }
   }
 
   return items
