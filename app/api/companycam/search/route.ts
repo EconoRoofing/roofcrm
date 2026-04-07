@@ -1,0 +1,13 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { searchProjectsByAddress } from '@/lib/companycam'
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const address = req.nextUrl.searchParams.get('address')
+
+  if (!address) {
+    return NextResponse.json({ error: 'address query param is required' }, { status: 400 })
+  }
+
+  const projects = await searchProjectsByAddress(address)
+  return NextResponse.json(projects)
+}

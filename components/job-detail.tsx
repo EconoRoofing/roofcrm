@@ -4,6 +4,8 @@ import { StatusBadge } from '@/components/status-badge'
 import { JobActions } from '@/components/job-actions'
 import { getJobLaborCost } from '@/lib/actions/time-tracking'
 import { JobCostCard } from '@/components/manager/job-cost-card'
+import { JobCalendarWarning } from '@/components/job-calendar-warning'
+import { CompanyCamLinker } from '@/components/companycam-linker'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -378,6 +380,41 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           </p>
         </div>
       )}
+
+      {/* Calendar deleted warning */}
+      <JobCalendarWarning jobId={job.id} />
+
+      {/* CompanyCam integration */}
+      <div
+        style={{
+          backgroundColor: 'var(--bg-card)',
+          borderRadius: '20px',
+          border: '1px solid var(--border-subtle)',
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        }}
+      >
+        <h2
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: '12px',
+            fontWeight: '700',
+            color: 'var(--text-muted)',
+            margin: 0,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+          }}
+        >
+          Photos
+        </h2>
+        <CompanyCamLinker
+          jobId={job.id}
+          address={[job.address, job.city, job.state].filter(Boolean).join(', ')}
+          currentProjectId={job.companycam_project_id}
+        />
+      </div>
 
       {/* Actions */}
       <div

@@ -98,6 +98,7 @@ export interface Job {
   site_notes: string | null
   permit_number: string | null
   calendar_event_id: string | null
+  calendar_deleted: boolean
   companycam_project_id: string | null
   estimate_pdf_url: string | null
   assigned_crew_id: string | null
