@@ -8,7 +8,7 @@ import {
   updateCalendarEvent,
   deleteCalendarEvent,
 } from '@/lib/google-calendar'
-import type { JobStatus, JobType, UserRole } from '@/lib/types/database'
+import type { JobStatus, JobType, UserRole, EstimateSpecs } from '@/lib/types/database'
 
 // Valid state machine transitions
 const VALID_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
@@ -64,6 +64,7 @@ interface UpdateJobData {
   total_amount?: number | null
   warranty_manufacturer_years?: number | null
   warranty_workmanship_years?: number | null
+  estimate_specs?: EstimateSpecs | null
   notes?: string | null
   site_notes?: string | null
   permit_number?: string | null
