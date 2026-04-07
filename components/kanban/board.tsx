@@ -1,6 +1,9 @@
 'use client'
 
+import { useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanColumn } from './column'
 import type { KanbanJob } from './card'
 import type { Company, JobStatus } from '@/lib/types/database'
@@ -35,14 +38,24 @@ function formatCurrency(amount: number): string {
   return '$' + amount.toLocaleString('en-US')
 }
 
-export function KanbanBoard({ jobs, companies: _companies }: KanbanBoardProps) {
+export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanBoardProps) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const selectedCompanyId = searchParams.get('company')
 
+  // Local state for optimistic updates
+  const [localJobs, setLocalJobs] = useState<KanbanJob[]>(serverJobs)
+  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
+
+  // Sync when server data changes
+  if (serverJobs !== localJobs && pendingMoves.size === 0) {
+    setLocalJobs(serverJobs)
+  }
+
   // Client-side filter by company
   const filteredJobs = selectedCompanyId
-    ? jobs.filter((job) => job.company_id === selectedCompanyId)
-    : jobs
+    ? localJobs.filter((job) => job.company_id === selectedCompanyId)
+    : localJobs
 
   // Group by status (exclude cancelled)
   const grouped = Object.fromEntries(
@@ -55,6 +68,32 @@ export function KanbanBoard({ jobs, companies: _companies }: KanbanBoardProps) {
       grouped[s].push(job)
     }
   }
+
+  // Optimistic move handler — updates UI instantly, syncs in background
+  const handleMoveJob = useCallback(async (jobId: string, newStatus: JobStatus) => {
+    // 1. Optimistic: move the card immediately in local state
+    setLocalJobs(prev => prev.map(job =>
+      job.id === jobId ? { ...job, status: newStatus } : job
+    ))
+    setPendingMoves(prev => new Set(prev).add(jobId))
+
+    try {
+      // 2. Server: persist the change
+      await updateJobStatus(jobId, newStatus)
+      // 3. Success: refresh server data in background
+      router.refresh()
+    } catch (err) {
+      // 4. Rollback: snap card back to original position
+      console.error('Failed to update job status:', err)
+      setLocalJobs(serverJobs)
+    } finally {
+      setPendingMoves(prev => {
+        const next = new Set(prev)
+        next.delete(jobId)
+        return next
+      })
+    }
+  }, [serverJobs, router])
 
   // Revenue totals
   const pendingRevenue = filteredJobs
@@ -85,6 +124,7 @@ export function KanbanBoard({ jobs, companies: _companies }: KanbanBoardProps) {
             status={status}
             jobs={grouped[status]}
             label={COLUMN_LABELS[status]}
+            onMoveJob={handleMoveJob}
           />
         ))}
       </div>

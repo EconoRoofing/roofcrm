@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { getUser, getUserRole } from '@/lib/auth'
+import { redirect } from 'next/navigation'
+import { getUser, getUserRole, signOut } from '@/lib/auth'
 import { RoleToggle } from '@/components/crew/role-toggle'
 
 // Office phone — configure here
@@ -320,6 +321,46 @@ export default async function MorePage() {
             label="Notifications"
             sublabel="Coming soon"
           />
+        </div>
+      </div>
+
+      {/* Account */}
+      <div>
+        <SectionLabel label="Account" />
+        <div style={{ padding: '0 16px' }}>
+          <div style={{
+            padding: '12px 16px',
+            backgroundColor: 'var(--bg-surface)',
+            borderRadius: '8px',
+            marginBottom: '8px',
+          }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {user?.email ?? ''}
+            </div>
+          </div>
+          <form action={async () => {
+            'use server'
+            await signOut()
+            redirect('/login')
+          }}>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '14px',
+                backgroundColor: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                color: 'var(--accent-red)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Sign Out
+            </button>
+          </form>
         </div>
       </div>
     </div>

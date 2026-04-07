@@ -1,8 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanCard } from './card'
 import type { KanbanJob } from './card'
 import type { JobStatus } from '@/lib/types/database'
@@ -11,16 +9,16 @@ interface KanbanColumnProps {
   status: JobStatus
   jobs: KanbanJob[]
   label: string
+  onMoveJob: (jobId: string, newStatus: JobStatus) => void
 }
 
-export function KanbanColumn({ status, jobs, label }: KanbanColumnProps) {
-  const router = useRouter()
+export function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnProps) {
   const [isDragOver, setIsDragOver] = useState(false)
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    setIsDragOver(true)
+    if (!isDragOver) setIsDragOver(true)
   }
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
@@ -29,19 +27,15 @@ export function KanbanColumn({ status, jobs, label }: KanbanColumnProps) {
     }
   }
 
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     setIsDragOver(false)
 
     const jobId = e.dataTransfer.getData('jobId')
     if (!jobId) return
 
-    try {
-      await updateJobStatus(jobId, status)
-      router.refresh()
-    } catch (err) {
-      console.error('Failed to update job status:', err)
-    }
+    // Optimistic — fires instantly, no await
+    onMoveJob(jobId, status)
   }
 
   return (
@@ -59,7 +53,7 @@ export function KanbanColumn({ status, jobs, label }: KanbanColumnProps) {
           : '1px solid var(--border-subtle)',
         borderRadius: '20px',
         backgroundColor: isDragOver ? 'var(--accent-dim)' : 'var(--bg-surface)',
-        transition: 'border-color 150ms ease, background-color 150ms ease',
+        transition: 'border-color 100ms ease, background-color 100ms ease',
         flexShrink: 0,
         overflow: 'hidden',
       }}

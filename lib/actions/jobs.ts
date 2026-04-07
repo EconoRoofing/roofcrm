@@ -146,13 +146,27 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   if (fetchError || !currentJob) throw new Error('Job not found')
 
   const oldStatus = currentJob.status as JobStatus
-  const validNextStatuses = VALID_TRANSITIONS[oldStatus]
 
-  if (!validNextStatuses.includes(newStatus)) {
-    throw new Error(
-      `Invalid status transition: cannot move from '${oldStatus}' to '${newStatus}'. ` +
-        `Valid transitions from '${oldStatus}': ${validNextStatuses.length > 0 ? validNextStatuses.join(', ') : 'none'}`
-    )
+  // Skip if status is the same (dropped on same column)
+  if (oldStatus === newStatus) return currentJob
+
+  // Get user role — managers can move to any status
+  const { data: userData } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user?.id ?? '')
+    .single()
+
+  const isManager = userData?.role === 'manager'
+
+  if (!isManager) {
+    const validNextStatuses = VALID_TRANSITIONS[oldStatus]
+    if (!validNextStatuses.includes(newStatus)) {
+      throw new Error(
+        `Invalid status transition: cannot move from '${oldStatus}' to '${newStatus}'. ` +
+          `Valid transitions from '${oldStatus}': ${validNextStatuses.length > 0 ? validNextStatuses.join(', ') : 'none'}`
+      )
+    }
   }
 
   const updatePayload: Record<string, unknown> = { status: newStatus }
