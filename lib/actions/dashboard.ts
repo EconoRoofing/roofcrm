@@ -15,7 +15,7 @@ export interface DashboardData {
   staleLeadCount: number
 
   // Revenue breakdown
-  revenueByRep: Array<{ repName: string; revenue: number; jobCount: number }>
+  revenueByRep: Array<{ repName: string; revenue: number; jobCount: number; commission: number }>
   revenueByCompany: Array<{ companyName: string; companyColor: string; revenue: number; jobCount: number }>
 
   // Lead source breakdown
@@ -48,7 +48,7 @@ export async function getDashboardData(filters?: {
   let jobQuery = supabase
     .from('jobs')
     .select(
-      'id, status, total_amount, job_type, referred_by, rep_id, created_at, completed_date, company_id'
+      'id, status, total_amount, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount'
     )
 
   if (filters?.companyId) {
@@ -128,14 +128,15 @@ export async function getDashboardData(filters?: {
 
   // ── Revenue by Rep ─────────────────────────────────────────────────────────
 
-  const repMap = new Map<string, { repName: string; revenue: number; jobCount: number }>()
+  const repMap = new Map<string, { repName: string; revenue: number; jobCount: number; commission: number }>()
   for (const job of jobs) {
     if (!['sold', 'scheduled', 'in_progress', 'completed'].includes(job.status)) continue
     const repId = job.rep_id ?? 'unknown'
     const repName = job.rep_id ? (userMap.get(job.rep_id)?.name ?? 'Unknown Rep') : 'Unassigned'
-    const existing = repMap.get(repId) ?? { repName, revenue: 0, jobCount: 0 }
+    const existing = repMap.get(repId) ?? { repName, revenue: 0, jobCount: 0, commission: 0 }
     existing.revenue += job.total_amount ?? 0
     existing.jobCount += 1
+    existing.commission += (job as { commission_amount?: number | null }).commission_amount ?? 0
     repMap.set(repId, existing)
   }
   const revenueByRep = Array.from(repMap.values()).sort((a, b) => b.revenue - a.revenue)
