@@ -8,6 +8,7 @@ import {
   updateCalendarEvent,
   deleteCalendarEvent,
 } from '@/lib/google-calendar'
+import { sendStatusUpdateSMS } from '@/lib/actions/messages'
 import type { JobStatus, JobType, UserRole, EstimateSpecs } from '@/lib/types/database'
 
 // Valid state machine transitions
@@ -226,6 +227,13 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
       // Calendar sync is best-effort — don't fail the status change
       console.error('Calendar sync error:', calError)
     }
+  }
+
+  // SMS auto-notification — best-effort
+  try {
+    await sendStatusUpdateSMS(id, newStatus)
+  } catch (smsError) {
+    console.error('SMS notification error:', smsError)
   }
 
   return job

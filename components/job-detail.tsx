@@ -6,6 +6,7 @@ import { getJobLaborCost } from '@/lib/actions/time-tracking'
 import { JobCostCard } from '@/components/manager/job-cost-card'
 import { JobCalendarWarning } from '@/components/job-calendar-warning'
 import { CompanyCamLinker } from '@/components/companycam-linker'
+import { JobMessages } from '@/components/job-messages'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -380,6 +381,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           </p>
         </div>
       )}
+
+      {/* Messages */}
+      <JobMessages jobId={job.id} customerPhone={job.phone ?? null} />
 
       {/* Calendar deleted warning */}
       <JobCalendarWarning jobId={job.id} />
