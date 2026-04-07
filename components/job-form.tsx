@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createJob } from '@/lib/actions/jobs'
+import { FormInput, FormTextarea, FormSelect, labelStyle, fieldStyle } from '@/components/ui/form-field'
 import type { Company, User, JobType, UserRole } from '@/lib/types/database'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
@@ -16,45 +17,11 @@ const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
-}
-
 interface JobFormProps {
   companies: Company[]
   currentUserRole: UserRole
   currentUserId: string
   salesUsers?: User[]
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--bg-elevated)',
-  border: '1px solid var(--border-subtle)',
-  borderRadius: '8px',
-  padding: '12px',
-  color: 'var(--text-primary)',
-  fontSize: '15px',
-  outline: 'none',
-  boxSizing: 'border-box',
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: '12px',
-  fontWeight: 600,
-  color: 'var(--text-secondary)',
-  marginBottom: '4px',
-  textTransform: 'uppercase',
-  letterSpacing: '0.5px',
-}
-
-const fieldStyle: React.CSSProperties = {
-  marginBottom: '16px',
 }
 
 export function JobForm({ companies, currentUserRole, currentUserId, salesUsers = [] }: JobFormProps) {
@@ -72,7 +39,6 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [focusedField, setFocusedField] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -100,12 +66,6 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       setError(err instanceof Error ? err.message : 'Failed to create job. Please try again.')
       setLoading(false)
     }
-  }
-
-  function getFocusStyle(fieldName: string): React.CSSProperties {
-    return focusedField === fieldName
-      ? { ...inputStyle, borderColor: 'var(--accent)' }
-      : inputStyle
   }
 
   return (
@@ -154,69 +114,54 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Customer Name <span style={{ color: 'var(--accent)' }}>*</span></label>
-          <input
+          <FormInput
             type="text"
             required
             value={customerName}
             onChange={e => setCustomerName(e.target.value)}
-            onFocus={() => setFocusedField('customerName')}
-            onBlur={() => setFocusedField(null)}
             placeholder="Full name"
-            style={getFocusStyle('customerName')}
           />
         </div>
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Address <span style={{ color: 'var(--accent)' }}>*</span></label>
-          <input
+          <FormInput
             type="text"
             required
             value={address}
             onChange={e => setAddress(e.target.value)}
-            onFocus={() => setFocusedField('address')}
-            onBlur={() => setFocusedField(null)}
             placeholder="Street address"
-            style={getFocusStyle('address')}
           />
         </div>
 
         <div style={fieldStyle}>
           <label style={labelStyle}>City <span style={{ color: 'var(--accent)' }}>*</span></label>
-          <input
+          <FormInput
             type="text"
             required
             value={city}
             onChange={e => setCity(e.target.value)}
-            onFocus={() => setFocusedField('city')}
-            onBlur={() => setFocusedField(null)}
             placeholder="City"
-            style={getFocusStyle('city')}
           />
         </div>
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Phone</label>
-          <input
+          <FormInput
             type="tel"
             value={phone}
             onChange={e => setPhone(e.target.value)}
-            onFocus={() => setFocusedField('phone')}
-            onBlur={() => setFocusedField(null)}
             placeholder="(555) 555-5555"
-            style={getFocusStyle('phone')}
           />
         </div>
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Email</label>
-          <input
+          <FormInput
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            onFocus={() => setFocusedField('email')}
-            onBlur={() => setFocusedField(null)}
             placeholder="email@example.com"
-            style={getFocusStyle('email')}
           />
         </div>
       </div>
@@ -255,34 +200,26 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       {currentUserRole === 'manager' && salesUsers.length > 0 && (
         <div style={fieldStyle}>
           <label style={labelStyle}>Assigned Rep</label>
-          <select
+          <FormSelect
             value={repId}
             onChange={e => setRepId(e.target.value)}
-            onFocus={() => setFocusedField('repId')}
-            onBlur={() => setFocusedField(null)}
-            style={{ ...getFocusStyle('repId'), appearance: 'none' }}
           >
             <option value="">Unassigned</option>
             {salesUsers.map(user => (
               <option key={user.id} value={user.id}>{user.name}</option>
             ))}
-          </select>
+          </FormSelect>
         </div>
       )}
 
       {/* Schedule Estimate */}
       <div style={fieldStyle}>
         <label style={labelStyle}>Schedule Estimate</label>
-        <input
+        <FormInput
           type="date"
           value={scheduledDate}
           onChange={e => setScheduledDate(e.target.value)}
-          onFocus={() => setFocusedField('scheduledDate')}
-          onBlur={() => setFocusedField(null)}
-          style={{
-            ...getFocusStyle('scheduledDate'),
-            colorScheme: 'dark',
-          }}
+          extraStyle={{ colorScheme: 'dark' }}
         />
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
           Creates a Google Calendar event
@@ -292,18 +229,11 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       {/* Notes */}
       <div style={fieldStyle}>
         <label style={labelStyle}>Notes</label>
-        <textarea
+        <FormTextarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          onFocus={() => setFocusedField('notes')}
-          onBlur={() => setFocusedField(null)}
           placeholder="Any additional notes..."
           rows={4}
-          style={{
-            ...getFocusStyle('notes'),
-            resize: 'vertical',
-            fontFamily: 'inherit',
-          }}
         />
       </div>
 

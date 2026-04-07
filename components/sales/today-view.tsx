@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StaleReminders } from '@/components/sales/stale-reminders'
+import { PhoneIcon, MessageIcon, MapPinIcon } from '@/components/icons'
 import type { Job } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -35,48 +36,6 @@ function formatJobType(type: string): string {
 function appleMapsUrl(address: string, city: string): string {
   const query = encodeURIComponent(`${address}, ${city}`)
   return `https://maps.apple.com/?q=${query}`
-}
-
-// --- SVG icons ---
-function PhoneIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-      <path
-        d="M3 3C3 2.4 3.5 2 4 2H6.5L8 5.5L6.5 7C6.5 7 7.2 9 9 10.8C10.8 12.6 13 13.5 13 13.5L14.5 12L18 13.5V16C18 16.5 17.6 17 17 17C9.5 17 1 8.5 1 1"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function MessageIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-      <path
-        d="M2 3C2 2.4 2.4 2 3 2H15C15.6 2 16 2.4 16 3V11C16 11.6 15.6 12 15 12H10L7 16V12H3C2.4 12 2 11.6 2 11V3Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function MapPinIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-      <path
-        d="M9 1C6.2 1 4 3.2 4 6C4 9.5 9 17 9 17C9 17 14 9.5 14 6C14 3.2 11.8 1 9 1Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <circle cx="9" cy="6" r="2" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  )
 }
 
 export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
@@ -359,7 +318,7 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
                         letterSpacing: '0.06em',
                       }}
                     >
-                      <PhoneIcon />
+                      <PhoneIcon size={16} />
                       Call
                     </a>
                   )}
@@ -383,7 +342,7 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
                         letterSpacing: '0.06em',
                       }}
                     >
-                      <MessageIcon />
+                      <MessageIcon size={16} />
                       Text
                     </a>
                   )}
@@ -408,7 +367,7 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
                         letterSpacing: '0.06em',
                       }}
                     >
-                      <MapPinIcon />
+                      <MapPinIcon size={16} />
                       Map
                     </a>
                   )}
