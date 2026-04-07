@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer'
 import type { Job, Company, EstimateSpecs } from '@/lib/types/database'
+import { formatMoneyPdf } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,11 +47,6 @@ function numberToWords(n: number): string {
   const result = words.charAt(0).toUpperCase() + words.slice(1) + ' dollars'
   if (cents > 0) return result + ` and ${cents}/100`
   return result + ' and 00/100'
-}
-
-function formatMoney(n: number | null | undefined): string {
-  if (n == null) return '0.00'
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -773,7 +769,7 @@ export function RoofingAgreement({ company, job, repSignature, customerSignature
         <View style={s.pricingRow}>
           <Text style={s.pricingAmountWord}>{numberToWords(total)}</Text>
           <Text style={s.pricingDollarLabel}>Dollars ($</Text>
-          <Text style={s.pricingAmountBox}>{formatMoney(total)}</Text>
+          <Text style={s.pricingAmountBox}>{formatMoneyPdf(total)}</Text>
           <Text style={s.pricingParenClose}>)</Text>
         </View>
 
@@ -781,14 +777,14 @@ export function RoofingAgreement({ company, job, repSignature, customerSignature
         <View style={s.pricingRow}>
           <Text style={s.pricingLabel}>50% Due upon delivery of materials:</Text>
           <Text style={s.pricingDollarLabel}>$</Text>
-          <Text style={s.pricingAmountBox}>{formatMoney(deposit)}</Text>
+          <Text style={s.pricingAmountBox}>{formatMoneyPdf(deposit)}</Text>
         </View>
 
         {/* 50% completion */}
         <View style={s.pricingRow}>
           <Text style={s.pricingLabel}>50% Due upon completion:</Text>
           <Text style={s.pricingDollarLabel}>$</Text>
-          <Text style={s.pricingAmountBox}>{formatMoney(deposit)}</Text>
+          <Text style={s.pricingAmountBox}>{formatMoneyPdf(deposit)}</Text>
         </View>
 
         <Text style={s.pricingNote}>

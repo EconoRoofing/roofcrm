@@ -54,6 +54,17 @@ export function formatAmount(amount: number | null): string {
   return '$' + amount.toLocaleString('en-US')
 }
 
+// Format money for PDF display — no $ prefix, 2 decimal places
+export function formatMoneyPdf(amount: number | null | undefined): string {
+  if (amount == null) return '0.00'
+  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// Format display date: "Monday, Apr 6"
+export function formatDisplayDate(date: Date): string {
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+}
+
 // Format elapsed time as HH:MM:SS
 export function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { clockIn, clockOut } from '@/lib/actions/time-tracking'
 import { PhotoCapture } from './photo-capture'
 import type { TimeEntry } from '@/lib/types/time-tracking'
+import { GpsCheckIcon, GpsFlaggedIcon, GpsWarningIcon } from '@/components/icons'
 
 // ─── GPS helpers ─────────────────────────────────────────────────────────────
 
@@ -381,44 +382,9 @@ function GpsPanel({
 }
 
 function GpsIcon({ status, color }: { status: GpsStatus; color: string }) {
-  if (status === 'confirmed') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path
-          d="M2 8L6 12L14 4"
-          stroke={color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-  if (status === 'flagged') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path
-          d="M8 2L10.2 6.6L15.2 7.3L11.6 10.8L12.5 15.7L8 13.3L3.5 15.7L4.4 10.8L0.8 7.3L5.8 6.6L8 2Z"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-  // Warning or no-coords
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M8 1.5L14.5 13.5H1.5L8 1.5Z"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path d="M8 6V9" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="8" cy="11.5" r="0.75" fill={color} />
-    </svg>
-  )
+  if (status === 'confirmed') return <GpsCheckIcon color={color} />
+  if (status === 'flagged') return <GpsFlaggedIcon color={color} />
+  return <GpsWarningIcon color={color} />
 }
 
 // ─── Clock-Out Button ─────────────────────────────────────────────────────────

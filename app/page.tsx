@@ -1,6 +1,7 @@
 import { getUser, getUserRole, signOut } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { COMPANY_COLORS } from '@/lib/theme'
+import { LogOutIcon } from '@/components/icons'
 
 const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
@@ -95,22 +96,7 @@ export default async function Home() {
               cursor: 'pointer',
             }}
           >
-            {/* Log out icon */}
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+            <LogOutIcon />
             Sign out
           </button>
         </form>

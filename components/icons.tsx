@@ -471,3 +471,152 @@ export function ClipboardAddIcon({ size = 32, className }: IconProps) {
     </svg>
   )
 }
+
+// Nav icons for bottom navigation bars
+export function HouseIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <path d="M3 7L9 2L15 7V15C15 15.6 14.6 16 14 16H4C3.4 16 3 15.6 3 15V7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M7 16V10H11V16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+export function CalendarIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+      <path d="M2 7H16" stroke="currentColor" strokeWidth="1.8"/>
+      <path d="M6 1V4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M12 1V4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <rect x="5" y="9.5" width="2" height="2" rx="0.5" fill="currentColor"/>
+      <rect x="8" y="9.5" width="2" height="2" rx="0.5" fill="currentColor"/>
+      <rect x="11" y="9.5" width="2" height="2" rx="0.5" fill="currentColor"/>
+      <rect x="5" y="12.5" width="2" height="2" rx="0.5" fill="currentColor"/>
+    </svg>
+  )
+}
+
+export function MenuIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <rect x="2" y="3" width="14" height="2" rx="1" fill="currentColor"/>
+      <rect x="2" y="8" width="14" height="2" rx="1" fill="currentColor"/>
+      <rect x="2" y="13" width="14" height="2" rx="1" fill="currentColor"/>
+    </svg>
+  )
+}
+
+export function SunIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <circle cx="9" cy="9" r="4" stroke="currentColor" strokeWidth="1.8"/>
+      <path d="M9 1V3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M9 15V17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M1 9H3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M15 9H17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M3.22 3.22L4.64 4.64" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M13.36 13.36L14.78 14.78" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M14.78 3.22L13.36 4.64" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M4.64 13.36L3.22 14.78" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+export function ListIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" className={className}>
+      <rect x="2" y="2" width="14" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="2" y="7.75" width="14" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="2" y="13.5" width="14" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>
+  )
+}
+
+export function PlusCircleIcon({ size = 22, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className}>
+      <circle cx="11" cy="11" r="10" stroke="currentColor" strokeWidth="1.8"/>
+      <path d="M11 7V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M7 11H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+export function LogOutIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
+export function ChevronLeftNavIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  )
+}
+
+export function ClipboardListIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="9" y="2" width="6" height="4" rx="1" />
+      <path d="M5 4h2a1 1 0 0 1 1 1v1H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4V5a1 1 0 0 1 1-1h2" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="13" y2="17" />
+    </svg>
+  )
+}
+
+export function CheckCircleIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+// GPS status icons — accept a color prop for dynamic status coloring
+interface ColorIconProps extends IconProps {
+  color?: string
+}
+
+export function GpsCheckIcon({ size = 16, color = 'currentColor', className }: ColorIconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2 8L6 12L14 4" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function GpsFlaggedIcon({ size = 16, color = 'currentColor', className }: ColorIconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M8 2L10.2 6.6L15.2 7.3L11.6 10.8L12.5 15.7L8 13.3L3.5 15.7L4.4 10.8L0.8 7.3L5.8 6.6L8 2Z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function GpsWarningIcon({ size = 16, color = 'currentColor', className }: ColorIconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M8 1.5L14.5 13.5H1.5L8 1.5Z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M8 6V9" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="8" cy="11.5" r="0.75" fill={color} />
+    </svg>
+  )
+}
+
+export function AlertTriangleIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
+}

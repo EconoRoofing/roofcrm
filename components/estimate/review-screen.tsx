@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { Job } from '@/lib/types/database'
 import type { SpecsData } from './specs-form'
 import type { PricingData } from './pricing-form'
+import { formatCurrency } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ interface ReviewScreenProps {
 
 function formatMoney(val: number | null | undefined): string {
   if (val == null) return '$0.00'
-  return val.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+  return formatCurrency(val)
 }
 
 // ─── Row components ───────────────────────────────────────────────────────────

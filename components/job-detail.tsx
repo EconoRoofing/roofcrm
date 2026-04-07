@@ -9,6 +9,7 @@ import { JobCostCard } from '@/components/manager/job-cost-card'
 import { JobCalendarWarning } from '@/components/job-calendar-warning'
 import { CompanyCamLinker } from '@/components/companycam-linker'
 import { JobMessages } from '@/components/job-messages'
+import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon } from '@/components/icons'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -182,9 +183,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
               flexShrink: 0,
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polygon points="3 11 22 2 13 21 11 13 3 11" />
-            </svg>
+            <NavigateIcon size={12} />
             Navigate
           </a>
         </div>
@@ -275,12 +274,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="2" width="6" height="4" rx="1" />
-              <path d="M5 4h2a1 1 0 0 1 1 1v1H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4V5a1 1 0 0 1 1-1h2" />
-              <line x1="8" y1="13" x2="16" y2="13" />
-              <line x1="8" y1="17" x2="13" y2="17" />
-            </svg>
+            <span style={{ color: 'var(--accent)', display: 'flex' }}>
+              <ClipboardListIcon size={16} />
+            </span>
             <div>
               <div style={{ fontFamily: 'var(--font-sans)', fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
                 Material List
@@ -290,9 +286,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
               </div>
             </div>
           </div>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
+          <span style={{ color: 'var(--text-muted)', display: 'flex' }}>
+            <ChevronRightIcon size={14} />
+          </span>
         </Link>
       )}
 
@@ -380,11 +376,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+            <span style={{ color: 'var(--accent-red)', display: 'flex' }}>
+              <AlertTriangleIcon size={14} />
+            </span>
             <span style={{ fontSize: '11px', color: 'var(--accent-red)', fontFamily: 'var(--font-sans)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Site Notes
             </span>

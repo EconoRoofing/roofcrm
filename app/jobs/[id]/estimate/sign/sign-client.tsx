@@ -4,6 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { SignaturePad } from '@/components/estimate/signature-pad'
 import { signEstimate } from '@/lib/actions/signature'
+import { ChevronLeftNavIcon, CheckCircleIcon } from '@/components/icons'
+import { formatCurrency } from '@/lib/utils'
 
 interface SignClientProps {
   jobId: string
@@ -65,9 +67,7 @@ export function SignClient({
   }
 
   const formatMoney = (n: number | null) =>
-    n == null
-      ? '—'
-      : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+    n == null ? '—' : formatCurrency(n)
 
   // ── Summary bar ──────────────────────────────────────────────────────────────
   const SummaryBar = () => (
@@ -130,9 +130,7 @@ export function SignClient({
           textDecoration: 'none',
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
+        <ChevronLeftNavIcon />
         Back to Estimate
       </Link>
     </div>
@@ -303,9 +301,7 @@ export function SignClient({
             color: 'var(--accent)',
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <CheckCircleIcon size={24} />
         </div>
 
         <h1

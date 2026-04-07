@@ -18,10 +18,6 @@ function formatKpiCurrency(value: number): string {
   return `$${value.toFixed(0)}`
 }
 
-function formatCurrencyFull(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-}
-
 // ── CSS-based bar chart ────────────────────────────────────────────────────
 
 function BarRow({
@@ -288,7 +284,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                 {formatKpiCurrency(data.revenueThisMonth)}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {formatCurrencyFull(data.revenueThisMonth)} total
+                {formatCurrency(data.revenueThisMonth)} total
               </span>
             </div>
 
@@ -382,7 +378,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                         color: isTop ? 'var(--accent)' : 'var(--text-primary)',
                       }}
                     >
-                      {formatCurrencyFull(rep.revenue)}
+                      {formatCurrency(rep.revenue)}
                     </span>
                     <span
                       style={{
@@ -440,7 +436,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                             color: 'var(--text-primary)',
                           }}
                         >
-                          {formatCurrencyFull(co.revenue)}
+                          {formatCurrency(co.revenue)}
                         </span>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)' }}>
                           {co.jobCount} job{co.jobCount !== 1 ? 's' : ''}
