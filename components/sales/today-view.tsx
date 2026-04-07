@@ -3,9 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StaleReminders } from '@/components/sales/stale-reminders'
+import { FollowUpWidget } from '@/components/follow-up-widget'
 import { PhoneIcon, MessageIcon, MapPinIcon } from '@/components/icons'
 import { formatJobType, buildMapsUrl, formatCurrency } from '@/lib/utils'
+import { completeFollowUp } from '@/lib/actions/follow-up-tasks'
+import { useState } from 'react'
 import type { Job } from '@/lib/types/database'
+import type { FollowUp } from '@/lib/actions/follow-up-tasks'
 
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
@@ -14,6 +18,8 @@ type JobWithCompany = Job & {
 interface TodayViewProps {
   todayJobs: JobWithCompany[]
   staleJobs: Job[]
+  followUps?: FollowUp[]
+  currentUserId?: string
   stats: {
     appointments: number
     pending: number
@@ -22,8 +28,22 @@ interface TodayViewProps {
 }
 
 
-export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
+export function TodayView({ todayJobs, staleJobs, followUps = [], currentUserId = '', stats }: TodayViewProps) {
   const router = useRouter()
+  const today = new Date().toISOString().split('T')[0]
+  const [localFollowUps, setLocalFollowUps] = useState<FollowUp[]>(followUps)
+
+  const handleCompleteFollowUp = async (id: string) => {
+    try {
+      await completeFollowUp(id)
+      setLocalFollowUps(prev => prev.filter(f => f.id !== id))
+    } catch {
+      // ignore
+    }
+  }
+
+  const overdueFollowUps = localFollowUps.filter(f => f.due_date < today)
+  const dueTodayFollowUps = localFollowUps.filter(f => f.due_date === today)
 
   return (
     <div
@@ -165,6 +185,99 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
 
       {/* Stale reminders */}
       {staleJobs.length > 0 && <StaleReminders jobs={staleJobs} />}
+
+      {/* Follow-ups */}
+      {localFollowUps.length > 0 && (
+        <div style={{ padding: '0 16px' }}>
+          <div style={{ marginBottom: '8px' }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '9px',
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '2px',
+              }}
+            >
+              Follow-Ups
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {[...overdueFollowUps, ...dueTodayFollowUps].map(f => {
+              const isOverdue = f.due_date < today
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const job = f.job as any
+              return (
+                <div
+                  key={f.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '10px 12px',
+                    backgroundColor: 'var(--bg-surface)',
+                    border: `1px solid ${isOverdue ? 'var(--accent-red)' : 'var(--accent-amber)'}`,
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      {job?.customer_name ?? 'Customer'}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '10px',
+                        color: isOverdue ? 'var(--accent-red)' : 'var(--accent-amber)',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      {isOverdue ? 'OVERDUE' : 'Due Today'} &bull; {f.due_date}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: '12px',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {f.note}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCompleteFollowUp(f.id)}
+                    style={{
+                      padding: '6px 12px',
+                      backgroundColor: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '6px',
+                      color: 'var(--accent)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Mark Done
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Today's appointments */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

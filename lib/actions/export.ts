@@ -2,6 +2,71 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+export async function exportPayrollCSV(filters?: {
+  startDate: string
+  endDate: string
+  companyId?: string
+}): Promise<string> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('time_entries')
+    .select(`
+      clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours,
+      total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate,
+      user:users!time_entries_user_id_fkey(name, primary_company_id),
+      job:jobs!time_entries_job_id_fkey(job_number, customer_name, company_id)
+    `)
+    .gte('clock_in', filters?.startDate ?? '')
+    .lte('clock_in', filters?.endDate ?? '')
+    .not('clock_out', 'is', null)
+    .order('clock_in', { ascending: true })
+
+  if (filters?.companyId) {
+    // Filter by job company (most relevant for cross-company payroll splits)
+    query = query.eq('job.company_id', filters.companyId)
+  }
+
+  const { data } = await query
+  if (!data || data.length === 0) return ''
+
+  const headers = [
+    'Employee', 'Date', 'Job #', 'Customer', 'Clock In', 'Clock Out',
+    'Regular Hrs', 'OT Hrs (1.5x)', 'DT Hrs (2x)', 'Total Hrs',
+    'Pay Type', 'Rate', 'Total Pay', 'Cost Code',
+  ]
+
+  const rows = data.map(entry => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = entry.user as any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const job = entry.job as any
+    const clockIn = new Date(entry.clock_in)
+    const clockOut = entry.clock_out ? new Date(entry.clock_out) : null
+
+    return [
+      user?.name ?? '',
+      clockIn.toLocaleDateString('en-US'),
+      job?.job_number ?? '',
+      job?.customer_name ?? '',
+      clockIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      clockOut?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) ?? '',
+      (entry.regular_hours ?? 0).toFixed(2),
+      (entry.overtime_hours ?? 0).toFixed(2),
+      (entry.doubletime_hours ?? 0).toFixed(2),
+      (entry.total_hours ?? 0).toFixed(2),
+      entry.pay_type ?? 'hourly',
+      entry.pay_type === 'day_rate'
+        ? (entry.day_rate ?? 0).toFixed(2)
+        : (entry.hourly_rate ?? 0).toFixed(2),
+      (entry.total_cost ?? 0).toFixed(2),
+      entry.cost_code ?? 'labor',
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  })
+
+  return [headers.join(','), ...rows].join('\n')
+}
+
 export async function exportJobsCSV(filters?: { companyId?: string; status?: string }): Promise<string> {
   const supabase = await createClient()
 

@@ -143,6 +143,53 @@ export async function clockIn(
       .eq('id', jobId)
   }
 
+  // Link today's completed safety inspection to this time entry (best-effort)
+  try {
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const { data: inspection } = await supabase
+      .from('safety_inspections')
+      .select('id')
+      .eq('job_id', jobId)
+      .eq('inspector_id', user.id)
+      .gte('created_at', todayStart.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (inspection) {
+      await supabase
+        .from('time_entries')
+        .update({ safety_inspection_id: inspection.id })
+        .eq('id', entry.id)
+    } else {
+      // Flag if this is a high-risk job type with no pre-work inspection
+      const { data: jobDetail } = await supabase
+        .from('jobs')
+        .select('job_type')
+        .eq('id', jobId)
+        .single()
+
+      const highRiskTypes = ['reroof', 'new_construction']
+      if (jobDetail && highRiskTypes.includes(jobDetail.job_type)) {
+        const existingReason = entry.flag_reason as string | null
+        const noInspectionFlag = 'No pre-work safety inspection completed'
+        await supabase
+          .from('time_entries')
+          .update({
+            flagged: true,
+            flag_reason: existingReason
+              ? `${existingReason}; ${noInspectionFlag}`
+              : noInspectionFlag,
+          })
+          .eq('id', entry.id)
+      }
+    }
+  } catch (inspErr) {
+    // Never block clock-in due to inspection linking failure
+    console.error('Safety inspection link error:', inspErr)
+  }
+
   return { entry: entry as TimeEntry, geofence }
 }
 

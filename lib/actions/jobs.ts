@@ -19,7 +19,7 @@ const VALID_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   pending: ['sold', 'cancelled'],
   sold: ['scheduled', 'cancelled'],
   scheduled: ['in_progress', 'cancelled'],
-  in_progress: ['completed'],
+  in_progress: ['completed', 'scheduled'],  // allow back to scheduled (weather/safety pause)
   completed: [],
   cancelled: ['lead'],
 }

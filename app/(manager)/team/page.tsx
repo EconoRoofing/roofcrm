@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getProfiles, createProfile, updateProfile, setPin as setPinAction } from '@/lib/actions/profiles'
+import { getProfiles, getCompanies, createProfile, updateProfile, setPin as setPinAction } from '@/lib/actions/profiles'
 
 interface Profile {
   id: string
@@ -9,6 +9,11 @@ interface Profile {
   role: string
   avatar_url: string | null
   is_active: boolean
+}
+
+interface Company {
+  id: string
+  name: string
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -32,13 +37,16 @@ function getInitials(name: string): string {
 function AddMemberModal({
   onClose,
   onCreated,
+  companies,
 }: {
   onClose: () => void
   onCreated: () => void
+  companies: Company[]
 }) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('crew')
   const [pin, setPin] = useState('')
+  const [primaryCompanyId, setPrimaryCompanyId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -48,7 +56,7 @@ function AddMemberModal({
     if (pin && pin.length !== 4) return setError('PIN must be exactly 4 digits')
     setLoading(true)
     try {
-      await createProfile(name.trim(), role, pin || undefined)
+      await createProfile(name.trim(), role, pin || undefined, primaryCompanyId || undefined)
       onCreated()
       onClose()
     } catch (err) {
@@ -162,6 +170,44 @@ function AddMemberModal({
               <option value="sales_crew">Sales / Crew</option>
             </select>
           </div>
+
+          {companies.length > 0 && (
+            <div>
+              <label style={{
+                display: 'block',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '10px',
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '1.5px',
+                marginBottom: '8px',
+              }}>
+                Primary Company (Payroll)
+              </label>
+              <select
+                value={primaryCompanyId}
+                onChange={e => setPrimaryCompanyId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: '15px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">-- None --</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label style={{
@@ -446,6 +492,7 @@ function ResetPinModal({
 
 export default function TeamPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [resetTarget, setResetTarget] = useState<Profile | null>(null)
@@ -454,8 +501,12 @@ export default function TeamPage() {
     setLoading(true)
     try {
       // Include inactive profiles for management
-      const data = await getProfiles()
+      const [data, companiesData] = await Promise.all([
+        getProfiles(),
+        getCompanies(),
+      ])
       setProfiles(data as Profile[])
+      setCompanies(companiesData as Company[])
     } finally {
       setLoading(false)
     }
@@ -667,7 +718,7 @@ export default function TeamPage() {
 
       {/* Modals */}
       {showAdd && (
-        <AddMemberModal onClose={() => setShowAdd(false)} onCreated={load} />
+        <AddMemberModal onClose={() => setShowAdd(false)} onCreated={load} companies={companies} />
       )}
       {resetTarget && (
         <ResetPinModal profile={resetTarget} onClose={() => setResetTarget(null)} />

@@ -1,8 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUser, getUserRole } from '@/lib/auth'
 import { getJobsByDate, getJobs } from '@/lib/actions/jobs'
+import { getMyFollowUps } from '@/lib/actions/follow-up-tasks'
 import { TodayView } from '@/components/sales/today-view'
 import type { UserRole, Job } from '@/lib/types/database'
+import type { FollowUp } from '@/lib/actions/follow-up-tasks'
 
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
@@ -70,10 +72,11 @@ export default async function TodayPage() {
   const now = new Date()
   const todayString = now.toISOString().split('T')[0]
 
-  // Fetch today's jobs and all user jobs in parallel
-  const [todayJobs, allJobs] = await Promise.all([
+  // Fetch today's jobs, all user jobs, and due follow-ups in parallel
+  const [todayJobs, allJobs, myFollowUps] = await Promise.all([
     getJobsByDate(todayString, user.id, role ?? 'sales'),
     getJobs({ rep_id: user.id }),
+    getMyFollowUps(user.id),
   ])
 
   // Find stale jobs: pending or lead status, created more than 14 days ago
@@ -138,6 +141,8 @@ export default async function TodayPage() {
       <TodayView
         todayJobs={todayJobs as JobWithCompany[]}
         staleJobs={staleJobs}
+        followUps={myFollowUps as FollowUp[]}
+        currentUserId={user.id}
         stats={{
           appointments: todayJobs.length,
           pending: pendingCount,

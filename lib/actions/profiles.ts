@@ -7,6 +7,20 @@ import { cookies } from 'next/headers'
 // In-memory rate limiter for PIN verification
 const pinAttempts = new Map<string, { count: number; resetAt: number }>()
 
+// Get all companies (for primary company assignment)
+export async function getCompanies() {
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('companies')
+      .select('id, name')
+      .order('name')
+    return data ?? []
+  } catch {
+    return []
+  }
+}
+
 // Get all active team members
 export async function getProfiles() {
   try {
@@ -128,7 +142,7 @@ export async function clearActiveProfile() {
 }
 
 // Create a new team member profile (manager creates these)
-export async function createProfile(name: string, role: string, pin?: string) {
+export async function createProfile(name: string, role: string, pin?: string, primaryCompanyId?: string) {
   const supabase = await createClient()
 
   // Get the shared Google auth user ID to link
@@ -141,6 +155,7 @@ export async function createProfile(name: string, role: string, pin?: string) {
     name,
     role,
     is_active: true,
+    ...(primaryCompanyId ? { primary_company_id: primaryCompanyId } : {}),
   }).select().single()
 
   if (error) throw new Error(error.message)
@@ -163,7 +178,7 @@ export async function signOutAndClear() {
 // Update an existing profile
 export async function updateProfile(
   userId: string,
-  updates: { name?: string; role?: string; is_active?: boolean }
+  updates: { name?: string; role?: string; is_active?: boolean; primary_company_id?: string | null }
 ) {
   const supabase = await createClient()
   const { error } = await supabase.from('users').update(updates).eq('id', userId)

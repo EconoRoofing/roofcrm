@@ -1,14 +1,17 @@
 import { getTimeEntries } from '@/lib/actions/time-tracking'
+import { getCompanies } from '@/lib/actions/profiles'
 import LiveCrewStatus from '@/components/manager/live-crew-status'
 import DailyTimeReport from '@/components/manager/daily-time-report'
+import { PayrollExport } from '@/components/manager/payroll-export'
 
 export default async function TimeTrackingPage() {
   const today = new Date().toISOString().split('T')[0]
 
-  // Fetch active entries (clocked in) and today's entries in parallel
-  const [allEntries, todayEntries] = await Promise.all([
+  // Fetch active entries (clocked in), today's entries, and companies in parallel
+  const [allEntries, todayEntries, companies] = await Promise.all([
     getTimeEntries({}),
     getTimeEntries({ date: today }),
+    getCompanies(),
   ])
 
   // Filter to only active (no clock_out) for live status
@@ -46,6 +49,9 @@ export default async function TimeTrackingPage() {
       {/* Daily time report */}
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
       <DailyTimeReport initialEntries={todayEntries as any[]} initialDate={today} />
+
+      {/* Payroll export */}
+      <PayrollExport companies={companies} />
     </div>
   )
 }

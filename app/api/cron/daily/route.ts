@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { sendDailyDigest } from '@/lib/actions/digest'
 import { processFollowUps } from '@/lib/actions/follow-ups'
 import { processPostJobAutomation } from '@/lib/actions/post-job'
+import { processFollowUpTasks } from '@/lib/actions/follow-up-tasks'
 
 // Single daily cron that runs all automations sequentially
 // Vercel Hobby plan allows 2 cron jobs — this consolidates 3 into 1
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
     digest: false,
     followUps: { sent: 0, skipped: 0 },
     postJob: { sent: 0 },
+    followUpTasks: { sent: 0, skipped: 0 },
   }
 
   // 1. Daily digest email to manager
@@ -36,6 +38,13 @@ export async function GET(request: Request) {
     results.postJob = await processPostJobAutomation()
   } catch (error) {
     console.error('Cron: post-job failed', error)
+  }
+
+  // 4. Follow-up task reminders (SMS to assigned reps)
+  try {
+    results.followUpTasks = await processFollowUpTasks()
+  } catch (error) {
+    console.error('Cron: follow-up tasks failed', error)
   }
 
   return NextResponse.json(results)
