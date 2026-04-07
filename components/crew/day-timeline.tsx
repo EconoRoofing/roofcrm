@@ -14,15 +14,8 @@ interface DayTimelineProps {
   userId?: string
 }
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return ''
-  // scheduled_date is just a date, not a datetime — no time info available
-  // If we have only a date, we can't display time. Return empty.
-  return ''
-}
-
 // Determine time label for each job slot
-function getTimeLabel(index: number, isActive: boolean, isCompleted: boolean, job: JobWithCompany): string {
+function getTimeLabel(index: number, isActive: boolean, isCompleted: boolean, _job: JobWithCompany): string {
   if (isCompleted) return 'DONE'
   if (isActive) return 'NOW'
   // Upcoming: second non-completed = NEXT, rest = LATER

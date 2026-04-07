@@ -84,7 +84,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
                 onClick={() => setCompanyId(company.id)}
                 style={{
                   flex: 1,
-                  padding: '14px 8px',
+                  padding: '16px 8px',
                   borderRadius: '8px',
                   border: `1px solid ${selected ? company.color : 'var(--border-subtle)'}`,
                   background: selected ? company.color : 'var(--bg-elevated)',

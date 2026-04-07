@@ -1,21 +1,13 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatCompactCurrency } from '@/lib/utils'
 import type { Company } from '@/lib/types/database'
 import type { DashboardData } from '@/lib/actions/dashboard'
 
 interface KPICardsProps {
   data: DashboardData
   companies: Company[]
-}
-
-// ── Formatting helpers ─────────────────────────────────────────────────────
-
-function formatKpiCurrency(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
-  return `$${value.toFixed(0)}`
 }
 
 // ── CSS-based bar chart ────────────────────────────────────────────────────
@@ -259,7 +251,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Pipeline Value</span>
               <span style={bigNumberStyle('var(--accent-blue)')}>
-                {formatKpiCurrency(data.pipelineValue)}
+                {formatCompactCurrency(data.pipelineValue)}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 Active & pending jobs
@@ -281,7 +273,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Revenue This Month</span>
               <span style={bigNumberStyle('var(--accent)')}>
-                {formatKpiCurrency(data.revenueThisMonth)}
+                {formatCompactCurrency(data.revenueThisMonth)}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 {formatCurrency(data.revenueThisMonth)} total
@@ -578,7 +570,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
               <div style={cardStyle}>
                 <span style={labelStyle}>Labor Cost (Month)</span>
                 <span style={bigNumberStyle('var(--text-primary)')}>
-                  {formatKpiCurrency(data.totalLaborCostThisMonth)}
+                  {formatCompactCurrency(data.totalLaborCostThisMonth)}
                 </span>
               </div>
               <div style={{ ...cardStyle, gridColumn: 'span 2' }}>

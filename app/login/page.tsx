@@ -57,6 +57,7 @@ export default function LoginPage() {
         {/* Sign-in button */}
         <div className="flex flex-col gap-3">
           <button
+            type="button"
             onClick={handleSignIn}
             disabled={loading}
             aria-label="Sign in with Google"

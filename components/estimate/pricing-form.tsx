@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatNumericInput } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,11 +18,6 @@ interface PricingFormProps {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatCurrency(val: number | null | undefined): string {
-  if (!val) return ''
-  return val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-}
 
 function parseCurrency(raw: string): number | null {
   const cleaned = raw.replace(/[^0-9.]/g, '')
@@ -63,7 +59,7 @@ function CurrencyInput({
     setRaw(v)
   }
 
-  const displayValue = focused ? raw : formatCurrency(value)
+  const displayValue = focused ? raw : formatNumericInput(value)
 
   return (
     <div style={{ marginBottom: '16px' }}>

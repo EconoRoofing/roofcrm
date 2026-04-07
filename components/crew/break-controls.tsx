@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition, useCallback } from 'react'
 import { startBreak, endBreak, getBreaksDue, getActiveBreak } from '@/lib/actions/breaks'
 import type { Break, BreakType } from '@/lib/types/time-tracking'
+import { formatMinutes } from '@/lib/utils'
 
 interface BreakControlsProps {
   timeEntryId: string
@@ -12,12 +13,6 @@ interface BreakControlsProps {
 const MEAL_LIMIT_MINUTES = 30
 const REST_LIMIT_MINUTES = 10
 
-function formatMinutes(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
 
 export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) {
   const [activeBreak, setActiveBreak] = useState<Break | null>(null)

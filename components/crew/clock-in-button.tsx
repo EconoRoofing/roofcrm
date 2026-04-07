@@ -177,7 +177,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
           onClick={handleStart}
           style={{
             width: '100%',
-            padding: '14px',
+            padding: '16px',
             background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
             border: 'none',
             borderRadius: '8px',
@@ -195,7 +195,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
         <div
           style={{
             width: '100%',
-            padding: '14px',
+            padding: '16px',
             backgroundColor: 'var(--bg-elevated)',
             border: '1px solid var(--border-subtle)',
             borderRadius: '8px',
@@ -214,7 +214,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
           disabled={!canProceed || isPending}
           style={{
             width: '100%',
-            padding: '14px',
+            padding: '16px',
             background:
               canProceed && !isPending
                 ? 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))'
@@ -444,7 +444,7 @@ export function ClockOutButton({ timeEntry, userId, totalHours }: ClockOutButton
     return (
       <div
         style={{
-          padding: '14px',
+          padding: '16px',
           backgroundColor: 'var(--bg-elevated)',
           border: '1px solid var(--border-subtle)',
           borderRadius: '8px',
@@ -475,7 +475,7 @@ export function ClockOutButton({ timeEntry, userId, totalHours }: ClockOutButton
     return (
       <div
         style={{
-          padding: '14px 16px',
+          padding: '16px',
           backgroundColor: 'var(--bg-elevated)',
           border: '1px solid var(--border-subtle)',
           borderRadius: '8px',
@@ -546,7 +546,7 @@ export function ClockOutButton({ timeEntry, userId, totalHours }: ClockOutButton
         disabled={isPending}
         style={{
           width: '100%',
-          padding: '14px',
+          padding: '16px',
           background: 'linear-gradient(135deg, #c62828, #ef5350)',
           border: 'none',
           borderRadius: '8px',
@@ -642,7 +642,7 @@ export function SwitchJobButton({
         disabled={isPending || step === 'pending'}
         style={{
           width: '100%',
-          padding: '14px',
+          padding: '16px',
           background: 'linear-gradient(135deg, #e65100, #ffab00)',
           border: 'none',
           borderRadius: '8px',

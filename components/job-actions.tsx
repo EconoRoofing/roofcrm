@@ -134,7 +134,7 @@ export function JobActions({ job }: JobActionsProps) {
           disabled={advancing}
           style={{
             width: '100%',
-            padding: '14px 16px',
+            padding: '16px',
             borderRadius: '8px',
             backgroundColor: advancing ? 'rgba(0,230,118,0.6)' : 'var(--accent)',
             border: 'none',

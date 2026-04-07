@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { Job } from '@/lib/types/database'
 import type { SpecsData } from './specs-form'
 import type { PricingData } from './pricing-form'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatMoneyDisplay } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,13 +14,6 @@ interface ReviewScreenProps {
   specs: SpecsData
   pricing: PricingData
   onBack: () => void
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatMoney(val: number | null | undefined): string {
-  if (val == null) return '$0.00'
-  return formatCurrency(val)
 }
 
 // ─── Row components ───────────────────────────────────────────────────────────
@@ -150,7 +143,7 @@ function PriceRow({
           color: large ? 'var(--accent)' : muted ? 'var(--text-secondary)' : 'var(--text-primary)',
         }}
       >
-        {formatMoney(amount)}
+        {formatMoneyDisplay(amount)}
       </span>
     </div>
   )
@@ -431,7 +424,7 @@ export function ReviewScreen({ job, specs, pricing, onBack }: ReviewScreenProps)
             style={{
               display: 'block',
               width: '100%',
-              padding: '14px',
+              padding: '16px',
               borderRadius: '8px',
               border: '1px solid var(--accent)',
               background: 'var(--accent-dim)',
@@ -481,7 +474,7 @@ export function ReviewScreen({ job, specs, pricing, onBack }: ReviewScreenProps)
         onClick={onBack}
         style={{
           width: '100%',
-          padding: '14px',
+          padding: '16px',
           borderRadius: '8px',
           border: '1px solid var(--border-subtle)',
           background: 'transparent',

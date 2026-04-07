@@ -275,6 +275,7 @@ export default function SelectProfilePage() {
         <SetupForm onCreated={loadProfiles} />
 
         <button
+          type="button"
           onClick={handleSignOut}
           style={{
             marginTop: '32px',
@@ -344,6 +345,7 @@ export default function SelectProfilePage() {
         {/* Footer */}
         <div style={{ textAlign: 'center' }}>
           <button
+            type="button"
             onClick={handleSignOut}
             style={{
               background: 'none',

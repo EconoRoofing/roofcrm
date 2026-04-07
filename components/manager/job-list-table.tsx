@@ -188,7 +188,7 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '14px 16px',
+                padding: '16px',
                 fontSize: '12px',
                 fontWeight: 500,
                 fontFamily: 'var(--font-sans)',

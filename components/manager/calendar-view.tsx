@@ -99,6 +99,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
           }}
         >
           <button
+            type="button"
             onClick={prevMonth}
             aria-label="Previous month"
             style={{
@@ -140,6 +141,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
           </h2>
 
           <button
+            type="button"
             onClick={nextMonth}
             aria-label="Next month"
             style={{

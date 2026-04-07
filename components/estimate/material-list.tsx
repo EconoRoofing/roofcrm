@@ -129,6 +129,7 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
           </p>
         </div>
         <button
+          type="button"
           onClick={handleGenerate}
           disabled={isPending}
           style={{
@@ -303,6 +304,7 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
         }}
       >
         <button
+          type="button"
           onClick={handleRecalculate}
           disabled={isPending}
           style={btnStyle('default', isPending)}
@@ -310,12 +312,14 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
           {isPending ? 'Recalculating...' : 'Recalculate'}
         </button>
         <button
+          type="button"
           onClick={handleExportCSV}
           style={btnStyle('blue', false)}
         >
           Export CSV
         </button>
         <button
+          type="button"
           onClick={handleCopyToClipboard}
           style={btnStyle(copied ? 'accent' : 'default', false)}
         >

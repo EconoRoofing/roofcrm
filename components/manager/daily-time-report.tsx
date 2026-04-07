@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { getTimeEntries, exportTimeEntriesCSV } from '@/lib/actions/time-tracking'
-import { formatCurrency, formatTime } from '@/lib/utils'
+import { formatCurrency, formatTime, formatTimeOrDash } from '@/lib/utils'
 import { DownloadIcon, FlagIcon } from '@/components/icons'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
@@ -26,10 +26,6 @@ function mono(children: React.ReactNode, color?: string) {
   )
 }
 
-function formatTimeOrDash(iso: string | null): string {
-  if (!iso) return '—'
-  return formatTime(iso)
-}
 
 function ExpandedRow({ entry }: { entry: EntryWithRelations }) {
   return (
@@ -485,6 +481,7 @@ export default function DailyTimeReport({ initialEntries, initialDate }: DailyTi
 
           {/* Export button */}
           <button
+            type="button"
             onClick={handleExport}
             disabled={exporting || entries.length === 0}
             style={{

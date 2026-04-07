@@ -5,6 +5,7 @@ import type { Job } from '@/lib/types/database'
 import { getProjectDeepLink } from '@/lib/companycam'
 import type { CompanyCamPhoto } from '@/lib/companycam'
 import { CameraIcon, ExternalLinkIcon } from '@/components/icons'
+import { formatPhotoDate } from '@/lib/utils'
 
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
@@ -60,14 +61,6 @@ function PlaceholderPhoto({ index }: { index: number }) {
   )
 }
 
-function formatPhotoDate(isoString: string): string {
-  try {
-    const d = new Date(Number(isoString) * 1000) // CompanyCam uses unix timestamps
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  } catch {
-    return ''
-  }
-}
 
 function RealPhoto({ photo }: { photo: CompanyCamPhoto }) {
   const dateLabel = formatPhotoDate(photo.created_at)

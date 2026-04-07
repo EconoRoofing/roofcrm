@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { getTimeEntries } from '@/lib/actions/time-tracking'
 import { GpsIcon, FlagIcon } from '@/components/icons'
+import { formatElapsed } from '@/lib/utils'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
 type ActiveEntry = TimeEntry & {
@@ -14,18 +15,9 @@ function ElapsedTimer({ clockIn }: { clockIn: string }) {
   const [elapsed, setElapsed] = useState('')
 
   useEffect(() => {
-    function format() {
-      const diffMs = Date.now() - new Date(clockIn).getTime()
-      const totalSecs = Math.floor(diffMs / 1000)
-      const h = Math.floor(totalSecs / 3600)
-      const m = Math.floor((totalSecs % 3600) / 60)
-      const s = totalSecs % 60
-      setElapsed(
-        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      )
-    }
-    format()
-    const id = setInterval(format, 1000)
+    const tick = () => setElapsed(formatElapsed(Date.now() - new Date(clockIn).getTime()))
+    tick()
+    const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [clockIn])
 

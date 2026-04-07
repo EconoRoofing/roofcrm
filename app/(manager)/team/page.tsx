@@ -215,7 +215,7 @@ function AddMemberModal({
               onClick={onClose}
               style={{
                 flex: 1,
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
@@ -233,7 +233,7 @@ function AddMemberModal({
               disabled={loading}
               style={{
                 flex: 2,
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: 'var(--accent)',
                 border: 'none',
                 borderRadius: '8px',
@@ -325,6 +325,7 @@ function ResetPinModal({
               {profile.name}&apos;s PIN has been reset.
             </div>
             <button
+              type="button"
               onClick={onClose}
               style={{
                 padding: '12px 32px',
@@ -372,7 +373,7 @@ function ResetPinModal({
                 autoFocus
                 style={{
                   width: '100%',
-                  padding: '14px',
+                  padding: '16px',
                   backgroundColor: 'var(--bg-elevated)',
                   border: '1px solid var(--border-subtle)',
                   borderRadius: '8px',
@@ -503,6 +504,7 @@ export default function TeamPage() {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => setShowAdd(true)}
           style={{
             padding: '10px 20px',
@@ -556,7 +558,7 @@ export default function TeamPage() {
                   padding: '16px',
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   opacity: profile.is_active ? 1 : 0.5,
                 }}
               >
@@ -619,13 +621,14 @@ export default function TeamPage() {
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                   <button
+                    type="button"
                     onClick={() => setResetTarget(profile)}
                     aria-label={`Reset PIN for ${profile.name}`}
                     style={{
                       padding: '8px 14px',
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-subtle)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       color: 'var(--text-secondary)',
                       fontFamily: 'var(--font-mono)',
                       fontSize: '11px',
@@ -637,13 +640,14 @@ export default function TeamPage() {
                     Reset PIN
                   </button>
                   <button
+                    type="button"
                     onClick={() => toggleActive(profile)}
                     aria-label={profile.is_active ? `Deactivate ${profile.name}` : `Activate ${profile.name}`}
                     style={{
                       padding: '8px 14px',
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-subtle)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       color: profile.is_active ? 'var(--accent-red)' : 'var(--accent)',
                       fontFamily: 'var(--font-mono)',
                       fontSize: '11px',
