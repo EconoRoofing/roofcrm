@@ -260,7 +260,7 @@ export function TodayView({ todayJobs, staleJobs, followUps = [], currentUserId 
                       padding: '6px 12px',
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-subtle)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       color: 'var(--accent)',
                       fontFamily: 'var(--font-mono)',
                       fontSize: '10px',

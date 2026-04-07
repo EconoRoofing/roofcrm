@@ -22,7 +22,7 @@ export async function sendSMS(
   const fromNumber = process.env.TWILIO_PHONE_NUMBER
 
   if (!accountSid || !authToken || !fromNumber) {
-    console.log('Twilio not configured — skipping SMS')
+    console.warn('Twilio not configured — skipping SMS')
     return { success: false }
   }
 

@@ -106,7 +106,7 @@ export function CertManager({ usersWithCerts }: Props) {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              padding: '14px 16px',
+              padding: '16px',
               borderBottom: '1px solid var(--border-subtle)',
               backgroundColor: 'var(--bg-elevated)',
             }}
@@ -163,7 +163,7 @@ export function CertManager({ usersWithCerts }: Props) {
                 padding: '6px 12px',
                 backgroundColor: addingFor === user.id ? 'var(--bg-surface)' : 'var(--accent-dim)',
                 border: `1px solid ${addingFor === user.id ? 'var(--border-subtle)' : 'var(--accent)'}`,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 fontFamily: 'var(--font-sans)',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -333,7 +333,7 @@ export function CertManager({ usersWithCerts }: Props) {
                       gap: '12px',
                       padding: '10px 12px',
                       backgroundColor: 'var(--bg-elevated)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       border: `1px solid ${cert.status === 'expired' ? 'rgba(255,82,82,0.2)' : cert.status === 'expiring_soon' ? 'rgba(255,171,0,0.2)' : 'var(--border-subtle)'}`,
                     }}
                   >

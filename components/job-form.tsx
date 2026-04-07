@@ -277,7 +277,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '14px 16px',
+            padding: '16px',
             borderRadius: '8px',
             border: `1px solid ${isInsuranceClaim ? 'rgba(0,230,118,0.3)' : 'var(--border-subtle)'}`,
             background: isInsuranceClaim ? 'rgba(0,230,118,0.05)' : 'var(--bg-elevated)',

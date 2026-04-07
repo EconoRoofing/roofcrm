@@ -13,7 +13,7 @@ export async function sendEstimateEmail(
   pdfUrl: string
 ): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) {
-    console.log('RESEND_API_KEY not set — skipping email')
+    console.warn('RESEND_API_KEY not set — skipping email')
     return false
   }
 

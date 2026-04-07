@@ -3,6 +3,7 @@ import { getUser, getUserRole } from '@/lib/auth'
 import { getJobsByDate, getJobs } from '@/lib/actions/jobs'
 import { getMyFollowUps } from '@/lib/actions/follow-up-tasks'
 import { TodayView } from '@/components/sales/today-view'
+import { formatDisplayDate } from '@/lib/utils'
 import type { UserRole, Job } from '@/lib/types/database'
 import type { FollowUp } from '@/lib/actions/follow-up-tasks'
 
@@ -16,13 +17,6 @@ function getGreeting(hour: number): string {
   return 'Good evening'
 }
 
-function formatDisplayDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
-}
 
 function daysSince(dateStr: string): number {
   const created = new Date(dateStr)

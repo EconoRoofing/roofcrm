@@ -5,6 +5,7 @@ import { getActiveTimeEntry } from '@/lib/actions/time-tracking'
 import { WeatherWidget } from '@/components/crew/weather-widget'
 import { StatsBar } from '@/components/crew/stats-bar'
 import { DayTimeline } from '@/components/crew/day-timeline'
+import { formatDisplayDate } from '@/lib/utils'
 import type { Job, UserRole } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -17,13 +18,6 @@ function getGreeting(hour: number): string {
   return 'Good evening'
 }
 
-function formatDisplayDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
-}
 
 export default async function RoutePage() {
   const user = await getUser()

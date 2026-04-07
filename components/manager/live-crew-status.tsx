@@ -272,7 +272,7 @@ export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) 
                 onClick={() => setViewMode(mode)}
                 style={{
                   padding: '4px 12px',
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   border: 'none',
                   fontFamily: 'var(--font-sans)',
                   fontSize: '11px',

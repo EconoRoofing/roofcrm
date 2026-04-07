@@ -94,7 +94,7 @@ export function EquipmentCheckout({
                 color: '#ff5252',
                 padding: '6px 10px',
                 backgroundColor: 'rgba(255,82,82,0.08)',
-                borderRadius: '6px',
+                borderRadius: '8px',
               }}
             >
               {error}
@@ -125,7 +125,7 @@ export function EquipmentCheckout({
                     justifyContent: 'space-between',
                     padding: '8px 10px',
                     backgroundColor: 'var(--bg-elevated)',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     border: '1px solid var(--border-subtle)',
                   }}
                 >
@@ -156,10 +156,10 @@ export function EquipmentCheckout({
                     onClick={() => handleReturn(item)}
                     disabled={isPending}
                     style={{
-                      padding: '5px 12px',
+                      padding: '8px 12px',
                       backgroundColor: 'var(--accent-amber-dim)',
                       border: '1px solid rgba(255,171,0,0.3)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       fontFamily: 'var(--font-sans)',
                       fontSize: '11px',
                       fontWeight: 600,
@@ -198,7 +198,7 @@ export function EquipmentCheckout({
                     justifyContent: 'space-between',
                     padding: '8px 10px',
                     backgroundColor: 'var(--bg-elevated)',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     border: '1px solid var(--border-subtle)',
                   }}
                 >
@@ -229,10 +229,10 @@ export function EquipmentCheckout({
                     onClick={() => handleCheckOut(item)}
                     disabled={isPending}
                     style={{
-                      padding: '5px 12px',
+                      padding: '8px 12px',
                       backgroundColor: 'var(--accent-dim)',
                       border: '1px solid var(--accent-glow)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       fontFamily: 'var(--font-sans)',
                       fontSize: '11px',
                       fontWeight: 600,

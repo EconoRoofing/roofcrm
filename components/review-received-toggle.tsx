@@ -56,7 +56,7 @@ export function ReviewReceivedToggle({ jobId, initialValue }: ReviewReceivedTogg
         disabled={saving}
         style={{
           padding: '6px 14px',
-          borderRadius: '6px',
+          borderRadius: '8px',
           border: 'none',
           background: received ? 'var(--bg-surface)' : 'var(--accent)',
           color: received ? 'var(--text-muted)' : '#0a0a0a',

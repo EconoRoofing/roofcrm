@@ -314,7 +314,7 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
               onClick={applyPreviousSpecs}
               style={{
                 padding: '6px 12px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 border: 'none',
                 background: 'var(--accent)',
                 color: '#0a0a0a',
@@ -331,7 +331,7 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
               onClick={() => setShowPrevBanner(false)}
               style={{
                 padding: '6px 10px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 border: '1px solid var(--border-subtle)',
                 background: 'transparent',
                 color: 'var(--text-muted)',

@@ -58,7 +58,7 @@ export function SafetyDashboard({
                 type="button"
                 onClick={() => setActiveTab(id)}
                 style={{
-                  padding: '14px 16px',
+                  padding: '16px',
                   background: 'none',
                   border: 'none',
                   borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
@@ -78,7 +78,7 @@ export function SafetyDashboard({
                       marginLeft: '6px',
                       padding: '1px 6px',
                       backgroundColor: 'var(--accent-red)',
-                      borderRadius: '10px',
+                      borderRadius: '8px',
                       fontSize: '10px',
                       fontWeight: 700,
                       color: '#fff',
@@ -94,7 +94,7 @@ export function SafetyDashboard({
                       marginLeft: '6px',
                       padding: '1px 6px',
                       backgroundColor: 'var(--accent-amber)',
-                      borderRadius: '10px',
+                      borderRadius: '8px',
                       fontSize: '10px',
                       fontWeight: 700,
                       color: '#000',

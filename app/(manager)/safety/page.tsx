@@ -110,7 +110,7 @@ export default async function SafetyPage() {
               {missingTalks.length > 0 && (
                 <div
                   style={{
-                    padding: '14px 16px',
+                    padding: '16px',
                     backgroundColor: 'var(--accent-red-dim)',
                     border: '1px solid rgba(255,82,82,0.3)',
                     borderRadius: '8px',
@@ -414,7 +414,7 @@ export default async function SafetyPage() {
                         <div
                           key={incident.id}
                           style={{
-                            padding: '14px 16px',
+                            padding: '16px',
                             backgroundColor: 'var(--bg-surface)',
                             border: '1px solid var(--border-subtle)',
                             borderRadius: '8px',

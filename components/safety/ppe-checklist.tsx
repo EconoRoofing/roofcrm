@@ -90,7 +90,7 @@ export function PpeChecklist({ onConfirm, onBack }: Props) {
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: '12px',
-                padding: '14px 16px',
+                padding: '16px',
                 backgroundColor: isChecked ? 'rgba(34,197,94,0.06)' : 'var(--bg-surface)',
                 border: `1px solid ${isChecked ? 'rgba(34,197,94,0.25)' : 'var(--border-subtle)'}`,
                 borderRadius: '8px',
@@ -104,7 +104,7 @@ export function PpeChecklist({ onConfirm, onBack }: Props) {
                 style={{
                   width: '22px',
                   height: '22px',
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   border: `2px solid ${isChecked ? '#22c55e' : 'var(--border-subtle)'}`,
                   backgroundColor: isChecked ? '#22c55e' : 'transparent',
                   display: 'flex',

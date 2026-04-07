@@ -288,7 +288,7 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                 >
                   <td
                     style={{
-                      padding: '14px 16px',
+                      padding: '16px',
                       fontFamily: 'var(--font-sans)',
                       fontSize: '14px',
                       fontWeight: 600,
@@ -299,7 +299,7 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                   </td>
                   <td
                     style={{
-                      padding: '14px 16px',
+                      padding: '16px',
                       fontFamily: 'var(--font-sans)',
                       fontSize: '13px',
                       color: 'var(--text-secondary)',
@@ -308,12 +308,12 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                   >
                     {item.type}
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
+                  <td style={{ padding: '16px' }}>
                     <StatusBadge status={item.status} />
                   </td>
                   <td
                     style={{
-                      padding: '14px 16px',
+                      padding: '16px',
                       fontFamily: 'var(--font-sans)',
                       fontSize: '13px',
                       color: 'var(--text-secondary)',
@@ -323,7 +323,7 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                   </td>
                   <td
                     style={{
-                      padding: '14px 16px',
+                      padding: '16px',
                       fontFamily: 'var(--font-mono)',
                       fontSize: '12px',
                       color: 'var(--text-muted)',
@@ -331,7 +331,7 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                   >
                     {item.job ? `#${item.job.job_number}` : '—'}
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
+                  <td style={{ padding: '16px' }}>
                     {item.status === 'in_use' && (
                       <button
                         type="button"
@@ -341,7 +341,7 @@ export default function EquipmentManager({ initialEquipment }: EquipmentManagerP
                           padding: '6px 14px',
                           backgroundColor: 'var(--accent-amber-dim)',
                           border: '1px solid rgba(255,171,0,0.3)',
-                          borderRadius: '6px',
+                          borderRadius: '8px',
                           fontFamily: 'var(--font-sans)',
                           fontSize: '12px',
                           fontWeight: 600,
