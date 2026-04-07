@@ -228,7 +228,13 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
       {/* Content */}
       <div style={{ flex: 1, paddingTop: '24px', paddingBottom: '120px' }}>
         {step === 0 && (
-          <SpecsForm data={specs} onChange={handleSpecsChange} />
+          <SpecsForm
+            data={specs}
+            onChange={handleSpecsChange}
+            address={job.address}
+            city={job.city}
+            state={job.state ?? undefined}
+          />
         )}
         {step === 1 && (
           <PricingForm data={pricing} onChange={handlePricingChange} />

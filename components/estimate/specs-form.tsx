@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import type { Job, EstimateSpecs } from '@/lib/types/database'
+import { RoofViewer } from './roof-viewer'
+import type { RoofMeasurements } from '@/lib/roof-measurements'
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 
@@ -91,6 +93,9 @@ export interface SpecsData {
 interface SpecsFormProps {
   data: SpecsData
   onChange: (updates: Partial<SpecsData>) => void
+  address?: string
+  city?: string
+  state?: string
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -284,11 +289,180 @@ function ToggleRow({
   )
 }
 
+// ─── Satellite icon (small, inline) ──────────────────────────────────────────
+
+function SatelliteIconSmall() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="m4.5 16.5-1.1 2.9a.5.5 0 0 0 .64.64L6.9 19" />
+      <path d="M7.5 7.5 6 6" />
+      <path d="m6 6-1.5-1.5" />
+      <path d="m13.5 4.5 1.5 1.5" />
+      <path d="m15 6 1.5 1.5" />
+      <path d="m7.5 16.5 9-9" />
+      <path d="m13.5 4.5-9 9" />
+      <circle cx="16.5" cy="7.5" r="3" />
+      <circle cx="7.5" cy="16.5" r="3" />
+    </svg>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function SpecsForm({ data, onChange }: SpecsFormProps) {
+export function SpecsForm({ data, onChange, address, city, state }: SpecsFormProps) {
+  const [roofViewerOpen, setRoofViewerOpen] = useState(false)
+
+  function handleMeasurementsLoaded(measurements: Partial<RoofMeasurements>) {
+    // Map RoofMeasurements fields to SpecsData fields
+    // total_squares → flat_section_sq is not the right mapping;
+    // squares live in pricing. We pass them through flat_section_sq
+    // as a best-effort until pricing form exposes squares directly.
+    // Any future square field on SpecsData can be added here.
+    const updates: Partial<SpecsData> = {}
+    if (measurements.total_squares != null) {
+      updates.flat_section_sq = measurements.total_squares
+    }
+    if (Object.keys(updates).length > 0) {
+      onChange(updates)
+    }
+    setRoofViewerOpen(false)
+  }
+
+  const hasAddress = !!(address && city && state)
+
   return (
     <div style={{ padding: '0 16px' }}>
+
+      {/* View Roof button — shown when job has an address */}
+      {hasAddress && (
+        <div style={{ marginBottom: '20px' }}>
+          <button
+            type="button"
+            onClick={() => setRoofViewerOpen(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 16px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+              width: '100%',
+              justifyContent: 'center',
+            }}
+          >
+            <SatelliteIconSmall />
+            View Roof
+          </button>
+        </div>
+      )}
+
+      {/* Roof viewer modal/slide-up */}
+      {roofViewerOpen && hasAddress && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+            }}
+            onClick={() => setRoofViewerOpen(false)}
+          />
+          {/* Panel */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              background: 'var(--bg-surface)',
+              borderTopLeftRadius: '20px',
+              borderTopRightRadius: '20px',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0',
+            }}
+          >
+            {/* Panel header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '20px',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  color: 'var(--text-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <SatelliteIconSmall />
+                Roof View
+              </div>
+              <button
+                type="button"
+                onClick={() => setRoofViewerOpen(false)}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle)',
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  lineHeight: 1,
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <RoofViewer
+              address={address!}
+              city={city!}
+              state={state!}
+              onMeasurementsLoaded={handleMeasurementsLoaded}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 1. Material & Color */}
       <div style={sectionStyle}>
