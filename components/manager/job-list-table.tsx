@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
+import { hexToRgba } from '@/lib/utils'
 import type { Job, Company, JobStatus } from '@/lib/types/database'
 
 type JobWithRelations = Job & {
@@ -45,13 +46,6 @@ function formatAmount(amount: number | null): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
-}
 
 export function JobListTable({ jobs, companies }: JobListTableProps) {
   const router = useRouter()
@@ -206,6 +200,7 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           const isActive = activeTab === value
           return (
             <button
+              type="button"
               key={value}
               onClick={() => setActiveTab(value)}
               style={{
@@ -237,7 +232,7 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
                     minWidth: '18px',
                     height: '18px',
                     padding: '0 5px',
-                    borderRadius: '9px',
+                    borderRadius: '8px',
                     fontSize: '10px',
                     fontFamily: 'var(--font-mono)',
                     fontWeight: 600,
@@ -267,9 +262,10 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
         }}
       >
         <button
+          type="button"
           onClick={() => setSelectedCompany(null)}
           style={{
-            padding: '5px 12px',
+            padding: '8px 12px',
             borderRadius: '8px',
             fontSize: '12px',
             fontWeight: 500,
@@ -290,10 +286,11 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           const bgColor = isActive ? hexToRgba(company.color, 0.12) : 'transparent'
           return (
             <button
+              type="button"
               key={company.id}
               onClick={() => setSelectedCompany(isActive ? null : company.id)}
               style={{
-                padding: '5px 12px',
+                padding: '8px 12px',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 500,
@@ -325,37 +322,37 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
             <tr>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('job_number')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('job_number')}>
                   Job # <SortIcon col="job_number" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('customer_name')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('customer_name')}>
                   Customer <SortIcon col="customer_name" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('company')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('company')}>
                   Company <SortIcon col="company" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('job_type')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('job_type')}>
                   Type <SortIcon col="job_type" />
                 </button>
               </th>
               <th style={{ ...thStyle, textAlign: 'right' }}>
-                <button style={{ ...thButtonStyle, justifyContent: 'flex-end' }} onClick={() => handleSort('total_amount')}>
+                <button type="button" style={{ ...thButtonStyle, justifyContent: 'flex-end' }} onClick={() => handleSort('total_amount')}>
                   Amount <SortIcon col="total_amount" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('status')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('status')}>
                   Status <SortIcon col="status" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button style={thButtonStyle} onClick={() => handleSort('rep')}>
+                <button type="button" style={thButtonStyle} onClick={() => handleSort('rep')}>
                   Rep <SortIcon col="rep" />
                 </button>
               </th>

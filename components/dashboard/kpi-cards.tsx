@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { formatCurrency } from '@/lib/utils'
 import type { Company } from '@/lib/types/database'
 import type { DashboardData } from '@/lib/actions/dashboard'
 
@@ -11,7 +12,7 @@ interface KPICardsProps {
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
 
-function formatCurrency(value: number): string {
+function formatKpiCurrency(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
   return `$${value.toFixed(0)}`
@@ -127,7 +128,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
   const maxSourceCount = data.leadsBySource[0]?.count ?? 1
 
   const chipStyle = (active: boolean, color?: string): React.CSSProperties => ({
-    padding: '5px 12px',
+    padding: '8px 12px',
     borderRadius: '8px',
     fontSize: '12px',
     fontWeight: 500,
@@ -204,13 +205,14 @@ export function KPICards({ data, companies }: KPICardsProps) {
         }}
       >
         {/* Company filter */}
-        <button style={chipStyle(selectedCompany === null)} onClick={() => updateParam('company', null)}>
+        <button type="button" style={chipStyle(selectedCompany === null)} onClick={() => updateParam('company', null)}>
           All Companies
         </button>
         {companies.map((company) => {
           const isActive = selectedCompany === company.id
           return (
             <button
+              type="button"
               key={company.id}
               style={chipStyle(isActive, company.color)}
               onClick={() => updateParam('company', isActive ? null : company.id)}
@@ -234,6 +236,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {/* Date range chips */}
         {(['month', 'quarter', 'year', 'all'] as DateRange[]).map((range) => (
           <button
+            type="button"
             key={range}
             style={chipStyle(selectedRange === range)}
             onClick={() => updateParam('range', range === 'month' ? null : range)}
@@ -260,7 +263,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Pipeline Value</span>
               <span style={bigNumberStyle('var(--accent-blue)')}>
-                {formatCurrency(data.pipelineValue)}
+                {formatKpiCurrency(data.pipelineValue)}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 Active & pending jobs
@@ -282,7 +285,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Revenue This Month</span>
               <span style={bigNumberStyle('var(--accent)')}>
-                {formatCurrency(data.revenueThisMonth)}
+                {formatKpiCurrency(data.revenueThisMonth)}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 {formatCurrencyFull(data.revenueThisMonth)} total
@@ -579,7 +582,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
               <div style={cardStyle}>
                 <span style={labelStyle}>Labor Cost (Month)</span>
                 <span style={bigNumberStyle('var(--text-primary)')}>
-                  {formatCurrency(data.totalLaborCostThisMonth)}
+                  {formatKpiCurrency(data.totalLaborCostThisMonth)}
                 </span>
               </div>
               <div style={{ ...cardStyle, gridColumn: 'span 2' }}>

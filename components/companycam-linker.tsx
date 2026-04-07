@@ -2,64 +2,12 @@
 
 import { useState } from 'react'
 import type { CompanyCamProject } from '@/lib/companycam'
+import { LinkIcon, UnlinkIcon, CameraIcon } from '@/components/icons'
 
 interface CompanyCamLinkerProps {
   jobId: string
   address: string
   currentProjectId: string | null
-}
-
-function LinkIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function UnlinkIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-3 3a5 5 0 0 0 .54 7.54"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M5.16 11.75l-1.72 1.71a5 5 0 0 0 7.07 7.07l3-3a5 5 0 0 0-.54-7.54"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function CameraIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="2" y="5" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="11" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M7 5L7.8 3H12.2L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 }
 
 async function updateJobCompanyCam(jobId: string, projectId: string | null) {
@@ -171,6 +119,7 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
           </div>
         </div>
         <button
+          type="button"
           onClick={handleUnlink}
           disabled={isSaving}
           style={{
@@ -185,8 +134,8 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
             color: 'var(--text-muted)',
             backgroundColor: 'transparent',
             border: '1px solid var(--border-subtle)',
-            borderRadius: '6px',
-            padding: '5px 10px',
+            borderRadius: '8px',
+            padding: '8px 10px',
             cursor: 'pointer',
             opacity: isSaving ? 0.5 : 1,
           }}
@@ -204,6 +153,7 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
       {/* Search trigger button */}
       {results === null && (
         <button
+          type="button"
           onClick={handleSearch}
           disabled={isSearching}
           style={{
@@ -269,6 +219,7 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
               {results.length > 0 ? `${results.length} project${results.length !== 1 ? 's' : ''} found` : 'No matching projects found'}
             </span>
             <button
+              type="button"
               onClick={() => setResults(null)}
               style={{
                 fontFamily: 'var(--font-mono)',
@@ -300,6 +251,7 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
             <div>
               {results.map((project) => (
                 <button
+                  type="button"
                   key={project.id}
                   onClick={() => handleLink(project)}
                   disabled={isSaving}

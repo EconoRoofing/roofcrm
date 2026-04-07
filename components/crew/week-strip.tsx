@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { getJobsByDate } from '@/lib/actions/jobs'
 import { CompanyTag } from '@/components/company-tag'
+import { ChevronIcon } from '@/components/icons'
 import type { Job, UserRole } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -33,7 +34,7 @@ function toDateString(d: Date): string {
   return d.toISOString().split('T')[0]
 }
 
-function formatJobType(type: string): string {
+function formatJobTypeLocal(type: string): string {
   const map: Record<string, string> = {
     reroof: 'Re-Roof',
     repair: 'Repair',
@@ -45,20 +46,6 @@ function formatJobType(type: string): string {
     other: 'Other',
   }
   return map[type] ?? type
-}
-
-function ChevronIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path
-        d="M5 3L9 7L5 11"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }
 
 export function WeekStrip({ userId, role }: WeekStripProps) {
@@ -254,7 +241,7 @@ export function WeekStrip({ userId, role }: WeekStripProps) {
                     color: 'var(--text-muted)',
                   }}
                 >
-                  {job.address}, {job.city} &middot; {formatJobType(job.job_type)}
+                  {job.address}, {job.city} &middot; {formatJobTypeLocal(job.job_type)}
                 </span>
               </div>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>

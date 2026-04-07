@@ -162,7 +162,7 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
                     fontWeight: 600,
                     color: profitColor(profitPct),
                     padding: '2px 6px',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     backgroundColor: 'var(--bg-elevated)',
                   }}
                 >

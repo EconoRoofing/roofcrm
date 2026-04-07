@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { RoofMeasurements } from '@/lib/roof-measurements'
+import { SatelliteIcon } from '@/components/icons'
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -36,33 +37,6 @@ interface RoofViewerProps {
   city: string
   state: string
   onMeasurementsLoaded: (data: Partial<RoofMeasurements>) => void
-}
-
-// ─── Satellite icon SVG ───────────────────────────────────────────────────────
-
-function SatelliteIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m4.5 16.5-1.1 2.9a.5.5 0 0 0 .64.64L6.9 19" />
-      <path d="M7.5 7.5 6 6" />
-      <path d="m6 6-1.5-1.5" />
-      <path d="m13.5 4.5 1.5 1.5" />
-      <path d="m15 6 1.5 1.5" />
-      <path d="m7.5 16.5 9-9" />
-      <path d="m13.5 4.5-9 9" />
-      <circle cx="16.5" cy="7.5" r="3" />
-      <circle cx="7.5" cy="16.5" r="3" />
-    </svg>
-  )
 }
 
 // ─── Measurement card ─────────────────────────────────────────────────────────

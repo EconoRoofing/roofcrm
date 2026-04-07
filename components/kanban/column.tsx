@@ -90,7 +90,7 @@ export function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnPro
             color: 'var(--accent)',
             backgroundColor: 'var(--accent-dim)',
             padding: '2px 7px',
-            borderRadius: '6px',
+            borderRadius: '8px',
             lineHeight: '1.4',
           }}
         >

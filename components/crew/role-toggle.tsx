@@ -37,7 +37,7 @@ export function RoleToggle({ currentRole }: RoleToggleProps) {
         display: 'flex',
         backgroundColor: 'var(--bg-surface)',
         border: '1px solid var(--border-subtle)',
-        borderRadius: '10px',
+        borderRadius: '8px',
         padding: '3px',
         gap: '3px',
       }}

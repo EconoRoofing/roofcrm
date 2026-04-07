@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { verifyPin, selectProfile } from '@/lib/actions/profiles'
+import { BackspaceIcon, BackArrowIcon } from '@/components/icons'
 
 interface PinEntryProps {
   profileId: string
@@ -16,39 +17,6 @@ const ROLE_ROUTES: Record<string, string> = {
   sales: '/today',
   sales_crew: '/today',
   crew: '/route',
-}
-
-function BackspaceIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M21 6H8L3 12L8 18H21V6Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M16 10L11 15M11 10L16 15"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function BackArrowIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path
-        d="M12 4L6 10L12 16"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }
 
 export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEntryProps) {
@@ -138,6 +106,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
     >
       {/* Back button */}
       <button
+        type="button"
         onClick={onBack}
         style={{
           alignSelf: 'flex-start',
@@ -254,6 +223,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           if (key === 'back') {
             return (
               <button
+                type="button"
                 key={i}
                 onClick={pressBackspace}
                 disabled={submitting || digits.length === 0}
@@ -284,6 +254,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           }
           return (
             <button
+              type="button"
               key={i}
               onClick={() => pressDigit(key)}
               disabled={submitting || digits.length >= 4}

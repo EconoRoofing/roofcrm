@@ -128,7 +128,7 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
           style={{
             backgroundColor: 'var(--bg-card)',
             border: `1px solid ${breakExceeded ? 'var(--accent-red)' : 'var(--border-subtle)'}`,
-            borderRadius: '10px',
+            borderRadius: '8px',
             padding: '12px 16px',
             display: 'flex',
             alignItems: 'center',
@@ -252,7 +252,7 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
             color: 'var(--accent-red)',
             padding: '6px 10px',
             backgroundColor: 'var(--accent-red-dim)',
-            borderRadius: '6px',
+            borderRadius: '8px',
             border: '1px solid rgba(255,82,82,0.2)',
           }}
         >

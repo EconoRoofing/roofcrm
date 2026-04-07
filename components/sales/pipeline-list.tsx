@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
+import { formatJobType } from '@/lib/utils'
 import type { Job, JobStatus } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -23,9 +24,6 @@ const TABS: { label: string; value: JobStatus | 'all' }[] = [
   { label: 'Done', value: 'completed' },
 ]
 
-function formatJobType(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 function formatAmount(amount: number | null): string {
   if (amount == null) return '--'

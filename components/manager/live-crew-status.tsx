@@ -199,7 +199,7 @@ function CrewCard({ entry }: { entry: ActiveEntry }) {
             alignItems: 'flex-start',
             gap: '6px',
             padding: '6px 8px',
-            borderRadius: '6px',
+            borderRadius: '8px',
             backgroundColor: 'rgba(255,82,82,0.08)',
             border: '1px solid rgba(255,82,82,0.2)',
           }}

@@ -40,9 +40,10 @@ export function CompanyFilter({ companies, selected }: CompanyFilterProps) {
     >
       {/* "All" chip */}
       <button
+        type="button"
         onClick={() => handleSelect(null)}
         style={{
-          padding: '5px 12px',
+          padding: '8px 12px',
           borderRadius: '8px',
           fontSize: '12px',
           fontWeight: 500,
@@ -75,10 +76,11 @@ export function CompanyFilter({ companies, selected }: CompanyFilterProps) {
 
         return (
           <button
+            type="button"
             key={company.id}
             onClick={() => handleSelect(isActive ? null : company.id)}
             style={{
-              padding: '5px 12px',
+              padding: '8px 12px',
               borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 500,

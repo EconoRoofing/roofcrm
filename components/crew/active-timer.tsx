@@ -44,7 +44,7 @@ export function ActiveTimer({ timeEntry, jobName }: ActiveTimerProps) {
         padding: '10px 16px',
         backgroundColor: 'var(--bg-card)',
         border: '1px solid var(--border-subtle)',
-        borderRadius: '10px',
+        borderRadius: '8px',
       }}
     >
       {/* Pulsing green dot */}

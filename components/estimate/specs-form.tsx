@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Job, EstimateSpecs } from '@/lib/types/database'
 import { RoofViewer } from './roof-viewer'
 import type { RoofMeasurements } from '@/lib/roof-measurements'
+import { SatelliteIcon } from '@/components/icons'
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 
@@ -250,7 +251,7 @@ function ToggleRow({
             position: 'relative',
             width: '48px',
             height: '28px',
-            borderRadius: '14px',
+            borderRadius: '12px',
             border: 'none',
             background: value ? 'var(--accent)' : 'var(--bg-elevated)',
             cursor: 'pointer',
@@ -286,34 +287,6 @@ function ToggleRow({
         </div>
       )}
     </div>
-  )
-}
-
-// ─── Satellite icon (small, inline) ──────────────────────────────────────────
-
-function SatelliteIconSmall() {
-  return (
-    <svg
-      width={14}
-      height={14}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ flexShrink: 0 }}
-    >
-      <path d="m4.5 16.5-1.1 2.9a.5.5 0 0 0 .64.64L6.9 19" />
-      <path d="M7.5 7.5 6 6" />
-      <path d="m6 6-1.5-1.5" />
-      <path d="m13.5 4.5 1.5 1.5" />
-      <path d="m15 6 1.5 1.5" />
-      <path d="m7.5 16.5 9-9" />
-      <path d="m13.5 4.5-9 9" />
-      <circle cx="16.5" cy="7.5" r="3" />
-      <circle cx="7.5" cy="16.5" r="3" />
-    </svg>
   )
 }
 
@@ -366,7 +339,7 @@ export function SpecsForm({ data, onChange, address, city, state }: SpecsFormPro
               justifyContent: 'center',
             }}
           >
-            <SatelliteIconSmall />
+            <SatelliteIcon size={14} />
             View Roof
           </button>
         </div>
@@ -429,7 +402,7 @@ export function SpecsForm({ data, onChange, address, city, state }: SpecsFormPro
                   gap: '8px',
                 }}
               >
-                <SatelliteIconSmall />
+                <SatelliteIcon size={14} />
                 Roof View
               </div>
               <button

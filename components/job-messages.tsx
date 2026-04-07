@@ -284,7 +284,7 @@ export function JobMessages({ jobId, customerPhone }: JobMessagesProps) {
               flex: 1,
               backgroundColor: 'var(--bg-elevated)',
               border: '1px solid var(--border-subtle)',
-              borderRadius: '10px',
+              borderRadius: '8px',
               padding: '10px 14px',
               fontSize: '13px',
               color: 'var(--text-primary)',
@@ -293,12 +293,13 @@ export function JobMessages({ jobId, customerPhone }: JobMessagesProps) {
             }}
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={sending || !inputValue.trim()}
             title={!twilioConfigured ? 'SMS not configured' : undefined}
             style={{
               padding: '10px 16px',
-              borderRadius: '10px',
+              borderRadius: '8px',
               backgroundColor:
                 sending || !inputValue.trim() ? 'var(--bg-elevated)' : 'var(--accent-dim)',
               border: `1px solid ${sending || !inputValue.trim() ? 'var(--border-subtle)' : 'rgba(0,230,118,0.25)'}`,

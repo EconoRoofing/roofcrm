@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import type { Job } from '@/lib/types/database'
 import { getProjectDeepLink } from '@/lib/companycam'
 import type { CompanyCamPhoto } from '@/lib/companycam'
+import { CameraIcon, ExternalLinkIcon } from '@/components/icons'
 
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
@@ -22,48 +23,6 @@ const PHOTO_GRADIENTS = [
   'linear-gradient(135deg, #0f1520, #1c2232)',
   'linear-gradient(135deg, #141c28, #0d1219)',
 ]
-
-function CameraIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="2" y="5" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="11" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M7 5L7.8 3H12.2L13 5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function ExternalLinkIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path
-        d="M6 3H3C2.4 3 2 3.4 2 4V11C2 11.6 2.4 12 3 12H10C10.6 12 11 11.6 11 11V8"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8 2H12V6"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 2L7 7"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
 
 function PlaceholderPhoto({ index }: { index: number }) {
   const gradient = PHOTO_GRADIENTS[index % PHOTO_GRADIENTS.length]

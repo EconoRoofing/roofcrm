@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StaleReminders } from '@/components/sales/stale-reminders'
 import { PhoneIcon, MessageIcon, MapPinIcon } from '@/components/icons'
+import { formatJobType, buildMapsUrl, formatCurrency } from '@/lib/utils'
 import type { Job } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -20,23 +21,6 @@ interface TodayViewProps {
   }
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
-
-function formatJobType(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function appleMapsUrl(address: string, city: string): string {
-  const query = encodeURIComponent(`${address}, ${city}`)
-  return `https://maps.apple.com/?q=${query}`
-}
 
 export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
   const router = useRouter()
@@ -226,7 +210,7 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   overflow: 'hidden',
                   cursor: 'pointer',
                 }}
@@ -348,7 +332,7 @@ export function TodayView({ todayJobs, staleJobs, stats }: TodayViewProps) {
                   )}
                   {job.address && (
                     <a
-                      href={appleMapsUrl(job.address, job.city)}
+                      href={buildMapsUrl(job.address, job.city)}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{

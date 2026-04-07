@@ -45,7 +45,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         display: 'inline-flex',
         alignItems: 'center',
         padding: '3px 9px',
-        borderRadius: '6px',
+        borderRadius: '8px',
         backgroundColor: bg,
         color: color,
         fontFamily: 'var(--font-mono)',

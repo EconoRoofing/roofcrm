@@ -134,6 +134,7 @@ export function JobActions({ job }: JobActionsProps) {
       {/* Status advancement button */}
       {next && (
         <button
+          type="button"
           onClick={handleAdvance}
           disabled={advancing}
           style={{
@@ -160,6 +161,7 @@ export function JobActions({ job }: JobActionsProps) {
       {/* Cancel button */}
       {canCancel && (
         <button
+          type="button"
           onClick={handleCancel}
           disabled={cancelling}
           style={{

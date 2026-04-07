@@ -53,7 +53,7 @@ export function StaleReminders({ jobs }: StaleRemindersProps) {
             minWidth: '18px',
             height: '18px',
             padding: '0 5px',
-            borderRadius: '9px',
+            borderRadius: '8px',
             backgroundColor: 'var(--accent-dim)',
             fontFamily: 'var(--font-mono)',
             fontSize: '9px',

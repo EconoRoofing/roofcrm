@@ -137,7 +137,7 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
           disabled={isPending}
           style={{
             padding: '10px 20px',
-            borderRadius: '10px',
+            borderRadius: '8px',
             backgroundColor: 'var(--accent-dim)',
             border: '1px solid rgba(0,230,118,0.25)',
             color: 'var(--accent)',
@@ -188,7 +188,7 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
             color: 'var(--text-muted)',
             backgroundColor: 'var(--bg-elevated)',
             padding: '3px 8px',
-            borderRadius: '6px',
+            borderRadius: '8px',
           }}
         >
           {displayItems.length} items

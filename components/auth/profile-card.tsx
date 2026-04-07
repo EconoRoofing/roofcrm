@@ -33,6 +33,7 @@ export function ProfileCard({ profile, onSelect }: ProfileCardProps) {
 
   return (
     <button
+      type="button"
       onClick={() => onSelect(profile)}
       style={{
         display: 'flex',

@@ -108,7 +108,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
               color: 'var(--text-secondary)',
               backgroundColor: 'var(--bg-elevated)',
               padding: '3px 8px',
-              borderRadius: '6px',
+              borderRadius: '8px',
               letterSpacing: '0.08em',
             }}
           >

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanColumn } from './column'
+import { formatCurrency } from '@/lib/utils'
 import type { KanbanJob } from './card'
 import type { Company, JobStatus } from '@/lib/types/database'
 
@@ -34,9 +35,6 @@ const COLUMN_LABELS: Record<JobStatus, string> = {
   cancelled: 'Cancelled',
 }
 
-function formatCurrency(amount: number): string {
-  return '$' + amount.toLocaleString('en-US')
-}
 
 export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanBoardProps) {
   const router = useRouter()
