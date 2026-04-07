@@ -348,6 +348,26 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(split50)}</span>
               </div>
             )}
+            {isManager && (job.commission_rate ?? 0) > 0 && (job.total_amount ?? 0) > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(0,230,118,0.06)',
+                  border: '1px solid rgba(0,230,118,0.15)',
+                }}
+              >
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', fontWeight: '500' }}>
+                  Commission ({job.commission_rate}%)
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent)', fontWeight: '500' }}>
+                  {fmt(job.commission_amount ?? null)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -360,6 +380,55 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           laborCost={laborCost}
           laborHours={laborHours}
         />
+      )}
+
+      {/* Insurance Section */}
+      {job.insurance_claim && (
+        <div
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '20px',
+            border: '1px solid var(--border-subtle)',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Insurance Claim
+            </h2>
+            {job.claim_status && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  fontFamily: 'var(--font-sans)',
+                  padding: '3px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(0,230,118,0.1)',
+                  border: '1px solid rgba(0,230,118,0.2)',
+                  color: 'var(--accent)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                {job.claim_status}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <DetailRow label="Insurance Carrier" value={job.insurance_company} />
+            <DetailRow label="Claim Number" value={job.claim_number ? <MonoValue>{job.claim_number}</MonoValue> : null} />
+            <DetailRow label="Adjuster" value={job.adjuster_name} />
+            <DetailRow label="Adjuster Phone" value={job.adjuster_phone ? <a href={`tel:${job.adjuster_phone}`} style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '500', textDecoration: 'none' }}>{job.adjuster_phone}</a> : null} />
+            <DetailRow label="Date of Loss" value={job.date_of_loss ? <MonoValue>{job.date_of_loss}</MonoValue> : null} />
+            <DetailRow label="Deductible" value={job.deductible != null ? <MonoValue>{fmt(job.deductible)}</MonoValue> : null} />
+            <DetailRow label="Insurance Payout" value={job.insurance_payout != null ? <MonoValue>{fmt(job.insurance_payout)}</MonoValue> : null} />
+            <DetailRow label="Supplement" value={job.supplement_amount != null ? <MonoValue>{fmt(job.supplement_amount)}</MonoValue> : null} />
+          </div>
+        </div>
       )}
 
       {/* Site Notes */}

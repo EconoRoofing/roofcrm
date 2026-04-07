@@ -9,6 +9,7 @@ import {
   deleteCalendarEvent,
 } from '@/lib/google-calendar'
 import { sendStatusUpdateSMS } from '@/lib/actions/messages'
+import { geocodeAddress } from '@/lib/geo'
 import type { JobStatus, JobType, UserRole, EstimateSpecs } from '@/lib/types/database'
 
 // Valid state machine transitions
@@ -28,12 +29,16 @@ interface CreateJobData {
   customer_name: string
   address: string
   city: string
+  state?: string | null
   phone?: string | null
   email?: string | null
   job_type: JobType
   rep_id?: string | null
   notes?: string | null
   scheduled_date?: string | null
+  insurance_claim?: boolean | null
+  insurance_company?: string | null
+  claim_number?: string | null
 }
 
 interface UpdateJobData {
@@ -101,6 +106,16 @@ export async function createJob(data: CreateJobData) {
 
   await logActivity(job.id, user?.id ?? null, 'job_created')
 
+  // Geocode the address to store lat/lng for geofencing — best-effort
+  try {
+    const coords = await geocodeAddress(data.address, data.city, data.state ?? 'CA')
+    if (coords) {
+      await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', job.id)
+    }
+  } catch (geoError) {
+    console.error('Geocoding failed:', geoError)
+  }
+
   return job
 }
 
@@ -126,6 +141,23 @@ export async function updateJob(id: string, data: UpdateJobData) {
 
   if (error) throw new Error(`Failed to update job: ${error.message}`)
 
+  // Re-geocode if address or city changed — best-effort
+  if (data.address || data.city) {
+    try {
+      const jobData = await supabase.from('jobs').select('address, city, state').eq('id', id).single()
+      if (jobData.data) {
+        const coords = await geocodeAddress(
+          data.address ?? jobData.data.address,
+          data.city ?? jobData.data.city,
+          data.state ?? jobData.data.state ?? 'CA'
+        )
+        if (coords) {
+          await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', id)
+        }
+      }
+    } catch {}
+  }
+
   // Log activity for each changed field
   for (const key of Object.keys(data) as (keyof UpdateJobData)[]) {
     const oldVal = currentJob[key]
@@ -146,7 +178,7 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
 
   const { data: currentJob, error: fetchError } = await supabase
     .from('jobs')
-    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id')
+    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id, rep_id, total_amount')
     .eq('id', id)
     .single()
 
@@ -191,6 +223,27 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   if (error) throw new Error(`Failed to update job status: ${error.message}`)
 
   await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
+
+  // Auto-calculate commission when job is sold — best-effort
+  if (newStatus === 'sold') {
+    try {
+      const { data: repData } = await supabase
+        .from('users')
+        .select('commission_rate')
+        .eq('id', currentJob.rep_id)
+        .single()
+
+      if (repData?.commission_rate && currentJob.total_amount) {
+        const commissionAmount = currentJob.total_amount * (repData.commission_rate / 100)
+        await supabase.from('jobs').update({
+          commission_rate: repData.commission_rate,
+          commission_amount: commissionAmount,
+        }).eq('id', id)
+      }
+    } catch (commErr) {
+      console.error('Commission calculation error:', commErr)
+    }
+  }
 
   // Calendar sync — best-effort, never blocks the status change
   if (user?.id) {

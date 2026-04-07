@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createJob } from '@/lib/actions/jobs'
 import { FormInput, FormTextarea, FormSelect, labelStyle, fieldStyle } from '@/components/ui/form-field'
+import { APP_CONFIG } from '@/lib/config'
 import type { Company, User, JobType, UserRole } from '@/lib/types/database'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
@@ -30,7 +31,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
   const [companyId, setCompanyId] = useState<string>('')
   const [customerName, setCustomerName] = useState('')
   const [address, setAddress] = useState('')
-  const [city, setCity] = useState('Fresno')
+  const [city, setCity] = useState<string>(APP_CONFIG.DEFAULT_CITY)
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [jobType, setJobType] = useState<JobType | ''>('')
@@ -39,6 +40,9 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isInsuranceClaim, setIsInsuranceClaim] = useState(false)
+  const [insuranceCompany, setInsuranceCompany] = useState('')
+  const [claimNumber, setClaimNumber] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,6 +64,11 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
         rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
         notes: notes || null,
         scheduled_date: scheduledDate || null,
+        ...(isInsuranceClaim && {
+          insurance_claim: true,
+          insurance_company: insuranceCompany || null,
+          claim_number: claimNumber || null,
+        }),
       })
       router.push(`/jobs/${newJob.id}`)
     } catch (err) {
@@ -235,6 +244,75 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
           placeholder="Any additional notes..."
           rows={4}
         />
+      </div>
+
+      {/* Insurance Claim Toggle */}
+      <div style={{ marginBottom: '24px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 16px',
+            borderRadius: '8px',
+            border: `1px solid ${isInsuranceClaim ? 'rgba(0,230,118,0.3)' : 'var(--border-subtle)'}`,
+            background: isInsuranceClaim ? 'rgba(0,230,118,0.05)' : 'var(--bg-elevated)',
+            cursor: 'pointer',
+          }}
+          onClick={() => setIsInsuranceClaim(v => !v)}
+        >
+          <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}>
+            Insurance Claim?
+          </span>
+          <div
+            style={{
+              width: '40px',
+              height: '22px',
+              borderRadius: '11px',
+              backgroundColor: isInsuranceClaim ? 'var(--accent)' : 'var(--bg-card)',
+              border: '1px solid var(--border-subtle)',
+              position: 'relative',
+              transition: 'background-color 0.15s ease',
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: '2px',
+                left: isInsuranceClaim ? '20px' : '2px',
+                width: '16px',
+                height: '16px',
+                borderRadius: '50%',
+                backgroundColor: isInsuranceClaim ? '#0a0a0a' : 'var(--text-muted)',
+                transition: 'left 0.15s ease',
+              }}
+            />
+          </div>
+        </div>
+
+        {isInsuranceClaim && (
+          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Insurance Carrier</label>
+              <FormInput
+                type="text"
+                value={insuranceCompany}
+                onChange={e => setInsuranceCompany(e.target.value)}
+                placeholder="e.g. State Farm"
+              />
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Claim Number</label>
+              <FormInput
+                type="text"
+                value={claimNumber}
+                onChange={e => setClaimNumber(e.target.value)}
+                placeholder="Claim #"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Error message */}

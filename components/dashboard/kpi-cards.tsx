@@ -391,6 +391,51 @@ export function KPICards({ data, companies }: KPICardsProps) {
           </section>
         )}
 
+        {/* ── Commissions ── */}
+        {data.revenueByRep.some(r => r.commission > 0) && (
+          <section>
+            <p style={sectionHeadStyle}>Commissions</p>
+            <div
+              style={{
+                backgroundColor: 'var(--bg-card)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                overflow: 'hidden',
+              }}
+            >
+              {data.revenueByRep.filter(r => r.commission > 0).map((rep, i, arr) => (
+                <div
+                  key={rep.repName}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  }}
+                >
+                  <span style={{ flex: 1, fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {rep.repName}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      color: 'var(--accent)',
+                    }}
+                  >
+                    {formatCurrency(rep.commission)}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)', width: '52px', textAlign: 'right', flexShrink: 0 }}>
+                    {rep.jobCount} job{rep.jobCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ── Revenue by Company ── */}
         {data.revenueByCompany.length > 0 && (
           <section>

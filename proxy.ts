@@ -78,13 +78,32 @@ export async function proxy(request: NextRequest) {
 
     // Role-based routing — only redirect from root path
     if (pathname === '/') {
-      const { data } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', activeProfileId)
-        .single()
+      // Check cookie cache first to avoid a DB query on every navigation
+      const roleCookieName = `profile_role_${activeProfileId}`
+      const cachedRole = request.cookies.get(roleCookieName)?.value
 
-      const role = data?.role as string | undefined
+      let role: string | undefined
+
+      if (cachedRole) {
+        role = cachedRole
+      } else {
+        const { data } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', activeProfileId)
+          .single()
+        role = data?.role as string | undefined
+
+        // Cache in cookie for 1 hour
+        if (role) {
+          supabaseResponse.cookies.set(roleCookieName, role, {
+            path: '/',
+            httpOnly: true,
+            maxAge: 3600,
+            sameSite: 'lax',
+          })
+        }
+      }
 
       const url = request.nextUrl.clone()
 

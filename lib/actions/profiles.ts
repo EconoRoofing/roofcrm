@@ -119,7 +119,12 @@ export async function getActiveProfile() {
 // Clear active profile (switch user)
 export async function clearActiveProfile() {
   const cookieStore = await cookies()
+  // Read the profile ID before clearing so we can also purge its role cache cookie
+  const profileId = cookieStore.get('active_profile_id')?.value
   cookieStore.delete('active_profile_id')
+  if (profileId) {
+    cookieStore.delete(`profile_role_${profileId}`)
+  }
 }
 
 // Create a new team member profile (manager creates these)

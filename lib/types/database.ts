@@ -48,6 +48,7 @@ export interface Company {
   license_number: string | null
   color: string
   calendar_id?: string  // Google Calendar ID for this company's events (optional)
+  google_review_link?: string | null
 }
 
 export interface User {
@@ -58,6 +59,9 @@ export interface User {
   avatar_url: string | null
   default_maps_app: string | null
   google_refresh_token: string | null
+  commission_rate: number | null
+  pin_hash: string | null
+  is_active: boolean
   created_at: string
 }
 
@@ -105,6 +109,20 @@ export interface Job {
   assigned_crew_id: string | null
   scheduled_date: string | null
   completed_date: string | null
+  lat: number | null
+  lng: number | null
+  commission_rate: number | null
+  commission_amount: number | null
+  insurance_claim: boolean | null
+  insurance_company: string | null
+  claim_number: string | null
+  adjuster_name: string | null
+  adjuster_phone: string | null
+  date_of_loss: string | null
+  claim_status: string | null
+  deductible: number | null
+  insurance_payout: number | null
+  supplement_amount: number | null
   created_at: string
   updated_at: string
 }
