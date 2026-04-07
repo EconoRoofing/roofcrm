@@ -13,6 +13,7 @@ const baseInputStyle: React.CSSProperties = {
   fontSize: '15px',
   outline: 'none',
   boxSizing: 'border-box',
+  transition: 'border-color 0.15s ease',
 }
 
 const focusedInputStyle: React.CSSProperties = {

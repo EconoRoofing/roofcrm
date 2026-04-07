@@ -67,14 +67,18 @@ export function KanbanCard({ job }: KanbanCardProps) {
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
-        transition: 'background-color 150ms ease',
+        transition: 'all 0.15s ease',
         userSelect: 'none',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'
+        e.currentTarget.style.transform = 'translateY(-1px)'
+        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'var(--bg-card)'
+        e.currentTarget.style.transform = 'translateY(0)'
+        e.currentTarget.style.borderColor = ''
       }}
     >
       {/* Top row: job number + company tag */}

@@ -1,4 +1,7 @@
+'use client'
+
 import Link from 'next/link'
+import { useState } from 'react'
 import { ChevronRightIcon } from '@/components/icons'
 
 export interface ListItemProps {
@@ -13,6 +16,11 @@ export interface ListItemProps {
 }
 
 export function ListItem({ icon, iconBg, iconColor, label, sublabel, href, isExternal, danger }: ListItemProps) {
+  const [hovered, setHovered] = useState(false)
+
+  const baseColor = danger ? 'var(--accent-red-dim)' : 'var(--bg-surface)'
+  const hoverColor = danger ? 'var(--accent-red-dim)' : 'var(--bg-elevated)'
+
   const inner = (
     <div
       style={{
@@ -20,10 +28,13 @@ export function ListItem({ icon, iconBg, iconColor, label, sublabel, href, isExt
         alignItems: 'center',
         gap: '14px',
         padding: '14px 16px',
-        backgroundColor: danger ? 'var(--accent-red-dim)' : 'var(--bg-surface)',
+        backgroundColor: hovered ? hoverColor : baseColor,
         borderRadius: '8px',
         cursor: 'pointer',
+        transition: 'background-color 0.15s ease',
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {/* Icon square */}
       <div

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { updateJob } from '@/lib/actions/jobs'
 import { SpecsForm } from './specs-form'
 import { PricingForm } from './pricing-form'
@@ -184,6 +185,30 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
           borderBottom: '1px solid var(--border-subtle)',
         }}
       >
+        {/* Back to Job link */}
+        <div style={{ marginBottom: '8px' }}>
+          <Link
+            href={`/jobs/${job.id}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              textDecoration: 'none',
+              transition: 'color 0.15s ease',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-primary)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = '' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            Back to Job
+          </Link>
+        </div>
+
         <div
           style={{
             display: 'flex',
@@ -280,8 +305,12 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
                 color: 'var(--text-secondary)',
                 fontSize: '15px',
                 fontWeight: 500,
-                cursor: 'pointer',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                transition: 'filter 0.15s ease',
+                opacity: saving ? 0.5 : 1,
               }}
+              onMouseEnter={(e) => { if (!saving) e.currentTarget.style.filter = 'brightness(1.2)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
             >
               Back
             </button>
@@ -299,10 +328,13 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
               color: saving ? 'var(--text-muted)' : '#0a0a0a',
               fontSize: '15px',
               fontWeight: 700,
-              cursor: saving ? 'not-allowed' : 'pointer',
+              cursor: saving ? 'wait' : 'pointer',
               letterSpacing: '0.3px',
               transition: 'all 0.15s ease',
+              opacity: saving ? 0.7 : 1,
             }}
+            onMouseEnter={(e) => { if (!saving) e.currentTarget.style.filter = 'brightness(1.1)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
           >
             {saving ? 'Saving...' : isLastInputStep ? 'Review' : 'Next'}
           </button>

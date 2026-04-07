@@ -43,15 +43,22 @@ export function DayTimeline({ jobs, activeTimeEntry, userId }: DayTimelineProps)
       >
         <span
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '13px',
-            fontWeight: 500,
-            color: 'var(--text-muted)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
+            fontFamily: 'var(--font-sans)',
+            fontSize: '15px',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
           }}
         >
-          No jobs scheduled today
+          No jobs today
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: '13px',
+            color: 'var(--text-muted)',
+          }}
+        >
+          Check your schedule for upcoming work
         </span>
       </div>
     )

@@ -22,6 +22,15 @@
   --nav-gradient-2: #00e676;
   --nav-text: #003d00;
 
+  /* ─── Typography scale ─── */
+  --text-xs: 9px;
+  --text-sm: 11px;
+  --text-base: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+
   /* ─── Static accent colors (company / status — never shift) ─── */
   --accent-blue: #448aff;
   --accent-blue-dim: rgba(68, 138, 255, 0.12);

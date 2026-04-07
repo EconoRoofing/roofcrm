@@ -115,10 +115,34 @@ export function SignClient({
     </div>
   )
 
+  // ── Back nav link ────────────────────────────────────────────────────────────
+  const BackToEstimate = () => (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+      <Link
+        href={`/jobs/${jobId}/estimate`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
+          fontSize: '13px',
+          fontWeight: 600,
+          color: 'var(--text-secondary)',
+          textDecoration: 'none',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        Back to Estimate
+      </Link>
+    </div>
+  )
+
   // ── STEP: Rep signs ──────────────────────────────────────────────────────────
   if (step === 'rep') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
+        <BackToEstimate />
         <SummaryBar />
         <div style={{ padding: '24px 16px', maxWidth: '640px', margin: '0 auto' }}>
           <StepIndicator current={1} />
@@ -157,6 +181,7 @@ export function SignClient({
   if (step === 'customer') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
+        <BackToEstimate />
         <SummaryBar />
         <div style={{ padding: '24px 16px', maxWidth: '640px', margin: '0 auto' }}>
           <StepIndicator current={2} />

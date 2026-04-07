@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getJobs } from '@/lib/actions/jobs'
 import { CompanyFilter } from '@/components/company-filter'
 import { KanbanBoard } from '@/components/kanban/board'
+import { EmptyState } from '@/components/ui/empty-state'
 import type { Company } from '@/lib/types/database'
 
 interface PipelinePageProps {
@@ -42,10 +43,18 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
 
       {/* Kanban board fills remaining height */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        <KanbanBoard
-          jobs={jobs}
-          companies={companyList}
-        />
+        {jobs.length === 0 ? (
+          <EmptyState
+            title="No jobs yet"
+            description="Add your first lead to get started"
+            action={{ label: 'Add Lead', href: '/jobs/new' }}
+          />
+        ) : (
+          <KanbanBoard
+            jobs={jobs}
+            companies={companyList}
+          />
+        )}
       </div>
     </div>
   )
