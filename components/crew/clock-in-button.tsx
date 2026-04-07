@@ -8,6 +8,80 @@ import { PpeChecklist } from '@/components/safety/ppe-checklist'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 import { GpsCheckIcon, GpsFlaggedIcon, GpsWarningIcon } from '@/components/icons'
 
+// ─── Static style constants ───────────────────────────────────────────────────
+
+const clockStyles = {
+  primaryButton: {
+    width: '100%',
+    padding: '16px',
+    background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
+    border: 'none',
+    borderRadius: '8px',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '15px',
+    fontWeight: 800,
+    color: 'var(--nav-text)',
+    cursor: 'pointer',
+    letterSpacing: '0.01em',
+  } as React.CSSProperties,
+
+  loadingPanel: {
+    width: '100%',
+    padding: '16px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '13px',
+    color: 'var(--text-muted)',
+    textAlign: 'center' as const,
+  } as React.CSSProperties,
+
+  errorBox: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    color: 'var(--accent-red)',
+    padding: '8px 12px',
+    backgroundColor: 'var(--accent-red-dim)',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,82,82,0.2)',
+  } as React.CSSProperties,
+
+  cancelButton: {
+    background: 'none',
+    border: 'none',
+    padding: '4px',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '13px',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    textAlign: 'center' as const,
+    textDecoration: 'underline',
+    textUnderlineOffset: '3px',
+  } as React.CSSProperties,
+
+  costCodeSectionLabel: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.1em',
+  } as React.CSSProperties,
+
+  successBox: {
+    padding: '12px 16px',
+    backgroundColor: 'var(--accent-dim)',
+    border: '1px solid var(--accent-glow)',
+    borderRadius: '8px',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '14px',
+    fontWeight: 700,
+    color: 'var(--accent)',
+    textAlign: 'center' as const,
+  } as React.CSSProperties,
+} as const
+
 // ─── GPS helpers ─────────────────────────────────────────────────────────────
 
 function getDistanceFt(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -150,19 +224,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
 
   if (step === 'done') {
     return (
-      <div
-        style={{
-          padding: '12px 16px',
-          backgroundColor: 'var(--accent-dim)',
-          border: '1px solid var(--accent-glow)',
-          borderRadius: '8px',
-          fontFamily: 'var(--font-sans)',
-          fontSize: '14px',
-          fontWeight: 700,
-          color: 'var(--accent)',
-          textAlign: 'center',
-        }}
-      >
+      <div style={clockStyles.successBox}>
         Clocked in
       </div>
     )
@@ -182,56 +244,18 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
 
       {/* Error */}
       {error && (
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '12px',
-            color: 'var(--accent-red)',
-            padding: '8px 12px',
-            backgroundColor: 'var(--accent-red-dim)',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,82,82,0.2)',
-          }}
-        >
+        <div style={clockStyles.errorBox}>
           {error}
         </div>
       )}
 
       {/* Main action button */}
       {step === 'idle' ? (
-        <button
-          type="button"
-          onClick={handleStart}
-          style={{
-            width: '100%',
-            padding: '16px',
-            background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
-            border: 'none',
-            borderRadius: '8px',
-            fontFamily: 'var(--font-sans)',
-            fontSize: '15px',
-            fontWeight: 800,
-            color: 'var(--nav-text)',
-            cursor: 'pointer',
-            letterSpacing: '0.01em',
-          }}
-        >
+        <button type="button" onClick={handleStart} style={clockStyles.primaryButton}>
           Clock In
         </button>
       ) : gpsStatus === 'loading' ? (
-        <div
-          style={{
-            width: '100%',
-            padding: '16px',
-            backgroundColor: 'var(--bg-elevated)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '8px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '13px',
-            color: 'var(--text-muted)',
-            textAlign: 'center',
-          }}
-        >
+        <div style={clockStyles.loadingPanel}>
           Getting GPS...
         </div>
       ) : (
@@ -272,18 +296,7 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
             setCostCode('labor')
             setError(null)
           }}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '4px',
-            fontFamily: 'var(--font-sans)',
-            fontSize: '13px',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            textAlign: 'center',
-            textDecoration: 'underline',
-            textUnderlineOffset: '3px',
-          }}
+          style={clockStyles.cancelButton}
         >
           Cancel
         </button>
@@ -431,16 +444,7 @@ function CostCodeSelector({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div
-        style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: '12px',
-          fontWeight: 700,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-        }}
-      >
+      <div style={clockStyles.costCodeSectionLabel}>
         Cost Code
       </div>
       <div
@@ -478,23 +482,7 @@ function CostCodeSelector({
           )
         })}
       </div>
-      <button
-        type="button"
-        onClick={onContinue}
-        style={{
-          width: '100%',
-          padding: '16px',
-          background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
-          border: 'none',
-          borderRadius: '8px',
-          fontFamily: 'var(--font-sans)',
-          fontSize: '15px',
-          fontWeight: 800,
-          color: 'var(--nav-text)',
-          cursor: 'pointer',
-          letterSpacing: '0.01em',
-        }}
-      >
+      <button type="button" onClick={onContinue} style={clockStyles.primaryButton}>
         Continue
       </button>
     </div>
@@ -562,18 +550,7 @@ export function ClockOutButton({ timeEntry, userId, totalHours }: ClockOutButton
 
   if (step === 'gps') {
     return (
-      <div
-        style={{
-          padding: '16px',
-          backgroundColor: 'var(--bg-elevated)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: '8px',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '13px',
-          color: 'var(--text-muted)',
-          textAlign: 'center',
-        }}
-      >
+      <div style={clockStyles.loadingPanel}>
         Getting GPS...
       </div>
     )
@@ -630,17 +607,7 @@ export function ClockOutButton({ timeEntry, userId, totalHours }: ClockOutButton
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {error && (
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '12px',
-            color: 'var(--accent-red)',
-            padding: '8px 12px',
-            backgroundColor: 'var(--accent-red-dim)',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,82,82,0.2)',
-          }}
-        >
+        <div style={clockStyles.errorBox}>
           {error}{' '}
           <button
             type="button"

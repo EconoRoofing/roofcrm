@@ -90,6 +90,79 @@ function getDateRangeLabel(range: DateRange): string {
   }
 }
 
+// ── Static style constants (outside component to avoid re-creation per render) ──
+
+const cardStyle: React.CSSProperties = {
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: '8px',
+  padding: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+}
+
+const labelStyle: React.CSSProperties = {
+  fontSize: '11px',
+  fontWeight: 600,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+}
+
+const sectionHeadStyle: React.CSSProperties = {
+  fontSize: '11px',
+  fontWeight: 700,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+  marginBottom: '8px',
+}
+
+const listCardStyle: React.CSSProperties = {
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: '8px',
+  overflow: 'hidden',
+}
+
+const barChartCardStyle: React.CSSProperties = {
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: '8px',
+  padding: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '16px',
+}
+
+// chipStyle and bigNumberStyle remain as functions (they depend on dynamic values)
+const chipStyle = (active: boolean, color?: string): React.CSSProperties => ({
+  padding: '8px 12px',
+  borderRadius: '8px',
+  fontSize: '12px',
+  fontWeight: 500,
+  fontFamily: 'var(--font-mono)',
+  cursor: 'pointer',
+  border: active
+    ? `1px solid ${color ?? 'var(--accent)'}`
+    : '1px solid var(--border-subtle)',
+  backgroundColor: active ? (color ? `${color}1f` : 'var(--accent-dim)') : 'transparent',
+  color: active ? (color ?? 'var(--accent)') : 'var(--text-secondary)',
+  transition: 'all 150ms ease',
+  flexShrink: 0,
+  letterSpacing: '0.04em',
+})
+
+const bigNumberStyle = (color: string): React.CSSProperties => ({
+  fontFamily: 'var(--font-mono)',
+  fontSize: '28px',
+  fontWeight: 700,
+  color,
+  lineHeight: 1.1,
+  letterSpacing: '-0.02em',
+})
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function KPICards({ data, companies }: KPICardsProps) {
@@ -114,59 +187,6 @@ export function KPICards({ data, companies }: KPICardsProps) {
   const maxRepRevenue = data.revenueByRep[0]?.revenue ?? 1
   const maxCompanyRevenue = data.revenueByCompany[0]?.revenue ?? 1
   const maxSourceCount = data.leadsBySource[0]?.count ?? 1
-
-  const chipStyle = (active: boolean, color?: string): React.CSSProperties => ({
-    padding: '8px 12px',
-    borderRadius: '8px',
-    fontSize: '12px',
-    fontWeight: 500,
-    fontFamily: 'var(--font-mono)',
-    cursor: 'pointer',
-    border: active
-      ? `1px solid ${color ?? 'var(--accent)'}`
-      : '1px solid var(--border-subtle)',
-    backgroundColor: active ? (color ? `${color}1f` : 'var(--accent-dim)') : 'transparent',
-    color: active ? (color ?? 'var(--accent)') : 'var(--text-secondary)',
-    transition: 'all 150ms ease',
-    flexShrink: 0,
-    letterSpacing: '0.04em',
-  })
-
-  const cardStyle: React.CSSProperties = {
-    backgroundColor: 'var(--bg-card)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: '8px',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  }
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: '11px',
-    fontWeight: 600,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    color: 'var(--text-muted)',
-  }
-
-  const bigNumberStyle = (color: string): React.CSSProperties => ({
-    fontFamily: 'var(--font-mono)',
-    fontSize: '28px',
-    fontWeight: 700,
-    color,
-    lineHeight: 1.1,
-    letterSpacing: '-0.02em',
-  })
-
-  const sectionHeadStyle: React.CSSProperties = {
-    fontSize: '11px',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
-    color: 'var(--text-muted)',
-    marginBottom: '8px',
-  }
 
   return (
     <div
@@ -321,14 +341,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {data.revenueByRep.length > 0 && (
           <section>
             <p style={sectionHeadStyle}>Revenue by Rep</p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                overflow: 'hidden',
-              }}
-            >
+            <div style={listCardStyle}>
               {data.revenueByRep.map((rep, i) => {
                 const isTop = i === 0
                 return (
@@ -395,14 +408,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {data.revenueByRep.some(r => r.commission > 0) && (
           <section>
             <p style={sectionHeadStyle}>Commissions</p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                overflow: 'hidden',
-              }}
-            >
+            <div style={listCardStyle}>
               {data.revenueByRep.filter(r => r.commission > 0).map((rep, i, arr) => (
                 <div
                   key={rep.repName}
@@ -440,17 +446,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {data.revenueByCompany.length > 0 && (
           <section>
             <p style={sectionHeadStyle}>Revenue by Company</p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-              }}
-            >
+            <div style={barChartCardStyle}>
               {data.revenueByCompany.map((co) => {
                 const pct = maxCompanyRevenue > 0 ? (co.revenue / maxCompanyRevenue) * 100 : 0
                 const h = co.companyColor.replace('#', '')
@@ -509,17 +505,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {data.leadsBySource.length > 0 && (
           <section>
             <p style={sectionHeadStyle}>Lead Sources</p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-              }}
-            >
+            <div style={barChartCardStyle}>
               {data.leadsBySource.slice(0, 8).map((source) => {
                 const convRate =
                   source.count > 0 ? Math.round((source.convertedCount / source.count) * 100) : 0
@@ -640,17 +626,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
         {data.jobsByType.length > 0 && (
           <section>
             <p style={sectionHeadStyle}>Jobs by Type</p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-              }}
-            >
+            <div style={barChartCardStyle}>
               {data.jobsByType.map((jt) => {
                 const maxRev = data.jobsByType[0]?.revenue ?? 1
                 return (

@@ -1,10 +1,23 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import type { Job, EstimateSpecs } from '@/lib/types/database'
-import { RoofViewer } from './roof-viewer'
 import type { RoofMeasurements } from '@/lib/roof-measurements'
 import { SatelliteIcon } from '@/components/icons'
+
+// Lazy-load the satellite imagery viewer — it's heavy and only shown on demand
+const RoofViewer = dynamic(
+  () => import('./roof-viewer').then(m => ({ default: m.RoofViewer })),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{ padding: '16px', color: 'var(--text-muted)', textAlign: 'center', fontSize: '13px' }}>
+        Loading satellite view...
+      </div>
+    ),
+  }
+)
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 

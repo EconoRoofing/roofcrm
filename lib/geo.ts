@@ -73,7 +73,7 @@ export async function geocodeAddress(
   try {
     const q = encodeURIComponent(`${address},${city},${state},US`)
     const url = `https://api.openweathermap.org/geo/1.0/direct?q=${q}&appid=${apiKey}`
-    const res = await fetch(url)
+    const res = await fetch(url, { next: { revalidate: 86400 } }) // Cache 24h — addresses don't move
     if (!res.ok) return null
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

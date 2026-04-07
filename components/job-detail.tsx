@@ -16,6 +16,245 @@ import { ReviewReceivedToggle } from '@/components/review-received-toggle'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
+// ─── Static style constants (defined outside component to avoid re-creation) ──
+
+const styles = {
+  outerContainer: {
+    maxWidth: '480px',
+    margin: '0 auto',
+    padding: '16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  } as React.CSSProperties,
+
+  sectionCard: {
+    backgroundColor: 'var(--bg-card)',
+    borderRadius: '20px',
+    border: '1px solid var(--border-subtle)',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  } as React.CSSProperties,
+
+  sectionCardGap12: {
+    backgroundColor: 'var(--bg-card)',
+    borderRadius: '20px',
+    border: '1px solid var(--border-subtle)',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  } as React.CSSProperties,
+
+  sectionCardPadOnly: {
+    backgroundColor: 'var(--bg-card)',
+    borderRadius: '20px',
+    border: '1px solid var(--border-subtle)',
+    padding: '20px',
+  } as React.CSSProperties,
+
+  sectionHeading: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    fontWeight: '700',
+    color: 'var(--text-muted)',
+    margin: 0,
+    textTransform: 'uppercase',
+    letterSpacing: '0.1em',
+  } as React.CSSProperties,
+
+  detailLabel: {
+    fontSize: '10px',
+    color: 'var(--text-muted)',
+    fontFamily: 'var(--font-sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    fontWeight: '500',
+  } as React.CSSProperties,
+
+  detailValue: {
+    fontSize: '14px',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)',
+    fontWeight: '500',
+  } as React.CSSProperties,
+
+  monoValue: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '13px',
+    color: 'var(--text-primary)',
+    fontWeight: '500',
+  } as React.CSSProperties,
+
+  divider: {
+    height: '1px',
+    backgroundColor: 'var(--border-subtle)',
+  } as React.CSSProperties,
+
+  financialRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  } as React.CSSProperties,
+
+  financialLabel: {
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+  } as React.CSSProperties,
+
+  financialMonoValue: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '13px',
+    color: 'var(--text-primary)',
+    fontWeight: '500',
+  } as React.CSSProperties,
+
+  inlineCodeBadge: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '12px',
+    fontWeight: '700',
+    color: 'var(--text-secondary)',
+    backgroundColor: 'var(--bg-elevated)',
+    padding: '3px 8px',
+    borderRadius: '8px',
+    letterSpacing: '0.08em',
+  } as React.CSSProperties,
+
+  editLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    marginLeft: 'auto',
+    padding: '4px 10px',
+    borderRadius: '8px',
+    border: '1px solid var(--border-subtle)',
+    backgroundColor: 'var(--bg-elevated)',
+    color: 'var(--text-muted)',
+    fontSize: '11px',
+    fontFamily: 'var(--font-sans)',
+    fontWeight: '600',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  navigateButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '8px',
+    backgroundColor: 'rgba(0,230,118,0.12)',
+    border: '1px solid rgba(0,230,118,0.2)',
+    color: 'var(--nav-gradient-2)',
+    textDecoration: 'none',
+    fontSize: '12px',
+    fontFamily: 'var(--font-sans)',
+    fontWeight: '700',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  } as React.CSSProperties,
+
+  phoneLink: {
+    fontSize: '14px',
+    color: 'var(--accent-blue)',
+    fontFamily: 'var(--font-mono)',
+    fontWeight: '500',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  emailLink: {
+    fontSize: '14px',
+    color: 'var(--accent-blue)',
+    fontFamily: 'var(--font-sans)',
+    fontWeight: '500',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  estimateButtonBlue: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--accent-blue)',
+    color: 'var(--accent-blue)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '14px',
+    fontWeight: '700',
+    textDecoration: 'none',
+    letterSpacing: '-0.01em',
+  } as React.CSSProperties,
+
+  estimateButtonGreen: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    backgroundColor: 'rgba(0,230,118,0.06)',
+    border: '1px solid rgba(0,230,118,0.2)',
+    color: 'var(--accent)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '14px',
+    fontWeight: '700',
+    textDecoration: 'none',
+    letterSpacing: '-0.01em',
+  } as React.CSSProperties,
+
+  createEstimateButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '16px',
+    borderRadius: '8px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--accent-blue)',
+    color: 'var(--accent-blue)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '15px',
+    fontWeight: '800',
+    textDecoration: 'none',
+    letterSpacing: '-0.01em',
+  } as React.CSSProperties,
+
+  materialLinkCard: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'var(--bg-card)',
+    borderRadius: '20px',
+    border: '1px solid var(--border-subtle)',
+    padding: '16px 20px',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  siteNotesCard: {
+    backgroundColor: 'rgba(255,82,82,0.06)',
+    borderRadius: '20px',
+    border: '1px solid rgba(255,82,82,0.2)',
+    padding: '16px 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  } as React.CSSProperties,
+
+  notesCard: {
+    backgroundColor: 'var(--bg-card)',
+    borderRadius: '20px',
+    border: '1px solid var(--border-subtle)',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  } as React.CSSProperties,
+} as const
+
 interface JobDetailProps {
   job: JobWithRelations
   role?: string | null
@@ -30,10 +269,10 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   if (!value && value !== 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '500' }}>
+      <span style={styles.detailLabel}>
         {label}
       </span>
-      <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)', fontWeight: '500' }}>
+      <span style={styles.detailValue}>
         {value}
       </span>
     </div>
@@ -42,7 +281,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function MonoValue({ children }: { children: React.ReactNode }) {
   return (
-    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>
+    <span style={styles.monoValue}>
       {children}
     </span>
   )
@@ -92,66 +331,22 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const split50 = job.total_amount != null ? job.total_amount / 2 : null
 
   return (
-    <div
-      style={{
-        maxWidth: '480px',
-        margin: '0 auto',
-        padding: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px',
-      }}
-    >
+    <div style={styles.outerContainer}>
       {/* Header */}
-      <div
-        style={{
-          backgroundColor: 'var(--bg-card)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-subtle)',
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
+      <div style={styles.sectionCardGap12}>
         {/* Company + job number + status + edit link */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {company && (
             <CompanyTag name={company.name} color={company.color} />
           )}
-          <code
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '12px',
-              fontWeight: '700',
-              color: 'var(--text-secondary)',
-              backgroundColor: 'var(--bg-elevated)',
-              padding: '3px 8px',
-              borderRadius: '8px',
-              letterSpacing: '0.08em',
-            }}
-          >
+          <code style={styles.inlineCodeBadge}>
             {job.job_number}
           </code>
           <StatusBadge status={job.status} />
           {canManageEstimate && (
             <Link
               href={`/jobs/${job.id}/edit`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: 'auto',
-                padding: '4px 10px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-subtle)',
-                backgroundColor: 'var(--bg-elevated)',
-                color: 'var(--text-muted)',
-                fontSize: '11px',
-                fontFamily: 'var(--font-sans)',
-                fontWeight: '600',
-                textDecoration: 'none',
-              }}
+              style={styles.editLink}
             >
               <PencilIcon size={11} />
               Edit
@@ -197,7 +392,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '500' }}>
+            <span style={styles.detailLabel}>
               Address
             </span>
             <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)', fontWeight: '500', lineHeight: '1.4' }}>
@@ -210,22 +405,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
-              borderRadius: '8px',
-              backgroundColor: 'rgba(0,230,118,0.12)',
-              border: '1px solid rgba(0,230,118,0.2)',
-              color: 'var(--nav-gradient-2)',
-              textDecoration: 'none',
-              fontSize: '12px',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: '700',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-            }}
+            style={styles.navigateButton}
           >
             <NavigateIcon size={12} />
             Navigate
@@ -235,30 +415,24 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         {/* Contact */}
         {(job.phone || job.email) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)' }} />
+            <div style={styles.divider} />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
               {job.phone && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '500' }}>
+                  <span style={styles.detailLabel}>
                     Phone
                   </span>
-                  <a
-                    href={`tel:${job.phone}`}
-                    style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '500', textDecoration: 'none' }}
-                  >
+                  <a href={`tel:${job.phone}`} style={styles.phoneLink}>
                     {job.phone}
                   </a>
                 </div>
               )}
               {job.email && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '500' }}>
+                  <span style={styles.detailLabel}>
                     Email
                   </span>
-                  <a
-                    href={`mailto:${job.email}`}
-                    style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-sans)', fontWeight: '500', textDecoration: 'none' }}
-                  >
+                  <a href={`mailto:${job.email}`} style={styles.emailLink}>
                     {job.email}
                   </a>
                 </div>
@@ -269,18 +443,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       </div>
 
       {/* Job Details Grid */}
-      <div
-        style={{
-          backgroundColor: 'var(--bg-card)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-subtle)',
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+      <div style={styles.sectionCard}>
+        <h2 style={styles.sectionHeading}>
           Details
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -306,16 +470,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       {(job.squares ?? 0) > 0 && (
         <Link
           href={`/jobs/${job.id}/materials`}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '16px 20px',
-            textDecoration: 'none',
-          }}
+          style={styles.materialLinkCard}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ color: 'var(--accent)', display: 'flex' }}>
@@ -338,41 +493,31 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Financial Section */}
       {hasFinancials && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-          }}
-        >
-          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <div style={styles.sectionCard}>
+          <h2 style={styles.sectionHeading}>
             Financials
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {job.roof_amount != null && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Roof</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.roof_amount)}</span>
+              <div style={styles.financialRow}>
+                <span style={styles.financialLabel}>Roof</span>
+                <span style={styles.financialMonoValue}>{fmt(job.roof_amount)}</span>
               </div>
             )}
             {job.gutters_amount != null && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Gutters</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.gutters_amount)}</span>
+              <div style={styles.financialRow}>
+                <span style={styles.financialLabel}>Gutters</span>
+                <span style={styles.financialMonoValue}>{fmt(job.gutters_amount)}</span>
               </div>
             )}
             {job.options_amount != null && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Options</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.options_amount)}</span>
+              <div style={styles.financialRow}>
+                <span style={styles.financialLabel}>Options</span>
+                <span style={styles.financialMonoValue}>{fmt(job.options_amount)}</span>
               </div>
             )}
-            <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={styles.divider} />
+            <div style={styles.financialRow}>
               <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)', fontWeight: '700' }}>Total</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: 'var(--accent)', fontWeight: '700' }}>{fmt(job.total_amount)}</span>
             </div>
@@ -428,19 +573,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Insurance Section */}
       {job.insurance_claim && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-          }}
-        >
+        <div style={styles.sectionCard}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            <h2 style={styles.sectionHeading}>
               Insurance Claim
             </h2>
             {job.claim_status && (
@@ -466,7 +601,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             <DetailRow label="Insurance Carrier" value={job.insurance_company} />
             <DetailRow label="Claim Number" value={job.claim_number ? <MonoValue>{job.claim_number}</MonoValue> : null} />
             <DetailRow label="Adjuster" value={job.adjuster_name} />
-            <DetailRow label="Adjuster Phone" value={job.adjuster_phone ? <a href={`tel:${job.adjuster_phone}`} style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '500', textDecoration: 'none' }}>{job.adjuster_phone}</a> : null} />
+            <DetailRow label="Adjuster Phone" value={job.adjuster_phone ? <a href={`tel:${job.adjuster_phone}`} style={styles.phoneLink}>{job.adjuster_phone}</a> : null} />
             <DetailRow label="Date of Loss" value={job.date_of_loss ? <MonoValue>{job.date_of_loss}</MonoValue> : null} />
             <DetailRow label="Deductible" value={job.deductible != null ? <MonoValue>{fmt(job.deductible)}</MonoValue> : null} />
             <DetailRow label="Insurance Payout" value={job.insurance_payout != null ? <MonoValue>{fmt(job.insurance_payout)}</MonoValue> : null} />
@@ -477,17 +612,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Site Notes */}
       {job.site_notes && (
-        <div
-          style={{
-            backgroundColor: 'rgba(255,82,82,0.06)',
-            borderRadius: '20px',
-            border: '1px solid rgba(255,82,82,0.2)',
-            padding: '16px 20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-          }}
-        >
+        <div style={styles.siteNotesCard}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ color: 'var(--accent-red)', display: 'flex' }}>
               <AlertTriangleIcon size={14} />
@@ -504,18 +629,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Notes */}
       {job.notes && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-          }}
-        >
-          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <div style={styles.notesCard}>
+          <h2 style={styles.sectionHeading}>
             Notes
           </h2>
           <p style={{ fontSize: '14px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)', margin: 0, lineHeight: '1.6' }}>
@@ -531,28 +646,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       <JobCalendarWarning jobId={job.id} />
 
       {/* CompanyCam integration */}
-      <div
-        style={{
-          backgroundColor: 'var(--bg-card)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-subtle)',
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '12px',
-            fontWeight: '700',
-            color: 'var(--text-muted)',
-            margin: 0,
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-          }}
-        >
+      <div style={styles.sectionCardGap12}>
+        <h2 style={styles.sectionHeading}>
           Photos
         </h2>
         <CompanyCamLinker
@@ -574,18 +669,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Estimate — sales/manager only */}
       {canManageEstimate && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-          }}
-        >
-          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <div style={styles.sectionCardGap12}>
+          <h2 style={styles.sectionHeading}>
             Estimate
           </h2>
 
@@ -595,44 +680,14 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                 href={job.estimate_pdf_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(0,230,118,0.06)',
-                  border: '1px solid rgba(0,230,118,0.2)',
-                  color: 'var(--accent)',
-                  fontFamily: 'var(--font-sans)',
-                  fontSize: '14px',
-                  fontWeight: '700',
-                  textDecoration: 'none',
-                  letterSpacing: '-0.01em',
-                }}
+                style={styles.estimateButtonGreen}
               >
                 <ExternalLinkIcon size={14} />
                 View Signed Agreement
               </a>
               <Link
                 href={`/jobs/${job.id}/estimate`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  backgroundColor: 'var(--bg-elevated)',
-                  border: '1px solid var(--accent-blue)',
-                  color: 'var(--accent-blue)',
-                  fontFamily: 'var(--font-sans)',
-                  fontSize: '14px',
-                  fontWeight: '700',
-                  textDecoration: 'none',
-                  letterSpacing: '-0.01em',
-                }}
+                style={styles.estimateButtonBlue}
               >
                 <DocumentIcon size={14} />
                 Edit Estimate
@@ -641,22 +696,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           ) : (
             <Link
               href={`/jobs/${job.id}/estimate`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '16px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--bg-elevated)',
-                border: '1px solid var(--accent-blue)',
-                color: 'var(--accent-blue)',
-                fontFamily: 'var(--font-sans)',
-                fontSize: '15px',
-                fontWeight: '800',
-                textDecoration: 'none',
-                letterSpacing: '-0.01em',
-              }}
+              style={styles.createEstimateButton}
             >
               <DocumentIcon size={16} />
               Create Estimate
@@ -667,18 +707,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Review Received toggle — manager only, completed jobs */}
       {isManager && job.status === 'completed' && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '20px',
-            border: '1px solid var(--border-subtle)',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-          }}
-        >
-          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <div style={styles.sectionCardGap12}>
+          <h2 style={styles.sectionHeading}>
             Review
           </h2>
           <ReviewReceivedToggle
@@ -689,14 +719,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       )}
 
       {/* Actions */}
-      <div
-        style={{
-          backgroundColor: 'var(--bg-card)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-subtle)',
-          padding: '20px',
-        }}
-      >
+      <div style={styles.sectionCardPadOnly}>
         <JobActions job={job} role={role} />
       </div>
     </div>

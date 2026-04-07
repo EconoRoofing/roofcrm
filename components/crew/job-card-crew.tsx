@@ -36,21 +36,76 @@ interface JobCardCrewProps {
   userId?: string
 }
 
+// ─── Static style constants ───────────────────────────────────────────────────
+
+const crewStyles = {
+  collapsedCard: {
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  } as React.CSSProperties,
+
+  miniActionButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '40px',
+    height: '40px',
+    padding: '0 8px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+
+  actionButtonBase: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '4px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    padding: '10px 8px',
+    textDecoration: 'none',
+    color: 'var(--text-secondary)',
+  } as React.CSSProperties,
+
+  actionButtonLabel: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '9px',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    lineHeight: 1,
+  } as React.CSSProperties,
+
+  monoSmall: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '10px',
+    color: 'var(--text-muted)',
+  } as React.CSSProperties,
+
+  jobNumberTag: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '10px',
+    fontWeight: 500,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.08em',
+  } as React.CSSProperties,
+} as const
+
 // --- Completed card ---
 function CompletedCard({ job }: { job: JobWithCompany }) {
   return (
-    <div
-      style={{
-        opacity: 0.45,
-        backgroundColor: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '8px',
-        padding: '12px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-      }}
-    >
+    <div style={{ ...crewStyles.collapsedCard, opacity: 0.45 }}>
       <span style={{ color: 'var(--text-muted)' }}>
         <CheckIcon />
       </span>
@@ -89,17 +144,7 @@ function CollapsedCard({ job }: { job: JobWithCompany }) {
   const mapsUrl = buildMapsUrl(job.address, job.city)
 
   return (
-    <div
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '8px',
-        padding: '12px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-      }}
-    >
+    <div style={crewStyles.collapsedCard}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
           {job.company && (
@@ -117,13 +162,7 @@ function CollapsedCard({ job }: { job: JobWithCompany }) {
           </span>
         </div>
         <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '10px',
-            color: 'var(--text-muted)',
-            display: 'block',
-            marginTop: '2px',
-          }}
+          style={{ ...crewStyles.monoSmall, display: 'block', marginTop: '2px' }}
         >
           {job.city} · {formatJobType(job.job_type)}
         </span>
@@ -131,64 +170,16 @@ function CollapsedCard({ job }: { job: JobWithCompany }) {
 
       {/* Mini action buttons */}
       <div style={{ display: 'flex', gap: '4px' }}>
-        <a
-          href={mapsUrl}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minWidth: '40px',
-            height: '40px',
-            padding: '0 8px',
-            backgroundColor: 'var(--bg-elevated)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '8px',
-            color: 'var(--text-secondary)',
-            textDecoration: 'none',
-          }}
-          aria-label="Navigate"
-        >
+        <a href={mapsUrl} style={crewStyles.miniActionButton} aria-label="Navigate">
           <MiniMapsIcon />
         </a>
         {job.phone && (
-          <a
-            href={`tel:${job.phone}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: '40px',
-              height: '40px',
-              padding: '0 8px',
-              backgroundColor: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              color: 'var(--text-secondary)',
-              textDecoration: 'none',
-            }}
-            aria-label="Call"
-          >
+          <a href={`tel:${job.phone}`} style={crewStyles.miniActionButton} aria-label="Call">
             <PhoneIcon />
           </a>
         )}
         {job.site_notes && (
-          <Link
-            href={`/jobs/${job.id}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: '40px',
-              height: '40px',
-              padding: '0 8px',
-              backgroundColor: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              color: 'var(--text-secondary)',
-              textDecoration: 'none',
-            }}
-            aria-label="Notes"
-          >
+          <Link href={`/jobs/${job.id}`} style={crewStyles.miniActionButton} aria-label="Notes">
             <SpecsIcon />
           </Link>
         )}
@@ -260,16 +251,7 @@ function ActiveCard({
           {job.company && (
             <CompanyTag name={job.company.name} color={job.company.color} />
           )}
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-            }}
-          >
+          <span style={crewStyles.jobNumberTag}>
             #{job.job_number}
           </span>
         </div>
@@ -361,131 +343,38 @@ function ActiveCard({
         <button
           type="button"
           style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '4px',
+            ...crewStyles.actionButtonBase,
             backgroundColor: 'var(--accent-blue-dim)',
             border: '1px solid rgba(68,138,255,0.2)',
-            borderRadius: '8px',
-            padding: '10px 8px',
             cursor: 'pointer',
             color: 'var(--accent-blue)',
           }}
         >
           <CameraIcon />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '9px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              lineHeight: 1,
-            }}
-          >
-            Cam
-          </span>
+          <span style={crewStyles.actionButtonLabel}>Cam</span>
         </button>
 
         {/* Call */}
         {job.phone ? (
-          <a
-            href={`tel:${job.phone}`}
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '4px',
-              backgroundColor: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              padding: '10px 8px',
-              textDecoration: 'none',
-              color: 'var(--text-secondary)',
-            }}
-          >
+          <a href={`tel:${job.phone}`} style={crewStyles.actionButtonBase}>
             <PhoneIcon />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '9px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                lineHeight: 1,
-              }}
-            >
-              Call
-            </span>
+            <span style={crewStyles.actionButtonLabel}>Call</span>
           </a>
         ) : (
           <button
             type="button"
             disabled
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '4px',
-              backgroundColor: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              padding: '10px 8px',
-              cursor: 'not-allowed',
-              color: 'var(--text-muted)',
-              opacity: 0.5,
-            }}
+            style={{ ...crewStyles.actionButtonBase, cursor: 'not-allowed', color: 'var(--text-muted)', opacity: 0.5 }}
           >
             <PhoneIcon />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '9px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                lineHeight: 1,
-              }}
-            >
-              Call
-            </span>
+            <span style={crewStyles.actionButtonLabel}>Call</span>
           </button>
         )}
 
         {/* Specs */}
-        <Link
-          href={`/jobs/${job.id}`}
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '4px',
-            backgroundColor: 'var(--bg-elevated)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '8px',
-            padding: '10px 8px',
-            textDecoration: 'none',
-            color: 'var(--text-secondary)',
-          }}
-        >
+        <Link href={`/jobs/${job.id}`} style={crewStyles.actionButtonBase}>
           <SpecsIcon />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '9px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              lineHeight: 1,
-            }}
-          >
-            Specs
-          </span>
+          <span style={crewStyles.actionButtonLabel}>Specs</span>
         </Link>
       </div>
 

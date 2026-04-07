@@ -83,6 +83,7 @@ export async function searchProjectsByAddress(address: string): Promise<CompanyC
 
   const res = await fetch(`${COMPANYCAM_BASE}/projects?${params.toString()}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
+    next: { revalidate: 300 }, // 5-minute cache
   })
 
   if (!res.ok) {
