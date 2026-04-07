@@ -529,6 +529,39 @@ export async function unflagEntry(entryId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Unclosed clock-in detection (called by daily cron)
+// ---------------------------------------------------------------------------
+
+export async function detectUnclosedClockIns(): Promise<{ flagged: number }> {
+  const supabase = await createClient()
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  yesterday.setHours(0, 0, 0, 0)
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Find time entries from yesterday with no clock_out
+  const { data: unclosed } = await supabase
+    .from('time_entries')
+    .select('id, user_id, job_id, clock_in')
+    .is('clock_out', null)
+    .lt('clock_in', today.toISOString())
+
+  if (!unclosed || unclosed.length === 0) return { flagged: 0 }
+
+  // Flag each entry
+  for (const entry of unclosed) {
+    await supabase.from('time_entries').update({
+      flagged: true,
+      flag_reason: 'Forgot to clock out — entry still open from ' + new Date(entry.clock_in as string).toLocaleDateString(),
+    }).eq('id', entry.id)
+  }
+
+  return { flagged: unclosed.length }
+}
+
+// ---------------------------------------------------------------------------
 // CSV export
 // ---------------------------------------------------------------------------
 

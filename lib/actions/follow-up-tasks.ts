@@ -63,7 +63,7 @@ export async function getDueFollowUps(): Promise<FollowUp[]> {
     .from('follow_ups')
     .select(`
       *,
-      job:jobs!follow_ups_job_id_fkey(job_number, customer_name),
+      job:jobs!follow_ups_job_id_fkey(job_number, customer_name, address, job_type, total_amount),
       assignee:users!follow_ups_assigned_to_fkey(name, phone_number)
     `)
     .eq('due_date', today)
@@ -101,7 +101,16 @@ export async function processFollowUpTasks(): Promise<{ sent: number; skipped: n
     if (!phone) { skipped++; continue }
 
     const customerName = job?.customer_name ?? 'a customer'
-    const message = `Reminder: Follow up with ${customerName} — ${followUp.note}`
+    const address = job?.address ?? ''
+    const jobType = job?.job_type ? String(job.job_type).replace(/_/g, ' ') : ''
+    const amount = job?.total_amount ? `$${Number(job.total_amount).toLocaleString()}` : ''
+
+    let message: string
+    if (address && jobType && amount) {
+      message = `Reminder: Follow up with ${customerName} at ${address} — ${jobType} estimate (${amount}) given 3 days ago.`
+    } else {
+      message = `Reminder: Follow up with ${customerName} — ${followUp.note}`
+    }
 
     try {
       await sendSMS(phone, message)

@@ -49,6 +49,11 @@ export async function sendSMS(
 
       if (data.sid) return { success: true, sid: data.sid }
 
+      // Detect opted-out numbers (Twilio error 21610)
+      if (data.code === 21610 || data.error_code === 21610) {
+        return { success: false, error: 'opted_out' }
+      }
+
       // Retry on server errors
       if (response.status >= 500 && attempt < retries) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))

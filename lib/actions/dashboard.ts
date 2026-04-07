@@ -28,6 +28,10 @@ export interface DashboardData {
 
   // Job type breakdown
   jobsByType: Array<{ type: string; count: number; revenue: number }>
+
+  // Profitability trend — last 20 completed jobs
+  // margin is a placeholder (100%) until time_entries join is available
+  profitabilityTrend: Array<{ jobNumber: string; contractAmount: number; completedDate: string }>
 }
 
 export async function getDashboardData(filters?: {
@@ -238,6 +242,31 @@ export async function getDashboardData(filters?: {
     // time_entries table may be empty or unavailable — gracefully return zeros
   }
 
+  // ── Profitability Trend ────────────────────────────────────────────────────
+  // Last 20 completed jobs by contract amount.
+  // Full margin (labor cost vs revenue) requires joining time_entries — deferred for a future query.
+
+  const jobQueryForTrend = supabase
+    .from('jobs')
+    .select('job_number, total_amount, completed_date')
+    .eq('status', 'completed')
+    .not('total_amount', 'is', null)
+    .gt('total_amount', 0)
+    .order('completed_date', { ascending: false })
+    .limit(20)
+
+  if (filters?.companyId) {
+    jobQueryForTrend.eq('company_id', filters.companyId)
+  }
+
+  const { data: trendJobs } = await jobQueryForTrend
+
+  const profitabilityTrend = (trendJobs ?? []).map((j) => ({
+    jobNumber: j.job_number ?? '',
+    contractAmount: j.total_amount ?? 0,
+    completedDate: j.completed_date ?? '',
+  }))
+
   const result: DashboardData = {
     pipelineValue,
     closeRate,
@@ -252,6 +281,7 @@ export async function getDashboardData(filters?: {
     totalLaborCostThisMonth,
     overtimeHoursThisWeek,
     jobsByType,
+    profitabilityTrend,
   }
 
   // Cache for 2 minutes

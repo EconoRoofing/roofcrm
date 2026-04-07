@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { updateJob } from '@/lib/actions/jobs'
+import { getPreviousJobAtAddress } from '@/lib/actions/price-memory'
 import { ChevronLeftNavIcon } from '@/components/icons'
 import { SpecsForm } from './specs-form'
 import { PricingForm } from './pricing-form'
@@ -54,6 +55,39 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [previousJobData, setPreviousJobData] = useState<{ specs: unknown; pricing: unknown } | null>(null)
+  const [showPrevBanner, setShowPrevBanner] = useState(false)
+
+  // Check for a previous job at the same address on mount
+  useEffect(() => {
+    getPreviousJobAtAddress(job.address).then((prev) => {
+      if (prev) {
+        setPreviousJobData(prev)
+        setShowPrevBanner(true)
+      }
+    }).catch(() => {})
+  }, [job.address])
+
+  function applyPreviousSpecs() {
+    if (!previousJobData) return
+    const p = previousJobData.pricing as Record<string, unknown>
+    setSpecs((prev) => ({
+      ...prev,
+      material: (p.material as string | null) ?? prev.material,
+      material_color: (p.material_color as string | null) ?? prev.material_color,
+      felt_type: (p.felt_type as string | null) ?? prev.felt_type,
+      layers: (p.layers as number | null) ?? prev.layers,
+      warranty_manufacturer_years: (p.warranty_manufacturer_years as number | null) ?? prev.warranty_manufacturer_years,
+      warranty_workmanship_years: (p.warranty_workmanship_years as number | null) ?? prev.warranty_workmanship_years,
+    }))
+    setPricing((prev) => ({
+      ...prev,
+      roof_amount: (p.roof_amount as number | null) ?? prev.roof_amount,
+      gutters_amount: (p.gutters_amount as number | null) ?? prev.gutters_amount,
+      options_amount: (p.options_amount as number | null) ?? prev.options_amount,
+    }))
+    setShowPrevBanner(false)
+  }
 
   // Initialize from existing job data
   const [specs, setSpecs] = useState<SpecsData>(() => {
@@ -248,6 +282,69 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
         </div>
         <StepDots current={step} total={STEPS.length} />
       </div>
+
+      {/* Previous estimate banner */}
+      {showPrevBanner && previousJobData && (
+        <div
+          style={{
+            margin: '16px 16px 0',
+            padding: '12px 14px',
+            backgroundColor: 'var(--accent-dim)',
+            border: '1px solid var(--accent)',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: '13px',
+              color: 'var(--text-primary)',
+              fontWeight: 500,
+            }}
+          >
+            Previous estimate found at this address
+          </span>
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={applyPreviousSpecs}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                background: 'var(--accent)',
+                color: '#0a0a0a',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              Use previous specs
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPrevBanner(false)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                fontSize: '12px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div style={{ flex: 1, paddingTop: '24px', paddingBottom: '120px' }}>

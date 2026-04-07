@@ -76,6 +76,9 @@ interface UpdateJobData {
   permit_number?: string | null
   assigned_crew_id?: string | null
   scheduled_date?: string | null
+  review_received?: boolean | null
+  review_date?: string | null
+  do_not_text?: boolean | null
 }
 
 interface JobFilters {
@@ -115,6 +118,19 @@ export async function createJob(data: CreateJobData) {
   } catch (geoError) {
     console.error('Geocoding failed:', geoError)
   }
+
+  // Auto-link CompanyCam project by address
+  try {
+    const { searchProjectsByAddress } = await import('@/lib/companycam')
+    const projects = await searchProjectsByAddress(data.address)
+    if (projects.length === 1) {
+      // Exact match — auto-link
+      await supabase.from('jobs').update({
+        companycam_project_id: projects[0].id,
+      }).eq('id', job.id)
+    }
+    // If 0 or multiple matches, leave unlinked (user links manually)
+  } catch {}
 
   return job
 }
@@ -230,6 +246,21 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   if (error) throw new Error(`Failed to update job status: ${error.message}`)
 
   await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
+
+  // Auto-create follow-up task when estimate is given (status -> pending) — best-effort
+  if (newStatus === 'pending' && currentJob.rep_id) {
+    try {
+      const { createFollowUp } = await import('./follow-up-tasks')
+      const dueDate = new Date()
+      dueDate.setDate(dueDate.getDate() + 3)
+      await createFollowUp(
+        id,
+        currentJob.rep_id,
+        dueDate.toISOString().split('T')[0],
+        `Follow up on estimate — ${currentJob.customer_name}`,
+      )
+    } catch {}
+  }
 
   // Auto-calculate commission when job is sold — best-effort
   if (newStatus === 'sold') {

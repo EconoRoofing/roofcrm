@@ -98,6 +98,20 @@ export async function returnEquipment(equipmentId: string): Promise<void> {
   })
 }
 
+export async function getOverdueEquipment(daysThreshold = 7): Promise<Equipment[]> {
+  const supabase = await createClient()
+  const threshold = new Date()
+  threshold.setDate(threshold.getDate() - daysThreshold)
+
+  const { data } = await supabase
+    .from('equipment')
+    .select('*, current_user:users(name), current_job:jobs(job_number, customer_name)')
+    .eq('status', 'in_use')
+    .lt('created_at', threshold.toISOString())
+
+  return (data ?? []) as Equipment[]
+}
+
 export async function addEquipment(data: {
   name: string
   type: string

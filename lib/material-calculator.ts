@@ -18,40 +18,58 @@ export interface MaterialCalcInput {
   ridge_vent_ft?: number
   hip_length_ft?: number  // if available from measurements
   waste_factor?: number  // default 0.10 (10%)
+  pitch?: string  // e.g., "4/12", "6/12", "8/12", "12/12"
+}
+
+/**
+ * Calculate the pitch multiplier using the Pythagorean theorem.
+ * A 4/12 pitch means 4 inches of rise per 12 inches of run.
+ * Actual rafter length = sqrt(rise² + 12²) / 12
+ */
+function getPitchMultiplier(pitch?: string): number {
+  if (!pitch) return 1.0
+  const match = pitch.match(/(\d+)\/12/)
+  if (!match) return 1.0
+  const rise = parseInt(match[1])
+  return Math.sqrt(rise * rise + 144) / 12
 }
 
 export function calculateMaterials(input: MaterialCalcInput): MaterialItem[] {
   const waste = 1 + (input.waste_factor ?? 0.10)
+  const pitchMult = getPitchMultiplier(input.pitch)
   const items: MaterialItem[] = []
 
-  // Shingle bundles: squares × 3 bundles/sq × waste
+  // Shingle bundles: squares × pitch multiplier × 3 bundles/sq × waste
   if (input.squares > 0) {
+    const adjustedSquares = input.squares * pitchMult
     items.push({
       name: `Shingle Bundles (${input.material || 'Standard'})`,
-      quantity: Math.ceil(input.squares * 3 * waste),
+      quantity: Math.ceil(adjustedSquares * 3 * waste),
       unit: 'bundles',
-      formula: `${input.squares} sq × 3 bundles × ${waste.toFixed(2)} waste`,
+      formula: `${input.squares} sq × ${pitchMult.toFixed(2)} pitch × 3 bundles × ${waste.toFixed(2)} waste`,
     })
   }
 
-  // Felt/underlayment
+  // Felt/underlayment — also pitch-adjusted
   if (input.squares > 0 && input.felt_type) {
     const rollsPerSq = input.felt_type === '30lb' ? 0.25 : 0.10  // 30lb covers 4sq, synthetic covers 10sq
+    const adjustedSquares = input.squares * pitchMult
     items.push({
       name: `${input.felt_type} Underlayment`,
-      quantity: Math.ceil(input.squares * rollsPerSq * waste),
+      quantity: Math.ceil(adjustedSquares * rollsPerSq * waste),
       unit: 'rolls',
-      formula: `${input.squares} sq × ${rollsPerSq} rolls/sq × ${waste.toFixed(2)} waste`,
+      formula: `${input.squares} sq × ${pitchMult.toFixed(2)} pitch × ${rollsPerSq} rolls/sq × ${waste.toFixed(2)} waste`,
     })
   }
 
-  // Ice & water shield (valleys)
+  // Ice & water shield (valleys) — pitch-adjusted
   if (input.valley_length_ft && input.valley_length_ft > 0) {
+    const adjustedValleyFt = input.valley_length_ft * pitchMult
     items.push({
       name: 'Ice & Water Shield',
-      quantity: Math.ceil(input.valley_length_ft / 60),  // 60 lf per roll
+      quantity: Math.ceil(adjustedValleyFt / 60),  // 60 lf per roll
       unit: 'rolls',
-      formula: `${input.valley_length_ft} lf / 60 lf/roll`,
+      formula: `${input.valley_length_ft} lf × ${pitchMult.toFixed(2)} pitch / 60 lf/roll`,
     })
   }
 
@@ -95,13 +113,14 @@ export function calculateMaterials(input: MaterialCalcInput): MaterialItem[] {
     })
   }
 
-  // Starter strip (eaves)
+  // Starter strip (eaves) — pitch-adjusted
   if (input.eave_length_ft && input.eave_length_ft > 0) {
+    const adjustedEaveFt = input.eave_length_ft * pitchMult
     items.push({
       name: 'Starter Strip',
-      quantity: Math.ceil(input.eave_length_ft / 100 * waste),
+      quantity: Math.ceil(adjustedEaveFt / 100 * waste),
       unit: 'bundles',
-      formula: `${input.eave_length_ft} lf / 100 lf/bundle × ${waste.toFixed(2)} waste`,
+      formula: `${input.eave_length_ft} lf × ${pitchMult.toFixed(2)} pitch / 100 lf/bundle × ${waste.toFixed(2)} waste`,
     })
   }
 

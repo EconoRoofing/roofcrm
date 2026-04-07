@@ -54,6 +54,15 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
 
   const supabase = await createClient()
 
+  // Check do-not-text flag
+  const { data: jobCheck } = await supabase
+    .from('jobs')
+    .select('do_not_text')
+    .eq('id', jobId)
+    .single()
+
+  if ((jobCheck as { do_not_text?: boolean } | null)?.do_not_text) return false
+
   const { data: job, error } = await supabase
     .from('jobs')
     .select(`
@@ -110,6 +119,11 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
 
   const body = template(vars)
   const result = await sendSMS(phone, body)
+
+  // If Twilio flagged the number as opted out, mark it in our system
+  if (result.error === 'opted_out') {
+    await supabase.from('jobs').update({ do_not_text: true }).eq('id', jobId)
+  }
 
   // Store message record regardless of send result (so we have a log)
   await supabase.from('messages').insert({

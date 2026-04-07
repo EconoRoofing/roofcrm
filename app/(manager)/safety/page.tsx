@@ -6,6 +6,7 @@ import {
   getJobInspections,
   getIncidents,
   getAllCertificationsWithUsers,
+  getCrewsMissingTalkToday,
 } from '@/lib/actions/safety'
 import type { Certification } from '@/lib/actions/safety'
 import { SafetyDashboard } from '@/components/safety/safety-dashboard'
@@ -17,13 +18,14 @@ export default async function SafetyPage() {
   const supabase = await createClient()
 
   // Fetch all data in parallel
-  const [stats, talks, recentSessions, incidents, allCerts, crewResult] = await Promise.all([
+  const [stats, talks, recentSessions, incidents, allCerts, crewResult, missingTalks] = await Promise.all([
     getSafetyStats(),
     getToolboxTalks(),
     getRecentToolboxSessions(10),
     getIncidents(),
     getAllCertificationsWithUsers(),
     supabase.from('users').select('id, name, avatar_url').eq('role', 'crew').order('name'),
+    getCrewsMissingTalkToday(),
   ])
 
   const crewMembers = (crewResult.data ?? []) as { id: string; name: string; avatar_url: string | null }[]
@@ -104,6 +106,47 @@ export default async function SafetyPage() {
         {{
           overview: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Crew missing toolbox talk today */}
+              {missingTalks.length > 0 && (
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    backgroundColor: 'var(--accent-red-dim)',
+                    border: '1px solid rgba(255,82,82,0.3)',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: 'var(--accent-red)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    Crew Missing Toolbox Talk Today ({missingTalks.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {missingTalks.map((m) => (
+                      <div
+                        key={m.userId}
+                        style={{
+                          fontFamily: 'var(--font-sans)',
+                          fontSize: '13px',
+                          color: 'var(--text-primary)',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {m.userName}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Recent sessions */}
               {recentSessions.length > 0 && (
                 <div>

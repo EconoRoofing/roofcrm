@@ -12,6 +12,7 @@ import { JobMessages } from '@/components/job-messages'
 import { JobAssignment } from '@/components/job-assignment'
 import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
 import { createClient } from '@/lib/supabase/server'
+import { ReviewReceivedToggle } from '@/components/review-received-toggle'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -661,6 +662,29 @@ export async function JobDetail({ job, role }: JobDetailProps) {
               Create Estimate
             </Link>
           )}
+        </div>
+      )}
+
+      {/* Review Received toggle — manager only, completed jobs */}
+      {isManager && job.status === 'completed' && (
+        <div
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '20px',
+            border: '1px solid var(--border-subtle)',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Review
+          </h2>
+          <ReviewReceivedToggle
+            jobId={job.id}
+            initialValue={job.review_received ?? false}
+          />
         </div>
       )}
 

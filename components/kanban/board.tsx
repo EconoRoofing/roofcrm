@@ -67,6 +67,11 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
     }
   }
 
+  // Sort each column by created_at ascending (oldest/most urgent first)
+  for (const status of COLUMN_ORDER) {
+    grouped[status].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  }
+
   // Optimistic move handler — updates UI instantly, syncs in background
   const handleMoveJob = useCallback(async (jobId: string, newStatus: JobStatus) => {
     // 1. Optimistic: move the card immediately in local state

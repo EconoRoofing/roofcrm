@@ -526,6 +526,35 @@ export async function deleteCertification(id: string): Promise<void> {
   if (error) throw new Error(`Failed to delete certification: ${error.message}`)
 }
 
+// ─── MISSING TOOLBOX TALK DETECTION ──────────────────────────────────────────
+
+export async function getCrewsMissingTalkToday(): Promise<Array<{ userId: string; userName: string }>> {
+  const supabase = await createClient()
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Get all active crew/sales_crew users
+  const { data: crewMembers } = await supabase
+    .from('users')
+    .select('id, name')
+    .in('role', ['crew', 'sales_crew'])
+    .eq('is_active', true)
+
+  if (!crewMembers || crewMembers.length === 0) return []
+
+  // Get all users who signed a talk today
+  const { data: todaySignoffs } = await supabase
+    .from('toolbox_talk_signoffs')
+    .select('user_id')
+    .gte('signed_at', today.toISOString())
+
+  const signedUserIds = new Set((todaySignoffs ?? []).map((s) => s.user_id))
+
+  return crewMembers
+    .filter((m) => !signedUserIds.has(m.id))
+    .map((m) => ({ userId: m.id, userName: m.name }))
+}
+
 // ─── SAFETY DASHBOARD STATS ───────────────────────────────────────────────────
 
 export async function getSafetyStats(): Promise<{

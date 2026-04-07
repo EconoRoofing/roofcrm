@@ -123,6 +123,9 @@ export interface Job {
   deductible: number | null
   insurance_payout: number | null
   supplement_amount: number | null
+  review_received?: boolean
+  review_date?: string | null
+  do_not_text?: boolean
   created_at: string
   updated_at: string
 }

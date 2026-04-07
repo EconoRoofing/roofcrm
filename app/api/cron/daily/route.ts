@@ -3,6 +3,7 @@ import { sendDailyDigest } from '@/lib/actions/digest'
 import { processFollowUps } from '@/lib/actions/follow-ups'
 import { processPostJobAutomation } from '@/lib/actions/post-job'
 import { processFollowUpTasks } from '@/lib/actions/follow-up-tasks'
+import { detectUnclosedClockIns } from '@/lib/actions/time-tracking'
 
 // Single daily cron that runs all automations sequentially
 // Vercel Hobby plan allows 2 cron jobs — this consolidates 3 into 1
@@ -12,11 +13,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const results = {
+  const results: Record<string, unknown> = {
     digest: false,
     followUps: { sent: 0, skipped: 0 },
     postJob: { sent: 0 },
     followUpTasks: { sent: 0, skipped: 0 },
+    unclosedClockIns: { flagged: 0 },
+    overdueEquipment: 0,
+  }
+
+  // 0. Check for unclosed clock-ins from yesterday (run first)
+  try {
+    results.unclosedClockIns = await detectUnclosedClockIns()
+  } catch (error) {
+    console.error('Cron: unclosed clock-in check failed', error)
   }
 
   // 1. Daily digest email to manager
@@ -45,6 +55,15 @@ export async function GET(request: Request) {
     results.followUpTasks = await processFollowUpTasks()
   } catch (error) {
     console.error('Cron: follow-up tasks failed', error)
+  }
+
+  // 5. Check for overdue equipment
+  try {
+    const { getOverdueEquipment } = await import('@/lib/actions/equipment')
+    const overdue = await getOverdueEquipment()
+    results.overdueEquipment = overdue.length
+  } catch (error) {
+    console.error('Cron: overdue equipment check failed', error)
   }
 
   return NextResponse.json(results)
