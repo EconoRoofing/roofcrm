@@ -59,7 +59,15 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
 
   if (!res.ok) {
     const body = await res.text()
-    console.error('Calendar sync: token exchange failed', res.status, body)
+    if (res.status === 400 && body.includes('invalid_grant')) {
+      // Token was revoked — clear it so we stop trying
+      const { createClient: createClientForRevoke } = await import('@/lib/supabase/server')
+      const supabaseRevoke = await createClientForRevoke()
+      await supabaseRevoke.from('users').update({ google_refresh_token: null }).eq('id', userId)
+      console.warn(`Calendar: refresh token revoked for user ${userId}, cleared from DB`)
+      return null
+    }
+    console.error('Calendar: token refresh failed', res.status, body)
     return null
   }
 
@@ -147,6 +155,11 @@ export async function createCalendarEvent(
     body: JSON.stringify(body),
   })
 
+  if (res.status === 429) {
+    console.warn('Calendar: rate limited by Google')
+    return null
+  }
+
   if (!res.ok) {
     const errText = await res.text()
     console.error('Calendar sync: createCalendarEvent failed', res.status, errText)
@@ -164,7 +177,12 @@ export async function createCalendarEvent(
 export async function updateCalendarEvent(
   userId: string,
   eventId: string,
-  updates: { summary?: string; start?: string; end?: string; colorId?: string }
+  updates: {
+    summary?: string
+    start?: { dateTime: string; timeZone?: string }
+    end?: { dateTime: string; timeZone?: string }
+    colorId?: string
+  }
 ): Promise<boolean> {
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return false
@@ -180,6 +198,11 @@ export async function updateCalendarEvent(
       body: JSON.stringify(updates),
     }
   )
+
+  if (res.status === 429) {
+    console.warn('Calendar: rate limited by Google')
+    return false
+  }
 
   if (!res.ok) {
     const errText = await res.text()
@@ -207,6 +230,11 @@ export async function deleteCalendarEvent(userId: string, eventId: string): Prom
       },
     }
   )
+
+  if (res.status === 429) {
+    console.warn('Calendar: rate limited by Google')
+    return false
+  }
 
   if (!res.ok && res.status !== 404) {
     const errText = await res.text()

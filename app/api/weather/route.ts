@@ -52,8 +52,11 @@ export async function GET(request: NextRequest) {
       city,
       windSpeed: Math.round(raw.wind?.speed ?? 0),
       // OWM current weather doesn't include rain probability; use rain volume as proxy
-      // If rain.1h > 0 treat as 70%, else 0
-      rainProbability: raw.rain?.['1h'] > 0 ? 70 : 0,
+      // Graduated scale: >2.5mm=100%, >0.5mm=70%, >0mm=30%, 0mm=0%
+      rainProbability: (() => {
+        const rainMm = raw.rain?.['1h'] ?? 0
+        return rainMm > 2.5 ? 100 : rainMm > 0.5 ? 70 : rainMm > 0 ? 30 : 0
+      })(),
     }
 
     cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })

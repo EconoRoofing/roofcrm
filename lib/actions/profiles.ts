@@ -1,7 +1,11 @@
 'use server'
 
+import { timingSafeEqual } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+
+// In-memory rate limiter for PIN verification
+const pinAttempts = new Map<string, { count: number; resetAt: number }>()
 
 // Get all active team members
 export async function getProfiles() {
@@ -22,7 +26,8 @@ export async function getProfiles() {
 export async function setPin(userId: string, pin: string) {
   const supabase = await createClient()
   const encoder = new TextEncoder()
-  const data = encoder.encode(pin + userId) // salt with userId
+  const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
+  const data = encoder.encode(pin + userId + serverSalt)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
@@ -33,10 +38,18 @@ export async function setPin(userId: string, pin: string) {
 // Verify a PIN
 export async function verifyPin(userId: string, pin: string): Promise<boolean> {
   try {
+    // Rate limiting: max 5 attempts per 15 minutes
+    const now = Date.now()
+    const attempts = pinAttempts.get(userId)
+    if (attempts && attempts.resetAt > now && attempts.count >= 5) {
+      throw new Error('Too many PIN attempts. Try again in 15 minutes.')
+    }
+
     const supabase = await createClient()
 
     const encoder = new TextEncoder()
-    const data = encoder.encode(pin + userId)
+    const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
+    const data = encoder.encode(pin + userId + serverSalt)
     const hashBuffer = await crypto.subtle.digest('SHA-256', data)
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
@@ -52,9 +65,26 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
       return true
     }
 
-    return user.pin_hash === pinHash
-  } catch {
-    // Fail closed on error — don't grant access
+    // Timing-safe comparison to prevent timing attacks
+    const storedBuf = Buffer.from(user.pin_hash, 'hex')
+    const computedBuf = Buffer.from(pinHash, 'hex')
+    const isMatch = storedBuf.length === computedBuf.length && timingSafeEqual(storedBuf, computedBuf)
+
+    if (!isMatch) {
+      const current = pinAttempts.get(userId) ?? { count: 0, resetAt: now + 15 * 60 * 1000 }
+      current.count++
+      pinAttempts.set(userId, current)
+    } else {
+      pinAttempts.delete(userId)
+    }
+
+    return isMatch
+  } catch (err) {
+    // Re-throw rate limit errors so callers can show the message
+    if (err instanceof Error && err.message.includes('Too many PIN attempts')) {
+      throw err
+    }
+    // Fail closed on all other errors — don't grant access
     return false
   }
 }

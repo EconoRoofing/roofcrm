@@ -53,7 +53,7 @@ export async function POST(
       .from('estimates')
       .upload(storagePath, pdfBuffer, {
         contentType: 'application/pdf',
-        upsert: true,
+        upsert: false,
       })
 
     if (uploadError) {

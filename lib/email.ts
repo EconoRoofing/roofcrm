@@ -2,6 +2,10 @@ import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 export async function sendEstimateEmail(
   customerEmail: string,
   customerName: string,
@@ -13,9 +17,16 @@ export async function sendEstimateEmail(
     return false
   }
 
+  if (!isValidEmail(customerEmail)) {
+    console.warn(`Invalid customer email: ${customerEmail}`)
+    return false
+  }
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+
   try {
     await resend.emails.send({
-      from: `${companyName} <onboarding@resend.dev>`,
+      from: `${companyName} <${fromEmail}>`,
       to: customerEmail,
       subject: `Your Roofing Agreement from ${companyName}`,
       html: `

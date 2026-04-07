@@ -42,6 +42,11 @@ export function checkGeofence(
   jobLng: number,
   radiusFt = 500
 ): GeofenceResult {
+  // Validate inputs
+  if (isNaN(userLat) || isNaN(userLng) || isNaN(jobLat) || isNaN(jobLng)) {
+    return { within: false, distanceFt: 0, status: 'flagged' as const }
+  }
+
   const distanceFt = Math.round(getDistanceFt(userLat, userLng, jobLat, jobLng))
 
   if (distanceFt <= radiusFt) {
@@ -77,6 +82,11 @@ export async function geocodeAddress(
 
     const { lat, lon } = data[0]
     if (typeof lat !== 'number' || typeof lon !== 'number') return null
+
+    if (lat < 24 || lat > 50 || lon < -125 || lon > -66) {
+      console.warn(`Geocoding returned non-US coordinates: ${lat}, ${lon}`)
+      return null
+    }
 
     return { lat, lng: lon }
   } catch {

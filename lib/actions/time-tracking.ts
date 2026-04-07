@@ -162,6 +162,12 @@ export async function clockOut(
   if (fetchError) throw new Error(`Failed to fetch active entry: ${fetchError.message}`)
   if (!entry) throw new Error('No active clock-in found.')
 
+  const clockInTime = new Date(entry.clock_in as string)
+  const hoursSinceClock = (Date.now() - clockInTime.getTime()) / 1000 / 3600
+  if (hoursSinceClock > 24) {
+    throw new Error('Cannot clock out — clock-in was more than 24 hours ago. Contact your manager.')
+  }
+
   const clockOut = new Date()
 
   // Fetch all breaks for this entry
