@@ -3,6 +3,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
 import { logActivity } from '@/lib/actions/activity'
+import {
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+} from '@/lib/google-calendar'
 import type { JobStatus, JobType, UserRole } from '@/lib/types/database'
 
 // Valid state machine transitions
@@ -139,7 +144,7 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
 
   const { data: currentJob, error: fetchError } = await supabase
     .from('jobs')
-    .select('status')
+    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id')
     .eq('id', id)
     .single()
 
@@ -174,8 +179,6 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
     updatePayload.completed_date = new Date().toISOString()
   }
 
-  // TODO: trigger calendar sync
-
   const { data: job, error } = await supabase
     .from('jobs')
     .update(updatePayload)
@@ -186,6 +189,43 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   if (error) throw new Error(`Failed to update job status: ${error.message}`)
 
   await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
+
+  // Calendar sync — best-effort, never blocks the status change
+  if (user?.id) {
+    try {
+      if (newStatus === 'estimate_scheduled') {
+        // Create an estimate calendar event
+        const eventId = await createCalendarEvent(user.id, currentJob, 'estimate')
+        if (eventId) {
+          await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', id)
+        }
+      } else if (newStatus === 'sold' || newStatus === 'scheduled') {
+        // Create or update a job calendar event
+        if (currentJob.calendar_event_id) {
+          await updateCalendarEvent(user.id, currentJob.calendar_event_id, {
+            summary: `Job: ${currentJob.job_number} — ${currentJob.customer_name} (${currentJob.job_type})`,
+          })
+        } else {
+          const eventId = await createCalendarEvent(user.id, currentJob, 'job')
+          if (eventId) {
+            await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', id)
+          }
+        }
+      } else if (newStatus === 'completed' && currentJob.calendar_event_id) {
+        // Mark event as completed
+        await updateCalendarEvent(user.id, currentJob.calendar_event_id, {
+          summary: `[Done] ${currentJob.job_number} — ${currentJob.customer_name}`,
+        })
+      } else if (newStatus === 'cancelled' && currentJob.calendar_event_id) {
+        // Delete the calendar event
+        await deleteCalendarEvent(user.id, currentJob.calendar_event_id)
+        await supabase.from('jobs').update({ calendar_event_id: null }).eq('id', id)
+      }
+    } catch (calError) {
+      // Calendar sync is best-effort — don't fail the status change
+      console.error('Calendar sync error:', calError)
+    }
+  }
 
   return job
 }
