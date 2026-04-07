@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;

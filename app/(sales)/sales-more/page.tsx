@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getUser, getUserRole, signOut } from '@/lib/auth'
 import { RoleToggle } from '@/components/crew/role-toggle'
+import { clearActiveProfile } from '@/lib/actions/profiles'
 
 const OFFICE_PHONE = '5595550100'
 
@@ -260,6 +261,29 @@ export default async function SalesMorePage() {
               {user?.email ?? ''}
             </div>
           </div>
+          <form action={async () => {
+            'use server'
+            await clearActiveProfile()
+            redirect('/select-profile')
+          }} style={{ marginBottom: '8px' }}>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '14px',
+                backgroundColor: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Switch Profile
+            </button>
+          </form>
           <form action={async () => {
             'use server'
             await signOut()

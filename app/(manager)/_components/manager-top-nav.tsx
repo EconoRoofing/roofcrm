@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: '/calendar', label: 'Calendar' },
   { href: '/time-tracking', label: 'Time' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/team', label: 'Team' },
 ]
 
 export default function ManagerTopNav() {

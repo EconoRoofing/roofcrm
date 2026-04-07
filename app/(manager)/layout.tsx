@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { signOut } from '@/lib/auth'
+import { clearActiveProfile } from '@/lib/actions/profiles'
 import ManagerTopNav from './_components/manager-top-nav'
 
 export default async function ManagerLayout({
@@ -63,6 +65,30 @@ export default async function ManagerLayout({
                 {user.email}
               </span>
             )}
+            <form
+              action={async () => {
+                'use server'
+                await clearActiveProfile()
+                redirect('/select-profile')
+              }}
+            >
+              <button
+                type="submit"
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Switch Profile
+              </button>
+            </form>
             <form
               action={async () => {
                 'use server'

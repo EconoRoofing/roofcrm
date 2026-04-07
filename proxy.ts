@@ -41,31 +41,51 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Role-based routing — only redirect from root path
-  if (user && pathname === '/') {
-    const { data } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+  // Skip profile check for auth/login/select-profile routes
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/select-profile')
+  ) {
+    return supabaseResponse
+  }
 
-    const role = data?.role as string | undefined
+  // If authenticated but no active profile cookie, redirect to profile selector
+  if (user) {
+    const activeProfileId = request.cookies.get('active_profile_id')?.value
 
-    const url = request.nextUrl.clone()
+    if (!activeProfileId) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/select-profile'
+      return NextResponse.redirect(url)
+    }
 
-    if (role === 'manager') {
-      url.pathname = '/pipeline'
-      return NextResponse.redirect(url)
-    } else if (role === 'sales') {
-      url.pathname = '/today'
-      return NextResponse.redirect(url)
-    } else if (role === 'crew') {
-      url.pathname = '/route'
-      return NextResponse.redirect(url)
-    } else if (role === 'sales_crew') {
-      const preferredView = request.cookies.get('preferred_view')?.value
-      url.pathname = preferredView === 'sales' ? '/today' : '/route'
-      return NextResponse.redirect(url)
+    // Role-based routing — only redirect from root path
+    if (pathname === '/') {
+      const { data } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', activeProfileId)
+        .single()
+
+      const role = data?.role as string | undefined
+
+      const url = request.nextUrl.clone()
+
+      if (role === 'manager') {
+        url.pathname = '/pipeline'
+        return NextResponse.redirect(url)
+      } else if (role === 'sales') {
+        url.pathname = '/today'
+        return NextResponse.redirect(url)
+      } else if (role === 'crew') {
+        url.pathname = '/route'
+        return NextResponse.redirect(url)
+      } else if (role === 'sales_crew') {
+        const preferredView = request.cookies.get('preferred_view')?.value
+        url.pathname = preferredView === 'sales' ? '/today' : '/route'
+        return NextResponse.redirect(url)
+      }
     }
   }
 
