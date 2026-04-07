@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { Job, Company, User } from '@/lib/types/database'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
@@ -260,6 +261,43 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           )}
         </div>
       </div>
+
+      {/* Material List link — shown when job has squares */}
+      {(job.squares ?? 0) > 0 && (
+        <Link
+          href={`/jobs/${job.id}/materials`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '20px',
+            border: '1px solid var(--border-subtle)',
+            padding: '16px 20px',
+            textDecoration: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="2" width="6" height="4" rx="1" />
+              <path d="M5 4h2a1 1 0 0 1 1 1v1H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4V5a1 1 0 0 1 1-1h2" />
+              <line x1="8" y1="13" x2="16" y2="13" />
+              <line x1="8" y1="17" x2="13" y2="17" />
+            </svg>
+            <div>
+              <div style={{ fontFamily: 'var(--font-sans)', fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                Material List
+              </div>
+              <div style={{ fontFamily: 'var(--font-sans)', fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                Auto-calculated quantities
+              </div>
+            </div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </Link>
+      )}
 
       {/* Financial Section */}
       {hasFinancials && (

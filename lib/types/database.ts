@@ -108,6 +108,17 @@ export interface Job {
   updated_at: string
 }
 
+export interface MaterialList {
+  id: string
+  job_id: string
+  items: import('@/lib/material-calculator').MaterialItem[]
+  waste_factor: number
+  total_estimated_cost: number
+  supplier_name: string | null
+  notes: string | null
+  created_at: string
+}
+
 export interface ActivityLog {
   id: string
   job_id: string
@@ -145,6 +156,11 @@ export type Database = {
         Row: ActivityLog
         Insert: Omit<ActivityLog, 'id' | 'created_at'> & { id?: string; created_at?: string }
         Update: Partial<Omit<ActivityLog, 'id'>>
+      }
+      material_lists: {
+        Row: MaterialList
+        Insert: Omit<MaterialList, 'id' | 'created_at'> & { id?: string; created_at?: string }
+        Update: Partial<Omit<MaterialList, 'id'>>
       }
     }
     Enums: {
