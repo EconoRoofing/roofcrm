@@ -8,12 +8,16 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
   const now = new Date()
   let sent = 0
 
-  // Find completed jobs for post-job automation
+  // Find recently completed jobs for post-job automation (30-day lookback to avoid re-processing old jobs)
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
   const { data: completedJobs } = await supabase
     .from('jobs')
     .select('id, customer_name, phone, completed_date, company_id, job_type, company:companies(name, google_review_link)')
     .eq('status', 'completed')
     .not('completed_date', 'is', null)
+    .gte('completed_date', thirtyDaysAgo.toISOString().split('T')[0])
 
   if (!completedJobs) return { sent: 0 }
 

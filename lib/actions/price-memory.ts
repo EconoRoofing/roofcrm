@@ -38,12 +38,14 @@ export async function getPreviousJobAtAddress(
 ): Promise<{ specs: unknown; pricing: unknown } | null> {
   const supabase = await createClient()
 
+  const escaped = address.replace(/%/g, '\\%').replace(/_/g, '\\_')
+
   const { data } = await supabase
     .from('jobs')
     .select(
       'material, material_color, felt_type, squares, layers, ridge_type, ventilation, roof_amount, gutters_amount, options_amount, total_amount, estimate_specs, warranty_manufacturer_years, warranty_workmanship_years'
     )
-    .ilike('address', `%${address}%`)
+    .ilike('address', `%${escaped}%`)
     .not('total_amount', 'is', null)
     .gt('total_amount', 0)
     .order('created_at', { ascending: false })

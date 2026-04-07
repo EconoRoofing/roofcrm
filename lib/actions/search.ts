@@ -15,13 +15,16 @@ export interface SearchResult {
 export async function searchJobs(query: string): Promise<SearchResult[]> {
   if (!query || query.trim().length < 2) return []
 
+  const sanitized = query.replace(/[%_,().\\]/g, '')
+  if (!sanitized) return []
+
   const supabase = await createClient()
 
   const { data } = await supabase
     .from('jobs')
     .select('id, job_number, customer_name, address, city, status, company:companies(name, color)')
     .or(
-      `customer_name.ilike.%${query}%,address.ilike.%${query}%,job_number.ilike.%${query}%,city.ilike.%${query}%`
+      `customer_name.ilike.%${sanitized}%,address.ilike.%${sanitized}%,job_number.ilike.%${sanitized}%,city.ilike.%${sanitized}%`
     )
     .order('created_at', { ascending: false })
     .limit(10)

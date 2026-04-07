@@ -49,6 +49,7 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    cache: 'no-store', // Token exchange is a mutation — never cache
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
@@ -155,6 +156,7 @@ export async function createCalendarEvent(
 
   const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
+    cache: 'no-store', // Calendar mutations must never be cached
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -189,15 +191,17 @@ export async function updateCalendarEvent(
     start?: { dateTime: string; timeZone?: string }
     end?: { dateTime: string; timeZone?: string }
     colorId?: string
-  }
+  },
+  calendarId = 'primary'
 ): Promise<boolean> {
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return false
 
   const res = await fetch(
-    `${GOOGLE_CALENDAR_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: 'PATCH',
+      cache: 'no-store', // Calendar mutations must never be cached
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
@@ -224,14 +228,15 @@ export async function updateCalendarEvent(
  * Delete a Google Calendar event.
  * Returns true on success, false on failure.
  */
-export async function deleteCalendarEvent(userId: string, eventId: string): Promise<boolean> {
+export async function deleteCalendarEvent(userId: string, eventId: string, calendarId = 'primary'): Promise<boolean> {
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return false
 
   const res = await fetch(
-    `${GOOGLE_CALENDAR_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: 'DELETE',
+      cache: 'no-store', // Calendar mutations must never be cached
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

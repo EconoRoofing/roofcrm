@@ -25,7 +25,7 @@ export async function processFollowUps(): Promise<{ sent: number; skipped: numbe
   const { data: jobs } = await supabase
     .from('jobs')
     .select('id, customer_name, phone, company_id, created_at, status, company:companies(name)')
-    .in('status', ['pending', 'lead', 'estimate_scheduled'])
+    .in('status', ['pending'])
 
   if (!jobs) return { sent: 0, skipped: 0 }
 
@@ -38,13 +38,13 @@ export async function processFollowUps(): Promise<{ sent: number; skipped: numbe
 
     const companyName = (job.company as unknown as { name: string })?.name ?? 'your roofer'
 
-    // Check if we already sent a follow-up at this interval
+    // Check how many auto-generated outbound follow-ups we've already sent
     const { data: existingMessages } = await supabase
       .from('messages')
-      .select('body')
+      .select('id')
       .eq('job_id', job.id)
       .eq('auto_generated', true)
-      .ilike('body', '%checking in%')
+      .eq('direction', 'outbound')
 
     const followUpCount = existingMessages?.length ?? 0
 

@@ -17,18 +17,24 @@ export async function exportPayrollCSV(filters?: {
       user:users!time_entries_user_id_fkey(name, primary_company_id),
       job:jobs!time_entries_job_id_fkey(job_number, customer_name, company_id)
     `)
-    .gte('clock_in', filters?.startDate ?? '')
-    .lte('clock_in', filters?.endDate ?? '')
     .not('clock_out', 'is', null)
     .order('clock_in', { ascending: true })
 
-  if (filters?.companyId) {
-    // Filter by job company (most relevant for cross-company payroll splits)
-    query = query.eq('job.company_id', filters.companyId)
-  }
+  if (filters?.startDate) query = query.gte('clock_in', filters.startDate)
+  if (filters?.endDate) query = query.lte('clock_in', filters.endDate + 'T23:59:59')
 
   const { data } = await query
-  if (!data || data.length === 0) return ''
+
+  // Filter by company client-side (embedded resource filters don't work in PostgREST)
+  let filtered = data ?? []
+  if (filters?.companyId) {
+    filtered = filtered.filter(entry => {
+      const job = entry.job as any
+      return job?.company_id === filters.companyId
+    })
+  }
+
+  if (filtered.length === 0) return ''
 
   const headers = [
     'Employee', 'Date', 'Job #', 'Customer', 'Clock In', 'Clock Out',
@@ -36,7 +42,7 @@ export async function exportPayrollCSV(filters?: {
     'Pay Type', 'Rate', 'Total Pay', 'Cost Code',
   ]
 
-  const rows = data.map(entry => {
+  const rows = filtered.map(entry => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = entry.user as any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

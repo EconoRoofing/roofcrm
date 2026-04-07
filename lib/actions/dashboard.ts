@@ -201,8 +201,10 @@ export async function getDashboardData(filters?: {
   let overtimeHoursThisWeek = 0
 
   try {
+    const dayOfWeek = now.getDay()
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
     const weekStart = new Date(now)
-    weekStart.setDate(now.getDate() - now.getDay())
+    weekStart.setDate(now.getDate() + mondayOffset)
     weekStart.setHours(0, 0, 0, 0)
 
     const [timeEntriesResult, monthlyLaborResult, weeklyOTResult] = await Promise.all([
@@ -225,8 +227,14 @@ export async function getDashboardData(filters?: {
 
     const timeEntries = timeEntriesResult.data ?? []
     if (timeEntries.length > 0) {
-      const totalHours = timeEntries.reduce((sum, e) => sum + (e.total_hours ?? 0), 0)
-      avgHoursPerJob = totalHours / timeEntries.length
+      const jobHoursMap = new Map<string, number>()
+      for (const e of timeEntries) {
+        const jobId = (e as any).job_id ?? ''
+        jobHoursMap.set(jobId, (jobHoursMap.get(jobId) ?? 0) + (Number(e.total_hours) ?? 0))
+      }
+      const uniqueJobCount = jobHoursMap.size
+      const totalHoursAll = Array.from(jobHoursMap.values()).reduce((a, b) => a + b, 0)
+      avgHoursPerJob = uniqueJobCount > 0 ? Math.round((totalHoursAll / uniqueJobCount) * 10) / 10 : 0
     }
 
     totalLaborCostThisMonth = (monthlyLaborResult.data ?? []).reduce(
@@ -246,7 +254,7 @@ export async function getDashboardData(filters?: {
   // Last 20 completed jobs by contract amount.
   // Full margin (labor cost vs revenue) requires joining time_entries — deferred for a future query.
 
-  const jobQueryForTrend = supabase
+  let jobQueryForTrend = supabase
     .from('jobs')
     .select('job_number, total_amount, completed_date')
     .eq('status', 'completed')
@@ -256,7 +264,7 @@ export async function getDashboardData(filters?: {
     .limit(20)
 
   if (filters?.companyId) {
-    jobQueryForTrend.eq('company_id', filters.companyId)
+    jobQueryForTrend = jobQueryForTrend.eq('company_id', filters.companyId)
   }
 
   const { data: trendJobs } = await jobQueryForTrend

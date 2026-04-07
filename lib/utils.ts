@@ -106,14 +106,14 @@ export function formatTimeOrDash(iso: string | null): string {
 }
 
 // Format a numeric currency value for input fields — no $ prefix, no symbol
-// Returns empty string for falsy values
+// Returns empty string for null/undefined (0 is a valid value, preserve it)
 export function formatNumericInput(val: number | null | undefined): string {
-  if (!val) return ''
-  return val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+  if (val == null) return ''
+  return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // Format money with $0.00 fallback (used in review/summary screens)
 export function formatMoneyDisplay(val: number | null | undefined): string {
   if (val == null) return '$0.00'
-  return formatCurrency(val)
+  return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
