@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { StatusBadge } from '@/components/status-badge'
 import { hexToRgba } from '@/lib/utils'
+import { ChevronLeftIcon, ChevronRightIcon } from '@/components/icons'
 import type { Job } from '@/lib/types/database'
 
 type JobWithRelations = Job & {
@@ -123,10 +124,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
               ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
             }}
           >
-            {/* Left arrow SVG */}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronLeftIcon size={16} />
           </button>
 
           <h2
@@ -167,10 +165,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
               ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
             }}
           >
-            {/* Right arrow SVG */}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronRightIcon size={16} />
           </button>
         </div>
 

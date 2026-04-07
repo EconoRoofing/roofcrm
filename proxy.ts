@@ -60,6 +60,22 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
+    // Verify profile exists AND is active — security check
+    const { data: profileCheck } = await supabase
+      .from('users')
+      .select('id, is_active')
+      .eq('id', activeProfileId)
+      .single()
+
+    if (!profileCheck || !profileCheck.is_active) {
+      // Profile is inactive or deleted — clear cookie and redirect
+      const url = request.nextUrl.clone()
+      url.pathname = '/select-profile'
+      const response = NextResponse.redirect(url)
+      response.cookies.delete('active_profile_id')
+      return response
+    }
+
     // Role-based routing — only redirect from root path
     if (pathname === '/') {
       const { data } = await supabase

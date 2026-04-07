@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { getTimeEntries } from '@/lib/actions/time-tracking'
+import { GpsIcon, FlagIcon } from '@/components/icons'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
 type ActiveEntry = TimeEntry & {
@@ -162,20 +163,7 @@ function CrewCard({ entry }: { entry: ActiveEntry }) {
             gap: '6px',
           }}
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--text-muted)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          <GpsIcon size={12} />
           <span
             style={{
               fontFamily: 'var(--font-jetbrains-mono, monospace)',
@@ -204,22 +192,7 @@ function CrewCard({ entry }: { entry: ActiveEntry }) {
             border: '1px solid rgba(255,82,82,0.2)',
           }}
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#ff5252"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ flexShrink: 0, marginTop: '1px' }}
-            aria-hidden="true"
-          >
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
+          <FlagIcon size={12} />
           <span
             style={{
               fontFamily: 'var(--font-sans)',

@@ -5,13 +5,17 @@ import { cookies } from 'next/headers'
 
 // Get all active team members
 export async function getProfiles() {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('users')
-    .select('id, name, role, avatar_url, is_active')
-    .eq('is_active', true)
-    .order('name')
-  return data ?? []
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('users')
+      .select('id, name, role, avatar_url, is_active')
+      .eq('is_active', true)
+      .order('name')
+    return data ?? []
+  } catch {
+    return []
+  }
 }
 
 // Set a user's PIN (manager only, or first-time setup)
@@ -28,26 +32,31 @@ export async function setPin(userId: string, pin: string) {
 
 // Verify a PIN
 export async function verifyPin(userId: string, pin: string): Promise<boolean> {
-  const supabase = await createClient()
+  try {
+    const supabase = await createClient()
 
-  const encoder = new TextEncoder()
-  const data = encoder.encode(pin + userId)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    const encoder = new TextEncoder()
+    const data = encoder.encode(pin + userId)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 
-  const { data: user } = await supabase
-    .from('users')
-    .select('pin_hash')
-    .eq('id', userId)
-    .single()
+    const { data: user } = await supabase
+      .from('users')
+      .select('pin_hash')
+      .eq('id', userId)
+      .single()
 
-  if (!user?.pin_hash) {
-    // No PIN set — allow first-time access
-    return true
+    if (!user?.pin_hash) {
+      // No PIN set — allow first-time access
+      return true
+    }
+
+    return user.pin_hash === pinHash
+  } catch {
+    // Fail closed on error — don't grant access
+    return false
   }
-
-  return user.pin_hash === pinHash
 }
 
 // Select a profile — sets the active_profile cookie

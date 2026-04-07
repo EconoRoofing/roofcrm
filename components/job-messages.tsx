@@ -2,20 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { getJobMessages, sendCustomMessage, type Message } from '@/lib/actions/messages'
+import { formatTime, formatDate } from '@/lib/utils'
 
 interface JobMessagesProps {
   jobId: string
   customerPhone: string | null
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
 }
 
 const twilioConfigured =
@@ -217,7 +208,7 @@ export function JobMessages({ jobId, customerPhone }: JobMessagesProps) {
                     color: 'var(--text-muted)',
                   }}
                 >
-                  {formatTime(msg.created_at)}
+                  {`${formatDate(msg.created_at)}, ${formatTime(msg.created_at)}`}
                 </span>
                 {msg.status === 'failed' && (
                   <span

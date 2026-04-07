@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react'
 import { getTimeEntries, exportTimeEntriesCSV } from '@/lib/actions/time-tracking'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatTime } from '@/lib/utils'
+import { DownloadIcon, FlagIcon } from '@/components/icons'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
 type EntryWithRelations = TimeEntry & {
@@ -25,15 +26,10 @@ function mono(children: React.ReactNode, color?: string) {
   )
 }
 
-function formatTime(iso: string | null): string {
+function formatTimeOrDash(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  })
+  return formatTime(iso)
 }
-
 
 function ExpandedRow({ entry }: { entry: EntryWithRelations }) {
   return (
@@ -259,7 +255,7 @@ function EntryRow({
             borderBottom: expanded ? 'none' : '1px solid var(--border-subtle)',
           }}
         >
-          {mono(formatTime(entry.clock_in))}
+          {mono(formatTimeOrDash(entry.clock_in))}
         </td>
 
         {/* Clock Out */}
@@ -269,7 +265,7 @@ function EntryRow({
             borderBottom: expanded ? 'none' : '1px solid var(--border-subtle)',
           }}
         >
-          {entry.clock_out ? mono(formatTime(entry.clock_out)) : (
+          {entry.clock_out ? mono(formatTimeOrDash(entry.clock_out)) : (
             <span
               style={{
                 fontFamily: 'var(--font-jetbrains-mono, monospace)',
@@ -347,22 +343,8 @@ function EntryRow({
           }}
         >
           {isFlagged ? (
-            <div title={entry.flag_reason ?? 'Flagged'} style={{ cursor: 'help' }}>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#ff5252"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-label={entry.flag_reason ?? 'Flagged'}
-              >
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
+            <div title={entry.flag_reason ?? 'Flagged'} style={{ cursor: 'help' }} aria-label={entry.flag_reason ?? 'Flagged'}>
+              <FlagIcon size={14} />
             </div>
           ) : (
             <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>—</span>
@@ -522,21 +504,7 @@ export default function DailyTimeReport({ initialEntries, initialDate }: DailyTi
               transition: 'opacity 0.15s',
             }}
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            <DownloadIcon size={12} />
             {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>

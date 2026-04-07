@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
-import { formatJobType } from '@/lib/utils'
+import { formatJobType, formatAmount } from '@/lib/utils'
 import type { Job, JobStatus } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -24,16 +24,6 @@ const TABS: { label: string; value: JobStatus | 'all' }[] = [
   { label: 'Done', value: 'completed' },
 ]
 
-
-function formatAmount(amount: number | null): string {
-  if (amount == null) return '--'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
 
 export function PipelineList({ jobs }: PipelineListProps) {
   const router = useRouter()

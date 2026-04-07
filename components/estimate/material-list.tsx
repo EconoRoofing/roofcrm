@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { generateMaterialList, exportMaterialListCSV } from '@/lib/actions/materials'
 import { calculateMaterials, type MaterialItem, type MaterialCalcInput } from '@/lib/material-calculator'
+import { ClipboardAddIcon } from '@/components/icons'
 import type { MaterialList } from '@/lib/types/database'
 
 interface MaterialListProps {
@@ -118,12 +119,7 @@ export function MaterialListUI({ jobId, initialList, calcInput }: MaterialListPr
           textAlign: 'center',
         }}
       >
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="9" y="2" width="6" height="4" rx="1" />
-          <path d="M5 4h2a1 1 0 0 1 1 1v1H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4V5a1 1 0 0 1 1-1h2" />
-          <line x1="12" y1="12" x2="12" y2="16" />
-          <line x1="10" y1="14" x2="14" y2="14" />
-        </svg>
+        <ClipboardAddIcon size={32} />
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: '14px', color: 'var(--text-secondary)', margin: 0, fontWeight: '500' }}>
             No material list generated yet

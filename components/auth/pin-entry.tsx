@@ -216,6 +216,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
                 key={i}
                 onClick={pressBackspace}
                 disabled={submitting || digits.length === 0}
+                aria-label="Delete PIN digit"
                 style={{
                   width: '100%',
                   aspectRatio: '1',
@@ -247,6 +248,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
               key={i}
               onClick={() => pressDigit(key)}
               disabled={submitting || digits.length >= 4}
+              aria-label={`PIN digit ${key}`}
               style={{
                 width: '100%',
                 aspectRatio: '1',

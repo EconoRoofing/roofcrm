@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import type { Job, Company, User, JobStatus } from '@/lib/types/database'
+import { CallIcon, TextIcon, NavigateIcon } from '@/components/icons'
 
 interface JobActionsProps {
   job: Job & { company?: Company; rep?: User }
@@ -95,9 +96,7 @@ export function JobActions({ job }: JobActionsProps) {
             onMouseEnter={quickLinkHover}
             onMouseLeave={quickLinkLeave}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.21h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.9a16 16 0 0 0 6.1 6.1l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-            </svg>
+            <CallIcon size={18} />
             Call
           </a>
         )}
@@ -109,9 +108,7 @@ export function JobActions({ job }: JobActionsProps) {
             onMouseEnter={quickLinkHover}
             onMouseLeave={quickLinkLeave}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <TextIcon size={18} />
             Text
           </a>
         )}
@@ -124,9 +121,7 @@ export function JobActions({ job }: JobActionsProps) {
           onMouseEnter={quickLinkHover}
           onMouseLeave={quickLinkLeave}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polygon points="3 11 22 2 13 21 11 13 3 11" />
-          </svg>
+          <NavigateIcon size={18} />
           Map
         </a>
       </div>

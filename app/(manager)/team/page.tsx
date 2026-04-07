@@ -273,6 +273,7 @@ function ResetPinModal({
     try {
       await setPinAction(profile.id, pin)
       setDone(true)
+      setTimeout(() => onClose(), 1500)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset PIN')
     } finally {
@@ -462,6 +463,9 @@ export default function TeamPage() {
   useEffect(() => { load() }, [])
 
   const toggleActive = async (profile: Profile) => {
+    if (profile.is_active) {
+      if (!confirm(`Deactivate ${profile.name}?`)) return
+    }
     await updateProfile(profile.id, { is_active: !profile.is_active })
     load()
   }
@@ -616,6 +620,7 @@ export default function TeamPage() {
                 <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                   <button
                     onClick={() => setResetTarget(profile)}
+                    aria-label={`Reset PIN for ${profile.name}`}
                     style={{
                       padding: '8px 14px',
                       backgroundColor: 'var(--bg-elevated)',
@@ -633,6 +638,7 @@ export default function TeamPage() {
                   </button>
                   <button
                     onClick={() => toggleActive(profile)}
+                    aria-label={profile.is_active ? `Deactivate ${profile.name}` : `Activate ${profile.name}`}
                     style={{
                       padding: '8px 14px',
                       backgroundColor: 'var(--bg-elevated)',

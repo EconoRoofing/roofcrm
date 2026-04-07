@@ -59,6 +59,7 @@ export default function LoginPage() {
           <button
             onClick={handleSignIn}
             disabled={loading}
+            aria-label="Sign in with Google"
             style={{
               display: 'flex',
               alignItems: 'center',

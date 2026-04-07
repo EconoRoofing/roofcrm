@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Job } from '@/lib/types/database'
 import type { SpecsData } from './specs-form'
 import type { PricingData } from './pricing-form'
@@ -175,6 +176,7 @@ function SectionHeader({ title }: { title: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ReviewScreen({ job, specs, pricing, onBack }: ReviewScreenProps) {
+  const router = useRouter()
   const [generating, setGenerating] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(job.estimate_pdf_url ?? null)
   const [error, setError] = useState<string | null>(null)
@@ -396,28 +398,54 @@ export function ReviewScreen({ job, specs, pricing, onBack }: ReviewScreenProps)
 
       {/* PDF success */}
       {pdfUrl && (
-        <a
-          href={pdfUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: '16px',
-            borderRadius: '8px',
-            border: '1px solid var(--accent)',
-            background: 'var(--accent-dim)',
-            color: 'var(--accent)',
-            fontSize: '15px',
-            fontWeight: 700,
-            textAlign: 'center',
-            textDecoration: 'none',
-            marginBottom: '12px',
-            boxSizing: 'border-box',
-          }}
-        >
-          View PDF
-        </a>
+        <>
+          {/* Sign Estimate — primary action */}
+          <button
+            type="button"
+            onClick={() => router.push(`/jobs/${job.id}/estimate/sign`)}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '20px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'linear-gradient(135deg, #00c853 0%, #00e676 100%)',
+              color: '#003d00',
+              fontSize: '17px',
+              fontWeight: 800,
+              textAlign: 'center',
+              cursor: 'pointer',
+              marginBottom: '12px',
+              boxSizing: 'border-box',
+              letterSpacing: '0.3px',
+            }}
+          >
+            Sign Estimate
+          </button>
+          {/* View PDF — secondary action */}
+          <a
+            href={pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '14px',
+              borderRadius: '8px',
+              border: '1px solid var(--accent)',
+              background: 'var(--accent-dim)',
+              color: 'var(--accent)',
+              fontSize: '14px',
+              fontWeight: 600,
+              textAlign: 'center',
+              textDecoration: 'none',
+              marginBottom: '12px',
+              boxSizing: 'border-box',
+            }}
+          >
+            View PDF
+          </a>
+        </>
       )}
 
       {/* Generate PDF button */}

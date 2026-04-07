@@ -4,7 +4,8 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
-import { hexToRgba } from '@/lib/utils'
+import { hexToRgba, formatAmount } from '@/lib/utils'
+import { SortAscIcon, SortDescIcon, SortNeutralIcon } from '@/components/icons'
 import type { Job, Company, JobStatus } from '@/lib/types/database'
 
 type JobWithRelations = Job & {
@@ -40,12 +41,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   gutters: 'Gutters',
   other: 'Other',
 }
-
-function formatAmount(amount: number | null): string {
-  if (amount == null) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
-}
-
 
 export function JobListTable({ jobs, companies }: JobListTableProps) {
   const router = useRouter()
@@ -123,22 +118,8 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
   }
 
   const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) {
-      return (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.3 }}>
-          <path d="M5 2L2 5h6L5 2zM5 8L2 5h6L5 8z" fill="currentColor" />
-        </svg>
-      )
-    }
-    return sortDir === 'asc' ? (
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M5 2L2 6h6L5 2z" fill="currentColor" />
-      </svg>
-    ) : (
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M5 8L2 4h6L5 8z" fill="currentColor" />
-      </svg>
-    )
+    if (sortKey !== col) return <SortNeutralIcon />
+    return sortDir === 'asc' ? <SortAscIcon /> : <SortDescIcon />
   }
 
   const thStyle: React.CSSProperties = {
@@ -322,37 +303,37 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
             <tr>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('job_number')}>
+                <button type="button" aria-label="Sort by job number" style={thButtonStyle} onClick={() => handleSort('job_number')}>
                   Job # <SortIcon col="job_number" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('customer_name')}>
+                <button type="button" aria-label="Sort by customer" style={thButtonStyle} onClick={() => handleSort('customer_name')}>
                   Customer <SortIcon col="customer_name" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('company')}>
+                <button type="button" aria-label="Sort by company" style={thButtonStyle} onClick={() => handleSort('company')}>
                   Company <SortIcon col="company" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('job_type')}>
+                <button type="button" aria-label="Sort by type" style={thButtonStyle} onClick={() => handleSort('job_type')}>
                   Type <SortIcon col="job_type" />
                 </button>
               </th>
               <th style={{ ...thStyle, textAlign: 'right' }}>
-                <button type="button" style={{ ...thButtonStyle, justifyContent: 'flex-end' }} onClick={() => handleSort('total_amount')}>
+                <button type="button" aria-label="Sort by amount" style={{ ...thButtonStyle, justifyContent: 'flex-end' }} onClick={() => handleSort('total_amount')}>
                   Amount <SortIcon col="total_amount" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('status')}>
+                <button type="button" aria-label="Sort by status" style={thButtonStyle} onClick={() => handleSort('status')}>
                   Status <SortIcon col="status" />
                 </button>
               </th>
               <th style={thStyle}>
-                <button type="button" style={thButtonStyle} onClick={() => handleSort('rep')}>
+                <button type="button" aria-label="Sort by rep" style={thButtonStyle} onClick={() => handleSort('rep')}>
                   Rep <SortIcon col="rep" />
                 </button>
               </th>
