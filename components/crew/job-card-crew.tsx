@@ -304,11 +304,11 @@ function ActiveCard({
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
-            background: 'linear-gradient(135deg, #00c853, #00e676)',
+            background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
             borderRadius: '8px',
             padding: '10px 12px',
             textDecoration: 'none',
-            color: '#003d00',
+            color: 'var(--nav-text)',
           }}
         >
           <div

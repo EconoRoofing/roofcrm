@@ -61,7 +61,7 @@ export default function CrewBottomNav() {
   return (
     <nav
       style={{
-        backgroundColor: '#0a0c12',
+        backgroundColor: 'var(--bg-nav)',
         borderTop: '1px solid var(--border-subtle)',
         padding: '8px 16px 24px',
         display: 'flex',
@@ -82,7 +82,7 @@ export default function CrewBottomNav() {
               alignItems: 'center',
               gap: '4px',
               textDecoration: 'none',
-              color: isActive ? 'var(--accent)' : '#6b7294',
+              color: isActive ? 'var(--accent)' : 'var(--text-nav-inactive)',
               minWidth: '56px',
               position: 'relative',
             }}

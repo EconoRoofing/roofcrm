@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { formatCurrency, formatJobType } from '@/lib/utils'
 import type { Job, Company, User } from '@/lib/types/database'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
@@ -16,13 +17,9 @@ interface JobDetailProps {
   role?: string | null
 }
 
-function formatCurrency(amount: number | null): string {
+function fmt(amount: number | null): string {
   if (amount == null) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
-}
-
-function formatJobType(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  return formatCurrency(amount)
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -176,7 +173,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
               borderRadius: '8px',
               backgroundColor: 'rgba(0,230,118,0.12)',
               border: '1px solid rgba(0,230,118,0.2)',
-              color: '#00e676',
+              color: 'var(--nav-gradient-2)',
               textDecoration: 'none',
               fontSize: '12px',
               fontFamily: 'var(--font-sans)',
@@ -204,7 +201,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                   </span>
                   <a
                     href={`tel:${job.phone}`}
-                    style={{ fontSize: '14px', color: '#448aff', fontFamily: 'var(--font-mono)', fontWeight: '500', textDecoration: 'none' }}
+                    style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '500', textDecoration: 'none' }}
                   >
                     {job.phone}
                   </a>
@@ -217,7 +214,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                   </span>
                   <a
                     href={`mailto:${job.email}`}
-                    style={{ fontSize: '14px', color: '#448aff', fontFamily: 'var(--font-sans)', fontWeight: '500', textDecoration: 'none' }}
+                    style={{ fontSize: '14px', color: 'var(--accent-blue)', fontFamily: 'var(--font-sans)', fontWeight: '500', textDecoration: 'none' }}
                   >
                     {job.email}
                   </a>
@@ -319,25 +316,25 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             {job.roof_amount != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Roof</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(job.roof_amount)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.roof_amount)}</span>
               </div>
             )}
             {job.gutters_amount != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Gutters</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(job.gutters_amount)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.gutters_amount)}</span>
               </div>
             )}
             {job.options_amount != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Options</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(job.options_amount)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>{fmt(job.options_amount)}</span>
               </div>
             )}
             <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)', fontWeight: '700' }}>Total</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: 'var(--accent)', fontWeight: '700' }}>{formatCurrency(job.total_amount)}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: 'var(--accent)', fontWeight: '700' }}>{fmt(job.total_amount)}</span>
             </div>
             {split50 != null && (
               <div
@@ -352,7 +349,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                 }}
               >
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', fontWeight: '500' }}>50/50 Split</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '500' }}>{formatCurrency(split50)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(split50)}</span>
               </div>
             )}
           </div>
@@ -383,12 +380,12 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff5252" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span style={{ fontSize: '11px', color: '#ff5252', fontFamily: 'var(--font-sans)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            <span style={{ fontSize: '11px', color: 'var(--accent-red)', fontFamily: 'var(--font-sans)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Site Notes
             </span>
           </div>

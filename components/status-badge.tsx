@@ -1,3 +1,4 @@
+import { hexToRgba } from '@/lib/utils'
 import type { JobStatus } from '@/lib/types/database'
 
 interface StatusBadgeProps {
@@ -24,14 +25,6 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   in_progress: 'In Progress',
   completed: 'Completed',
   cancelled: 'Cancelled',
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {

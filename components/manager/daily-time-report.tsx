@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { getTimeEntries, exportTimeEntriesCSV } from '@/lib/actions/time-tracking'
+import { formatCurrency } from '@/lib/utils'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
 type EntryWithRelations = TimeEntry & {
@@ -33,14 +34,6 @@ function formatTime(iso: string | null): string {
   })
 }
 
-function formatCurrency(n: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n)
-}
 
 function ExpandedRow({ entry }: { entry: EntryWithRelations }) {
   return (

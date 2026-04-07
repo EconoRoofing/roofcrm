@@ -136,7 +136,7 @@ export default async function MorePage() {
               type="submit"
               style={{
                 width: '100%',
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
@@ -159,7 +159,7 @@ export default async function MorePage() {
               type="submit"
               style={{
                 width: '100%',
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { StatusBadge } from '@/components/status-badge'
+import { hexToRgba } from '@/lib/utils'
 import type { Job } from '@/lib/types/database'
 
 type JobWithRelations = Job & {
@@ -25,14 +26,6 @@ function toDateKey(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
 }
 
 export function CalendarView({ jobs }: CalendarViewProps) {

@@ -27,7 +27,7 @@ export function ListItem({ icon, iconBg, iconColor, label, sublabel, href, isExt
         display: 'flex',
         alignItems: 'center',
         gap: '14px',
-        padding: '14px 16px',
+        padding: '16px',
         backgroundColor: hovered ? hoverColor : baseColor,
         borderRadius: '8px',
         cursor: 'pointer',

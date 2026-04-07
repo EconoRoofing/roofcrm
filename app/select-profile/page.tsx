@@ -77,7 +77,7 @@ function SetupForm({ onCreated }: { onCreated: () => void }) {
             placeholder="Full name"
             style={{
               width: '100%',
-              padding: '14px 16px',
+              padding: '16px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               borderRadius: '8px',
@@ -108,7 +108,7 @@ function SetupForm({ onCreated }: { onCreated: () => void }) {
             onChange={e => setRole(e.target.value)}
             style={{
               width: '100%',
-              padding: '14px 16px',
+              padding: '16px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               borderRadius: '8px',
@@ -148,7 +148,7 @@ function SetupForm({ onCreated }: { onCreated: () => void }) {
             placeholder="4-digit PIN"
             style={{
               width: '100%',
-              padding: '14px 16px',
+              padding: '16px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               borderRadius: '8px',

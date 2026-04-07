@@ -21,6 +21,8 @@
   --nav-gradient-1: #00c853;
   --nav-gradient-2: #00e676;
   --nav-text: #003d00;
+  --bg-nav: #0a0c12;
+  --text-nav-inactive: #6b7294;
 
   /* ─── Typography scale ─── */
   --text-xs: 9px;
@@ -93,6 +95,25 @@
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+@keyframes pinShake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-8px); }
+  30% { transform: translateX(8px); }
+  45% { transform: translateX(-6px); }
+  60% { transform: translateX(6px); }
+  75% { transform: translateX(-3px); }
+  90% { transform: translateX(3px); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ─── Base styles ─── */

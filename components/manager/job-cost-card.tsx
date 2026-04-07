@@ -1,17 +1,10 @@
+import { formatCurrency } from '@/lib/utils'
+
 interface JobCostCardProps {
   contractAmount: number | null
   materialCost: number | null
   laborCost: number
   laborHours: number
-}
-
-function formatCurrency(n: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(n)
 }
 
 function profitColor(pct: number): string {

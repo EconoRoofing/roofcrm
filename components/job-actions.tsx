@@ -143,7 +143,7 @@ export function JobActions({ job }: JobActionsProps) {
             borderRadius: '8px',
             backgroundColor: advancing ? 'rgba(0,230,118,0.6)' : 'var(--accent)',
             border: 'none',
-            color: '#003d00',
+            color: 'var(--nav-text)',
             fontFamily: 'var(--font-sans)',
             fontSize: '15px',
             fontWeight: '800',

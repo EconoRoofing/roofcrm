@@ -177,13 +177,13 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
           style={{
             width: '100%',
             padding: '14px',
-            background: 'linear-gradient(135deg, #00c853, #00e676)',
+            background: 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))',
             border: 'none',
             borderRadius: '8px',
             fontFamily: 'var(--font-sans)',
             fontSize: '15px',
             fontWeight: 800,
-            color: '#003d00',
+            color: 'var(--nav-text)',
             cursor: 'pointer',
             letterSpacing: '0.01em',
           }}
@@ -216,14 +216,14 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
             padding: '14px',
             background:
               canProceed && !isPending
-                ? 'linear-gradient(135deg, #00c853, #00e676)'
+                ? 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))'
                 : 'var(--bg-elevated)',
             border: canProceed && !isPending ? 'none' : '1px solid var(--border-subtle)',
             borderRadius: '8px',
             fontFamily: 'var(--font-sans)',
             fontSize: '15px',
             fontWeight: 800,
-            color: canProceed && !isPending ? '#003d00' : 'var(--text-muted)',
+            color: canProceed && !isPending ? 'var(--nav-text)' : 'var(--text-muted)',
             cursor: canProceed && !isPending ? 'pointer' : 'not-allowed',
             opacity: isPending ? 0.6 : 1,
             transition: 'opacity 0.15s',

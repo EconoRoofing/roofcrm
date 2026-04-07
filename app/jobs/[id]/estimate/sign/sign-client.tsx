@@ -273,7 +273,6 @@ export function SignClient({
           }}
         />
         <p style={{ color: 'var(--text-secondary)', fontSize: '16px' }}>Signing...</p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
@@ -331,7 +330,7 @@ export function SignClient({
               rel="noopener noreferrer"
               style={{
                 display: 'block',
-                padding: '14px 24px',
+                padding: '16px 24px',
                 background: 'var(--accent)',
                 color: '#000000',
                 textDecoration: 'none',
@@ -352,7 +351,7 @@ export function SignClient({
               style={{
                 display: 'block',
                 width: '100%',
-                padding: '14px 24px',
+                padding: '16px 24px',
                 background: 'var(--bg-elevated)',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border-subtle)',

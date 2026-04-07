@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getJobsByDate } from '@/lib/actions/jobs'
 import { CompanyTag } from '@/components/company-tag'
 import { ChevronIcon } from '@/components/icons'
+import { formatJobType } from '@/lib/utils'
 import type { Job, UserRole } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -32,20 +33,6 @@ function getWeekDays(today: Date): Date[] {
 
 function toDateString(d: Date): string {
   return d.toISOString().split('T')[0]
-}
-
-function formatJobTypeLocal(type: string): string {
-  const map: Record<string, string> = {
-    reroof: 'Re-Roof',
-    repair: 'Repair',
-    maintenance: 'Maintenance',
-    inspection: 'Inspection',
-    coating: 'Coating',
-    new_construction: 'New Const.',
-    gutters: 'Gutters',
-    other: 'Other',
-  }
-  return map[type] ?? type
 }
 
 export function WeekStrip({ userId, role }: WeekStripProps) {
@@ -241,7 +228,7 @@ export function WeekStrip({ userId, role }: WeekStripProps) {
                     color: 'var(--text-muted)',
                   }}
                 >
-                  {job.address}, {job.city} &middot; {formatJobTypeLocal(job.job_type)}
+                  {job.address}, {job.city} &middot; {formatJobType(job.job_type)}
                 </span>
               </div>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>

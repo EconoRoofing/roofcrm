@@ -111,15 +111,8 @@ function PulsingDot() {
         borderRadius: '50%',
         backgroundColor: 'var(--accent)',
         flexShrink: 0,
-        animation: 'pulse-dot 2s ease-in-out infinite',
+        animation: 'pulse-dot 2.5s ease-in-out infinite',
       }}
-    >
-      <style>{`
-        @keyframes pulse-dot {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(0.7); }
-        }
-      `}</style>
-    </div>
+    />
   )
 }

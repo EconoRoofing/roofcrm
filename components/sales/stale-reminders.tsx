@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { formatJobType } from '@/lib/utils'
 import type { Job } from '@/lib/types/database'
 
 interface StaleRemindersProps {
@@ -11,10 +12,6 @@ function daysSince(dateStr: string): number {
   const created = new Date(dateStr)
   const now = new Date()
   return Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24))
-}
-
-function formatJobType(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function StaleReminders({ jobs }: StaleRemindersProps) {

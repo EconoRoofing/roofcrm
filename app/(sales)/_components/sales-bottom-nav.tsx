@@ -79,7 +79,7 @@ export default function SalesBottomNav() {
   return (
     <nav
       style={{
-        backgroundColor: '#0a0c12',
+        backgroundColor: 'var(--bg-nav)',
         borderTop: '1px solid var(--border-subtle)',
         padding: '8px 16px 24px',
         display: 'flex',
@@ -100,7 +100,7 @@ export default function SalesBottomNav() {
               alignItems: 'center',
               gap: '4px',
               textDecoration: 'none',
-              color: isFab ? 'var(--accent)' : isActive ? 'var(--accent)' : '#6b7294',
+              color: isFab ? 'var(--accent)' : isActive ? 'var(--accent)' : 'var(--text-nav-inactive)',
               minWidth: '56px',
               position: 'relative',
             }}

@@ -160,17 +160,6 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           animation: shaking ? 'pinShake 0.6s ease' : 'none',
         }}
       >
-        <style>{`
-          @keyframes pinShake {
-            0%, 100% { transform: translateX(0); }
-            15% { transform: translateX(-8px); }
-            30% { transform: translateX(8px); }
-            45% { transform: translateX(-6px); }
-            60% { transform: translateX(6px); }
-            75% { transform: translateX(-3px); }
-            90% { transform: translateX(3px); }
-          }
-        `}</style>
         {[0, 1, 2, 3].map(i => (
           <div
             key={i}

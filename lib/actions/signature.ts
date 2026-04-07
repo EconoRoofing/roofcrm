@@ -55,7 +55,7 @@ export async function signEstimate(
   const storagePath = `estimates/${jobId}/${timestamp}-signed.pdf`
 
   const { error: uploadError } = await supabase.storage
-    .from('documents')
+    .from('estimates')
     .upload(storagePath, pdfBuffer, {
       contentType: 'application/pdf',
       upsert: false,
@@ -67,7 +67,7 @@ export async function signEstimate(
 
   // 4. Get the public URL
   const { data: urlData } = supabase.storage
-    .from('documents')
+    .from('estimates')
     .getPublicUrl(storagePath)
 
   const pdfUrl = urlData.publicUrl
