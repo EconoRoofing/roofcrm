@@ -48,7 +48,7 @@ export function WeekStrip({ userId, role }: WeekStripProps) {
     setSelectedDate(dateStr)
     startTransition(async () => {
       const jobs = await getJobsByDate(dateStr, userId, role as UserRole)
-      setDayJobs(jobs as JobWithCompany[])
+      setDayJobs(jobs as unknown as JobWithCompany[])
     })
   }
 

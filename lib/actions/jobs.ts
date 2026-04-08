@@ -387,7 +387,7 @@ export async function getJob(id: string) {
     .from('jobs')
     .select(`
       *,
-      company:companies(*),
+      company:companies(id, name, color, address, phone, license_number),
       rep:users!jobs_rep_id_fkey(id, name, email, role)
     `)
     .eq('id', id)
@@ -403,11 +403,7 @@ export async function getJobs(filters?: JobFilters) {
 
   let query = supabase
     .from('jobs')
-    .select(`
-      *,
-      company:companies(id, name, color),
-      rep:users!jobs_rep_id_fkey(id, name)
-    `)
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .order('created_at', { ascending: false })
 
   if (filters?.status) {
@@ -450,10 +446,7 @@ export async function getJobsByDate(date: string, userId: string, role: UserRole
 
   let query = supabase
     .from('jobs')
-    .select(`
-      *,
-      company:companies(id, name, color)
-    `)
+    .select('id, job_number, customer_name, company_id, status, job_type, address, city, phone, scheduled_date, site_notes, material, material_color, squares, layers, felt_type, notes, estimate_pdf_url, assigned_crew_id, companycam_project_id, company:companies(id, name, color)')
     .order('scheduled_date', { ascending: true })
 
   if (role === 'crew') {

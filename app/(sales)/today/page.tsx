@@ -113,7 +113,7 @@ export default async function TodayPage() {
       </div>
 
       <TodayView
-        todayJobs={todayJobs as JobWithCompany[]}
+        todayJobs={todayJobs as unknown as JobWithCompany[]}
         staleJobs={staleJobs as unknown as Job[]}
         followUps={myFollowUps as FollowUp[]}
         currentUserId={user.id}

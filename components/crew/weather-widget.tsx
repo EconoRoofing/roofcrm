@@ -16,13 +16,45 @@ interface WeatherWidgetProps {
 
 export function WeatherWidget({ city }: WeatherWidgetProps) {
   const [weather, setWeather] = useState<WeatherData | null>(null)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
+    setWeather(null)
+    setError(false)
     fetch(`/api/weather?city=${encodeURIComponent(city)}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error('fetch failed')
+        return r.json()
+      })
       .then((d: WeatherData) => setWeather(d))
-      .catch(() => {})
+      .catch(() => setError(true))
   }, [city])
+
+  if (error) {
+    return (
+      <div
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '8px',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          minWidth: '140px',
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--text-muted)',
+          }}
+        >
+          Weather unavailable
+        </span>
+      </div>
+    )
+  }
 
   if (!weather) {
     return (

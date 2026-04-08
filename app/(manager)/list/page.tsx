@@ -18,7 +18,7 @@ export default async function ListPage() {
 
   return (
     <JobListTable
-      jobs={jobs as Parameters<typeof JobListTable>[0]['jobs']}
+      jobs={jobs as unknown as Parameters<typeof JobListTable>[0]['jobs']}
       companies={companies}
     />
   )

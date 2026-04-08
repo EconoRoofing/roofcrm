@@ -508,11 +508,7 @@ export async function getTimeEntries(filters: TimeEntryFilters = {}): Promise<Ti
 
   let query = supabase
     .from('time_entries')
-    .select(`
-      *,
-      job:jobs(job_number, customer_name, address, city),
-      user:users(id, name, email)
-    `)
+    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs(job_number, customer_name, address, city), user:users(id, name, email)')
     .order('clock_in', { ascending: false })
 
   if (filters.userId) query = query.eq('user_id', filters.userId)
@@ -529,7 +525,7 @@ export async function getTimeEntries(filters: TimeEntryFilters = {}): Promise<Ti
 
   const { data, error } = await query
   if (error) throw new Error(`Failed to fetch time entries: ${error.message}`)
-  return (data ?? []) as TimeEntry[]
+  return (data ?? []) as unknown as TimeEntry[]
 }
 
 export async function getJobLaborCost(jobId: string): Promise<{

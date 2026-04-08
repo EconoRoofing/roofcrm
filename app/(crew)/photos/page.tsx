@@ -77,7 +77,7 @@ export default async function PhotosPage() {
         </span>
       </div>
 
-      <PhotosGrid jobs={jobs as JobWithCompany[]} />
+      <PhotosGrid jobs={jobs as unknown as JobWithCompany[]} />
     </div>
   )
 }

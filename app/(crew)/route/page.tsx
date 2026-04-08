@@ -148,7 +148,7 @@ export default async function RoutePage() {
 
       {/* Day timeline */}
       <DayTimeline
-        jobs={jobs as JobWithCompany[]}
+        jobs={jobs as unknown as JobWithCompany[]}
         activeTimeEntry={activeTimeEntry}
         userId={user.id}
       />

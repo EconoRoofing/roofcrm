@@ -6,7 +6,7 @@ export default async function CalendarPage() {
 
   return (
     <CalendarView
-      jobs={jobs as Parameters<typeof CalendarView>[0]['jobs']}
+      jobs={jobs as unknown as Parameters<typeof CalendarView>[0]['jobs']}
     />
   )
 }

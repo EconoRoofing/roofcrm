@@ -60,7 +60,7 @@ export default async function SalesPipelinePage() {
         </h1>
       </div>
 
-      <PipelineList jobs={jobs as JobWithCompany[]} />
+      <PipelineList jobs={jobs as unknown as JobWithCompany[]} />
     </div>
   )
 }

@@ -15,7 +15,7 @@ function normalizePhone(phone: string): string | null {
 export async function sendSMS(
   to: string,
   body: string,
-  retries = 2
+  retries = 1
 ): Promise<{ success: boolean; sid?: string; error?: string }> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID
   const authToken = process.env.TWILIO_AUTH_TOKEN
@@ -44,7 +44,7 @@ export async function sendSMS(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) })
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(5000) })
       const data = await response.json()
 
       if (data.sid) return { success: true, sid: data.sid }
