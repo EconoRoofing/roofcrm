@@ -18,6 +18,7 @@ const ACTION_TYPES = ['send_sms', 'send_email', 'create_follow_up', 'assign_crew
 
 export default function AutomationsPage() {
   const [rules, setRules] = useState<AutomationRule[]>([])
+  const [companyId, setCompanyId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -37,14 +38,13 @@ export default function AutomationsPage() {
   const loadRules = async () => {
     try {
       setLoading(true)
-      // Get company_id from window or session — would be passed via props in production
-      const companyId = localStorage.getItem('company_id') || ''
-      if (!companyId) {
-        setError('Company ID not found')
-        return
-      }
-      const data = await getAutomationRules(companyId)
+      // No company_id needed — server action resolves it from the authenticated user
+      const data = await getAutomationRules()
       setRules(data)
+      // Cache company_id for use when creating new rules
+      if (data.length > 0 && (data[0] as any).company_id) {
+        setCompanyId((data[0] as any).company_id)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load rules')
     } finally {
@@ -74,9 +74,8 @@ export default function AutomationsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const companyId = localStorage.getItem('company_id') || ''
       if (!companyId) {
-        setError('Company ID not found')
+        setError('Company not found — please refresh the page')
         return
       }
 

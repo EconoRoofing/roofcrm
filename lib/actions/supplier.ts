@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { sendEstimateEmail } from '@/lib/email'
 import { calculateMaterials, type MaterialCalcInput } from '@/lib/material-calculator'
 
 export async function generateSupplierOrderText(jobId: string): Promise<string> {
@@ -10,7 +9,7 @@ export async function generateSupplierOrderText(jobId: string): Promise<string> 
   const { data: job, error: jobError } = await supabase
     .from('jobs')
     .select(
-      'id, job_number, customer_name, address, city, squares, material, felt_type, layers, gutter_length_ft, ridge_type, job_type'
+      'id, job_number, customer_name, address, city, squares, material, felt_type, layers, gutter_length_ft, ridge_type, job_type, company_id, companies(name)'
     )
     .eq('id', jobId)
     .single()
@@ -65,8 +64,9 @@ export async function generateSupplierOrderText(jobId: string): Promise<string> 
   text += `\n`
   text += `Waste Factor: ${materialList?.waste_factor ? (materialList.waste_factor * 100).toFixed(0) + '%' : '10%'}\n`
   text += `\n`
+  const companyName = (job.companies as any)?.name || 'Roofing Company'
   text += `Please provide quote and delivery timeline.\n`
-  text += `Thank you,\nRoofing Company\n`
+  text += `Thank you,\n${companyName}\n`
 
   return text
 }
@@ -74,51 +74,54 @@ export async function generateSupplierOrderText(jobId: string): Promise<string> 
 export async function emailSupplierOrder(
   jobId: string,
   supplierEmail: string,
-  senderCompanyName: string = 'Roofing Company'
+  senderCompanyName?: string
 ): Promise<boolean> {
-  try {
-    const text = await generateSupplierOrderText(jobId)
-
-    // Ensure valid email
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supplierEmail)) {
-      console.warn(`Invalid supplier email: ${supplierEmail}`)
-      return false
-    }
-
-    // Use sendEstimateEmail template — adjust subject/body as needed
-    // For simplicity, we're using the existing email infrastructure
-    const resend = process.env.RESEND_API_KEY
-
-    if (!resend) {
-      console.warn('RESEND_API_KEY not set — cannot send supplier order')
-      return false
-    }
-
-    // Import Resend dynamically to avoid build issues if not available
-    const { Resend } = await import('resend')
-    const client = new Resend(resend)
-
-    const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
-
-    await client.emails.send({
-      from: `${senderCompanyName} <${fromEmail}>`,
-      to: supplierEmail,
-      subject: `Material Order Request - Job ${jobId}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; white-space: pre-wrap;">
-          <h2>Roofing Supply Order</h2>
-          <p>${text}</p>
-          <hr style="margin: 24px 0; border: none; border-top: 1px solid #ccc;">
-          <p style="color: #666; font-size: 12px;">
-            This is an automated order request. Please reply with quote and availability.
-          </p>
-        </div>
-      `,
-    })
-
-    return true
-  } catch (error) {
-    console.error('Supplier email error:', error)
-    return false
+  const resendKey = process.env.RESEND_API_KEY
+  if (!resendKey) {
+    throw new Error('Email service not configured — RESEND_API_KEY is missing')
   }
+
+  // Ensure valid email
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supplierEmail)) {
+    throw new Error(`Invalid supplier email address: ${supplierEmail}`)
+  }
+
+  // Fetch job to get job_number and company name
+  const supabase = await createClient()
+  const { data: job } = await supabase
+    .from('jobs')
+    .select('job_number, company_id, companies(name)')
+    .eq('id', jobId)
+    .single()
+
+  const jobNumber = job?.job_number || jobId
+  const companyName = senderCompanyName || (job?.companies as any)?.name || 'Roofing Company'
+
+  const text = await generateSupplierOrderText(jobId)
+
+  const { Resend } = await import('resend')
+  const client = new Resend(resendKey)
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+
+  // Replace newlines with <br> for HTML rendering
+  const htmlBody = text.replace(/\n/g, '<br>')
+
+  await client.emails.send({
+    from: `${companyName} <${fromEmail}>`,
+    to: supplierEmail,
+    subject: `Material Order Request - Job #${jobNumber}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Roofing Supply Order</h2>
+        <div style="font-family: monospace; font-size: 13px; line-height: 1.6;">${htmlBody}</div>
+        <hr style="margin: 24px 0; border: none; border-top: 1px solid #ccc;">
+        <p style="color: #666; font-size: 12px;">
+          This is an automated order request. Please reply with quote and availability.
+        </p>
+      </div>
+    `,
+  })
+
+  return true
 }

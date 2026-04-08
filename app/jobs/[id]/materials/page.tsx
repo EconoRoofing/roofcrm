@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { getJob } from '@/lib/actions/jobs'
 import { getMaterialList, generateMaterialList } from '@/lib/actions/materials'
 import { MaterialListUI } from '@/components/estimate/material-list'
+import { SupplierOrder } from '@/components/estimate/supplier-order'
 import type { MaterialCalcInput } from '@/lib/material-calculator'
 import Link from 'next/link'
 import { ChevronLeftNavIcon } from '@/components/icons'
@@ -125,6 +126,12 @@ export default async function MaterialsPage({ params }: PageProps) {
 
         {/* Material list component */}
         <MaterialListUI jobId={id} initialList={list} calcInput={calcInput} />
+
+        {/* Supplier ordering */}
+        <SupplierOrder
+          jobId={id}
+          companyName={(job as any).company?.name}
+        />
       </div>
     </main>
   )

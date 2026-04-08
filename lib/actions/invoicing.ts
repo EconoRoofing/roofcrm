@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
+import { Resend } from 'resend'
 interface Invoice {
   id: string
   job_id: string
@@ -42,19 +43,14 @@ export async function createInvoice(data: CreateInvoiceData) {
 
   if (jobError || !job) throw new Error('Job not found')
 
-  // Generate invoice number with format: INV-YYYYMMDD-XXXX
-  const date = new Date()
-  const dateStr = date.toISOString().split('T')[0].replace(/-/g, '')
-  const invoiceNumberBase = `INV-${dateStr}`
-
-  // Get count of invoices created today to make unique number
-  const { count } = await supabase
-    .from('invoices')
-    .select('id', { count: 'exact', head: true })
-    .eq('company_id', job.company_id)
-    .ilike('invoice_number', `${invoiceNumberBase}%`)
-
-  const invoiceNumber = `${invoiceNumberBase}-${String((count || 0) + 1).padStart(4, '0')}`
+  // Generate collision-safe invoice number using job number + timestamp
+  const { data: jobFull } = await supabase
+    .from('jobs')
+    .select('job_number')
+    .eq('id', data.job_id)
+    .single()
+  const jobNum = jobFull?.job_number || 'JOB'
+  const invoiceNumber = `INV-${jobNum}-${Date.now()}`
 
   // Use job's total_amount if not specified
   const totalAmount = data.total_amount || job.total_amount || data.amount
@@ -176,21 +172,69 @@ export async function getInvoiceByNumber(invoice_number: string, company_id: str
   return invoice
 }
 
-export async function generatePortalToken(job_id: string) {
+// generatePortalToken lives in lib/actions/portal.ts — removed duplicate
+
+export async function sendInvoiceEmail(invoice_id: string) {
   const supabase = await createClient()
   const user = await getUser()
 
   if (!user) throw new Error('Not authenticated')
 
-  const token = crypto.randomUUID()
-
-  const { data: job, error } = await supabase
-    .from('jobs')
-    .update({ portal_token: token })
-    .eq('id', job_id)
-    .select()
+  const { data: invoice, error: invError } = await supabase
+    .from('invoices')
+    .select('*, jobs(customer_name, email, job_number, company_id, companies(name))')
+    .eq('id', invoice_id)
     .single()
 
-  if (error) throw new Error(`Failed to generate portal token: ${error.message}`)
-  return token
+  if (invError || !invoice) throw new Error('Invoice not found')
+
+  const job = (invoice as any).jobs
+  if (!job?.email) throw new Error('Customer has no email address on file')
+
+  const resendKey = process.env.RESEND_API_KEY
+  if (!resendKey) throw new Error('Email service not configured — RESEND_API_KEY is missing')
+
+  const resend = new Resend(resendKey)
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+  const companyName = job.companies?.name || 'Your Roofing Company'
+
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+
+  const dueDate = invoice.due_date
+    ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'On receipt'
+
+  await resend.emails.send({
+    from: `${companyName} <${fromEmail}>`,
+    to: job.email,
+    subject: `Invoice ${invoice.invoice_number} from ${companyName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Invoice from ${companyName}</h2>
+        <p>Hello ${job.customer_name},</p>
+        <p>Please find your invoice details below:</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Invoice #</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">${invoice.invoice_number}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Job #</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${job.job_number}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Type</td><td style="padding: 8px; border-bottom: 1px solid #eee; text-transform: capitalize;">${invoice.type}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount Due</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 18px;">${formatCurrency(invoice.total_amount)}</td></tr>
+          <tr><td style="padding: 8px; color: #666;">Due Date</td><td style="padding: 8px;">${dueDate}</td></tr>
+        </table>
+        ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${invoice.notes}</p>` : ''}
+        <p style="color: #666; font-size: 14px; margin-top: 24px;">
+          Please contact us if you have any questions about this invoice.
+        </p>
+        <p style="color: #666; font-size: 12px; margin-top: 32px;">&mdash; ${companyName}</p>
+      </div>
+    `,
+  })
+
+  // Mark invoice as sent
+  await supabase
+    .from('invoices')
+    .update({ status: 'sent', updated_at: new Date().toISOString() })
+    .eq('id', invoice_id)
+
+  return true
 }

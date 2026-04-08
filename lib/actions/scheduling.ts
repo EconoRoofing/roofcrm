@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUser } from '@/lib/auth'
 
 interface CrewMember {
   id: string
@@ -26,6 +27,8 @@ interface UnassignedJob {
 
 export async function getCrewAvailability(weekStart: string) {
   const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
 
   // Get all crew members
   const { data: crew, error: crewError } = await supabase
@@ -59,18 +62,18 @@ export async function getCrewAvailability(weekStart: string) {
 
   if (unassignError) throw new Error('Failed to fetch unassigned jobs')
 
-  // Build crew assignments map
-  const crewAssignments = new Map<string, JobAssignment[]>()
+  // Build crew assignments as a plain object (Map can't be serialized across server/client boundary)
+  const crewAssignments: Record<string, JobAssignment[]> = {}
   crew?.forEach((member) => {
-    crewAssignments.set(member.id, [])
+    crewAssignments[member.id] = []
   })
 
   // Populate assignments
   assignments?.forEach((job) => {
-    if (job.assigned_crew_id && crewAssignments.has(job.assigned_crew_id)) {
+    if (job.assigned_crew_id && crewAssignments[job.assigned_crew_id] !== undefined) {
       const crewMember = crew?.find((c) => c.id === job.assigned_crew_id)
       if (crewMember) {
-        crewAssignments.get(job.assigned_crew_id)?.push({
+        crewAssignments[job.assigned_crew_id].push({
           jobId: job.id,
           jobNumber: job.job_number,
           customerName: job.customer_name,
@@ -93,6 +96,8 @@ export async function getCrewAvailability(weekStart: string) {
 
 export async function assignJobToCrew(jobId: string, crewId: string, date: string) {
   const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
 
   const { error } = await supabase
     .from('jobs')
@@ -112,6 +117,8 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
 
 export async function unassignJobFromCrew(jobId: string) {
   const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
 
   const { error } = await supabase
     .from('jobs')

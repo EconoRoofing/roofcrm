@@ -76,7 +76,7 @@ export function CrewScheduler() {
 
   const getJobsForCrewDay = (crewId: string, dayOffset: number) => {
     const date = getDateForDay(dayOffset)
-    const assignments = data?.assignments.get(crewId) || []
+    const assignments: any[] = data?.assignments?.[crewId] || []
     return assignments.filter((a: any) => a.date === date)
   }
 
@@ -224,28 +224,29 @@ export function CrewScheduler() {
               >
                 CREW MEMBER
               </th>
-              {DAYS_OF_WEEK.map((day, idx) => (
-                <th
-                  key={day}
-                  style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: 'var(--text-secondary)',
-                    borderRight: idx < 6 ? '1px solid var(--border-subtle)' : 'none',
-                  }}
-                >
-                  <div>{day}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {new Date(weekStart).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                    }).split(' ')[0]}{' '}
-                    {parseInt(new Date(weekStart).toLocaleDateString('en-US', { day: 'numeric' })) + idx}
-                  </div>
-                </th>
-              ))}
+              {DAYS_OF_WEEK.map((day, idx) => {
+                const dateObj = new Date(weekStart)
+                dateObj.setDate(dateObj.getDate() + idx)
+                const dateLabel = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                return (
+                  <th
+                    key={day}
+                    style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: 'var(--text-secondary)',
+                      borderRight: idx < 6 ? '1px solid var(--border-subtle)' : 'none',
+                    }}
+                  >
+                    <div>{day}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {dateLabel}
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>

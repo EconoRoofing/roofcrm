@@ -34,7 +34,7 @@ export async function getJobByPortalToken(token: string) {
       customer_name,
       scheduled_date,
       company_id,
-      companies(id, name)
+      companies(id, name, phone, color, address)
     `)
     .eq('portal_token', token)
     .single()

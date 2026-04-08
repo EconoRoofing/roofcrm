@@ -31,7 +31,10 @@ export function PhotoAnnotator({
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null)
   const [scale, setScale] = useState(1)
 
-  // Load and draw image on canvas
+  const ANNOTATION_COLOR = '#ff4444'
+  const TEXT_COLOR = '#ffffff'
+
+  // Load and draw image on canvas, calculate scale from display vs natural dimensions
   useEffect(() => {
     const canvas = canvasRef.current
     const img = imageRef.current
@@ -42,21 +45,25 @@ export function PhotoAnnotator({
       const ctx = canvas.getContext('2d')
       if (!ctx) return
 
-      // Set canvas size to match image
-      canvas.width = img.width
-      canvas.height = img.height
+      // Set canvas to natural image dimensions
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
 
-      // Draw image
+      // Calculate scale: canvas display size vs natural size
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width > 0) {
+        setScale(img.naturalWidth / rect.width)
+      }
+
       ctx.drawImage(img, 0, 0)
-
-      // Redraw annotations
-      redrawAnnotations()
+      redrawAnnotations(initialAnnotations)
     }
 
     img.src = imageUrl
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl])
 
-  const redrawAnnotations = () => {
+  const redrawAnnotations = (anns: AnnotationData[]) => {
     const canvas = canvasRef.current
     const img = imageRef.current
     const ctx = canvas?.getContext('2d')
@@ -66,19 +73,22 @@ export function PhotoAnnotator({
     // Clear and redraw image
     ctx.drawImage(img, 0, 0)
 
-    // Draw all annotations
-    annotations.forEach((ann) => {
+    // Draw all annotations from the provided array (avoids stale closure)
+    anns.forEach((ann) => {
       drawAnnotation(ctx, ann)
     })
   }
 
   const drawAnnotation = (ctx: CanvasRenderingContext2D, ann: AnnotationData) => {
-    ctx.strokeStyle = ann.color || 'var(--accent)'
-    ctx.fillStyle = ann.color || 'var(--accent)'
+    // Use hardcoded hex colors — canvas cannot read CSS variables
+    ctx.strokeStyle = ann.color || ANNOTATION_COLOR
+    ctx.fillStyle = ann.color || ANNOTATION_COLOR
     ctx.lineWidth = 2
 
     if (ann.type === 'circle') {
-      const radius = Math.sqrt((ann.x2 || ann.x - 20 - ann.x) ** 2 + (ann.y2 || ann.y - 20 - ann.y) ** 2)
+      const dx = (ann.x2 ?? ann.x - 20) - ann.x
+      const dy = (ann.y2 ?? ann.y - 20) - ann.y
+      const radius = Math.sqrt(dx * dx + dy * dy) || 20
       ctx.beginPath()
       ctx.arc(ann.x, ann.y, radius, 0, 2 * Math.PI)
       ctx.stroke()
@@ -102,7 +112,7 @@ export function PhotoAnnotator({
       ctx.stroke()
     } else if (ann.type === 'text' && ann.text) {
       ctx.font = '14px Arial'
-      ctx.fillStyle = ann.color || 'var(--accent)'
+      ctx.fillStyle = ann.color || TEXT_COLOR
       ctx.fillText(ann.text, ann.x, ann.y)
     }
   }
@@ -112,15 +122,16 @@ export function PhotoAnnotator({
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / scale
-    const y = (e.clientY - rect.top) / scale
+    const x = (e.clientX - rect.left) * scale
+    const y = (e.clientY - rect.top) * scale
 
     if (tool === 'text') {
       const text = prompt('Enter annotation text:')
       if (text) {
         const newAnn: AnnotationData = { type: 'text', x, y, text }
-        setAnnotations([...annotations, newAnn])
-        redrawAnnotations()
+        const updated = [...annotations, newAnn]
+        setAnnotations(updated)
+        redrawAnnotations(updated)
       }
     } else {
       setDrawing(true)
@@ -138,10 +149,10 @@ export function PhotoAnnotator({
     if (!canvas || !ctx || !img) return
 
     const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / scale
-    const y = (e.clientY - rect.top) / scale
+    const x = (e.clientX - rect.left) * scale
+    const y = (e.clientY - rect.top) * scale
 
-    // Redraw with preview
+    // Redraw with preview (pass current annotations array to avoid stale state)
     ctx.drawImage(img, 0, 0)
     annotations.forEach((ann) => drawAnnotation(ctx, ann))
 
@@ -162,8 +173,8 @@ export function PhotoAnnotator({
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / scale
-    const y = (e.clientY - rect.top) / scale
+    const x = (e.clientX - rect.left) * scale
+    const y = (e.clientY - rect.top) * scale
 
     const newAnn: AnnotationData = {
       type: tool,
@@ -173,10 +184,11 @@ export function PhotoAnnotator({
       y2: y,
     }
 
-    setAnnotations([...annotations, newAnn])
+    const updated = [...annotations, newAnn]
+    setAnnotations(updated)
     setDrawing(false)
     setStartPos(null)
-    redrawAnnotations()
+    redrawAnnotations(updated)
   }
 
   const handleSave = () => {
@@ -197,7 +209,7 @@ export function PhotoAnnotator({
   const handleUndo = () => {
     const newAnnotations = annotations.slice(0, -1)
     setAnnotations(newAnnotations)
-    redrawAnnotations()
+    redrawAnnotations(newAnnotations)
   }
 
   return (

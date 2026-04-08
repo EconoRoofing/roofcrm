@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
 import { sendSMS } from '@/lib/twilio'
 import { createFollowUp } from '@/lib/actions/follow-up-tasks'
+import { Resend } from 'resend'
 
 interface AutomationRule {
   id: string
@@ -49,16 +50,29 @@ export async function createAutomationRule(data: CreateAutomationData) {
   return rule
 }
 
-export async function getAutomationRules(company_id: string) {
+export async function getAutomationRules(company_id?: string) {
   const supabase = await createClient()
   const user = await getUser()
 
   if (!user) throw new Error('Not authenticated')
 
+  // If no company_id provided, look up the user's company server-side
+  let resolvedCompanyId = company_id
+  if (!resolvedCompanyId) {
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('owner_id', user.id)
+      .single()
+    resolvedCompanyId = company?.id
+  }
+
+  if (!resolvedCompanyId) throw new Error('Company not found')
+
   const { data: rules, error } = await supabase
     .from('automation_rules')
     .select('*')
-    .eq('company_id', company_id)
+    .eq('company_id', resolvedCompanyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch automation rules: ${error.message}`)
@@ -131,19 +145,25 @@ export async function processAutomationRules(
   // Fetch job with company info
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select('id, company_id, customer_name, phone, email, status')
+    .select('id, company_id, customer_name, phone, email, status, rep_id')
     .eq('id', jobId)
     .single()
 
   if (jobError || !job) return // Silent fail for async processing
 
-  // Fetch matching active automation rules
-  const { data: rules, error: rulesError } = await supabase
+  // Fetch matching active automation rules, filtering by trigger_value
+  let query = supabase
     .from('automation_rules')
     .select('*')
     .eq('company_id', job.company_id)
     .eq('trigger_type', trigger)
     .eq('is_active', true)
+
+  if (triggerValue) {
+    query = query.or(`trigger_value.eq.${triggerValue},trigger_value.is.null`)
+  }
+
+  const { data: rules, error: rulesError } = await query
 
   if (rulesError || !rules || rules.length === 0) return
 
@@ -167,10 +187,12 @@ async function executeAutomationAction(
     phone: string | null
     email: string | null
     status: string
+    rep_id?: string | null
   },
   triggerValue?: string
 ) {
   const config = rule.action_config as Record<string, unknown>
+  const supabase = await createClient()
 
   switch (rule.action_type) {
     case 'send_sms': {
@@ -196,13 +218,14 @@ async function executeAutomationAction(
       const daysOffset = (config.days_offset as number) || 3
       dueDate.setDate(dueDate.getDate() + daysOffset)
 
-      const repId = config.assigned_to as string
+      // Use config assigned_to, fall back to the job's rep_id
+      const repId = (config.assigned_to as string) || job.rep_id || null
       if (repId) {
         await createFollowUp(
           job.id,
           repId,
           dueDate.toISOString().split('T')[0],
-          config.description as string || `Follow up: ${job.customer_name}`
+          (config.description as string) || `Follow up: ${job.customer_name}`
         ).catch(() => {
           // Best-effort follow-up creation
         })
@@ -211,14 +234,31 @@ async function executeAutomationAction(
     }
 
     case 'send_email': {
-      // Email sending would go through transactional email service
-      // Placeholder for future implementation
+      if (!job.email) return
+      const resendKey = process.env.RESEND_API_KEY
+      if (!resendKey) return
+      const resend = new Resend(resendKey)
+      const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+      const subject = (config.subject as string) || `Update on your project, ${job.customer_name}`
+      const body = (config.email_body as string) || `Hello ${job.customer_name}, this is an automated update regarding your roofing project.`
+      await resend.emails.send({
+        from: `Roofing Company <${fromEmail}>`,
+        to: job.email,
+        subject,
+        html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;"><p>${body.replace(/\n/g, '<br>')}</p></div>`,
+      }).catch(() => {
+        // Best-effort email sending
+      })
       break
     }
 
     case 'assign_crew': {
-      // Crew assignment would update job's assigned_crew_id
-      // Placeholder for future implementation
+      const crewId = config.crew_id as string
+      if (!crewId) return
+      await supabase
+        .from('jobs')
+        .update({ assigned_crew_id: crewId })
+        .eq('id', job.id)
       break
     }
   }

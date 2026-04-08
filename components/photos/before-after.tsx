@@ -17,8 +17,13 @@ export function BeforeAfter({
 }: BeforeAfterProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [sliderPosition, setSliderPosition] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const handleMouseDown = () => setIsDragging(true)
+  const handleMouseUp = () => setIsDragging(false)
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return
     const container = containerRef.current
     if (!container) return
 
@@ -41,6 +46,9 @@ export function BeforeAfter({
   return (
     <div
       ref={containerRef}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
       onMouseMove={handleMouseMove}
       onTouchMove={handleTouchMove}
       style={{

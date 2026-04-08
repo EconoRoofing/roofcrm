@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { updateClaimStatus, updateAdjusterInfo, updateSupplementAmount } from '@/lib/actions/insurance'
-import type { ClaimStatus } from '@/lib/actions/insurance'
+import { useState, useEffect } from 'react'
+import { updateClaimStatus, updateAdjusterInfo, updateSupplementAmount, getClaimTimeline } from '@/lib/actions/insurance'
+import type { ClaimStatus, ClaimTimeline } from '@/lib/actions/insurance'
 
 const CLAIM_STATUSES: ClaimStatus[] = ['filed', 'inspection', 'approved', 'supplement', 'done']
 
@@ -40,6 +40,12 @@ export function ClaimWorkflow({
   const [error, setError] = useState<string | null>(null)
   const [showAdjusterForm, setShowAdjusterForm] = useState(false)
   const [showSupplementForm, setShowSupplementForm] = useState(false)
+  const [timeline, setTimeline] = useState<ClaimTimeline[]>([])
+  const [adjusterDisplay, setAdjusterDisplay] = useState({
+    name: adjusterName || '',
+    phone: adjusterPhone || '',
+    email: adjusterEmail || '',
+  })
   const [adjusterForm, setAdjusterForm] = useState({
     name: adjusterName || '',
     phone: adjusterPhone || '',
@@ -48,6 +54,13 @@ export function ClaimWorkflow({
   const [supplementForm, setSupplementForm] = useState({
     amount: supplementAmount.toString(),
   })
+
+  // Load claim timeline on mount
+  useEffect(() => {
+    getClaimTimeline(jobId)
+      .then(setTimeline)
+      .catch(() => {/* non-fatal */})
+  }, [jobId])
 
   const handleStatusChange = async (newStatus: ClaimStatus) => {
     try {
@@ -69,6 +82,8 @@ export function ClaimWorkflow({
       setLoading(true)
       setError(null)
       await updateAdjusterInfo(jobId, adjusterForm.name, adjusterForm.phone, adjusterForm.email)
+      // Update displayed values with the saved form values
+      setAdjusterDisplay({ ...adjusterForm })
       setShowAdjusterForm(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update adjuster info')
@@ -286,19 +301,25 @@ export function ClaimWorkflow({
           </form>
         ) : (
           <div style={{ fontSize: '13px', display: 'grid', gap: '6px' }}>
-            {adjusterName ? (
+            {adjusterDisplay.name ? (
               <>
                 <div>
-                  <span style={{ fontWeight: 500 }}>Name:</span> {adjusterName}
+                  <span style={{ fontWeight: 500 }}>Name:</span> {adjusterDisplay.name}
                 </div>
-                {adjusterPhone && (
+                {adjusterDisplay.phone && (
                   <div>
-                    <span style={{ fontWeight: 500 }}>Phone:</span> {adjusterPhone}
+                    <span style={{ fontWeight: 500 }}>Phone:</span>{' '}
+                    <a href={`tel:${adjusterDisplay.phone}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                      {adjusterDisplay.phone}
+                    </a>
                   </div>
                 )}
-                {adjusterEmail && (
+                {adjusterDisplay.email && (
                   <div>
-                    <span style={{ fontWeight: 500 }}>Email:</span> {adjusterEmail}
+                    <span style={{ fontWeight: 500 }}>Email:</span>{' '}
+                    <a href={`mailto:${adjusterDisplay.email}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                      {adjusterDisplay.email}
+                    </a>
                   </div>
                 )}
               </>
@@ -309,8 +330,8 @@ export function ClaimWorkflow({
         )}
       </div>
 
-      {/* Supplement Amount Tracker */}
-      {status === 'supplement' && (
+      {/* Supplement Amount Tracker — show whenever there is a supplement amount or status is supplement */}
+      {(status === 'supplement' || supplementAmount > 0) && (
         <div
           style={{
             padding: '16px',
@@ -383,6 +404,51 @@ export function ClaimWorkflow({
               ${supplementAmount.toFixed(2)}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Claim Timeline */}
+      {timeline.length > 0 && (
+        <div
+          style={{
+            marginTop: '16px',
+            padding: '16px',
+            borderRadius: '8px',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 12px' }}>Claim History</h3>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {timeline.map((entry, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', fontSize: '13px' }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: STATUS_COLORS[entry.status] || '#64748b',
+                    color: '#fff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    flexShrink: 0,
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {entry.status}
+                </span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {new Date(entry.timestamp).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

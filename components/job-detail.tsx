@@ -11,6 +11,8 @@ import { JobMessages } from '@/components/job-messages'
 import { getJobMessages } from '@/lib/actions/messages'
 import { JobAssignment } from '@/components/job-assignment'
 import { ClaimWorkflow } from '@/components/insurance/claim-workflow'
+import { PhotoAnnotator } from '@/components/photos/photo-annotator'
+import { BeforeAfter } from '@/components/photos/before-after'
 import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
 import { createClient } from '@/lib/supabase/server'
 import { ReviewReceivedToggle } from '@/components/review-received-toggle'
@@ -666,7 +668,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       {/* Calendar deleted warning */}
       <JobCalendarWarning jobId={job.id} />
 
-      {/* CompanyCam integration */}
+      {/* CompanyCam integration + Photo tools */}
       <div style={styles.sectionCardGap12}>
         <h2 style={styles.sectionHeading}>
           Photos
@@ -676,6 +678,24 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           address={[job.address, job.city, job.state].filter(Boolean).join(', ')}
           currentProjectId={job.companycam_project_id}
         />
+
+        {/* Before / After comparison — shown when both photos are present */}
+        {(job as any).before_photo_url && (job as any).after_photo_url && (
+          <BeforeAfter
+            beforeImage={(job as any).before_photo_url}
+            afterImage={(job as any).after_photo_url}
+          />
+        )}
+
+        {/* Photo annotator — shown when a primary photo URL is present */}
+        {(job as any).photo_url && (
+          <PhotoAnnotator
+            imageUrl={(job as any).photo_url}
+            onSaveAnnotations={(annotations) => {
+              console.log('[job-detail] photo annotations saved', { jobId: job.id, count: annotations.length })
+            }}
+          />
+        )}
       </div>
 
       {/* Crew Assignment — manager only */}

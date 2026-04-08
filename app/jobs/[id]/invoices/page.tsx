@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getJobInvoices, createInvoice, markInvoicePaid, updateInvoiceStatus } from '@/lib/actions/invoicing'
+import { getJobInvoices, createInvoice, markInvoicePaid, updateInvoiceStatus, sendInvoiceEmail } from '@/lib/actions/invoicing'
 interface Invoice {
   id: string
   job_id: string
@@ -41,8 +41,16 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [formData, setFormData] = useState({
-    type: 'standard' as const,
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const [paidAmounts, setPaidAmounts] = useState<Record<string, string>>({})
+  const [showPaidInput, setShowPaidInput] = useState<Record<string, boolean>>({})
+  const [formData, setFormData] = useState<{
+    type: 'standard' | 'deposit' | 'supplement' | 'change_order'
+    amount: string
+    due_date: string
+    notes: string
+  }>({
+    type: 'standard',
     amount: '',
     due_date: '',
     notes: '',
@@ -100,10 +108,28 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
       const invoice = invoices.find((i) => i.id === invoice_id)
       if (!invoice) return
 
-      await markInvoicePaid(invoice_id, invoice.total_amount, 'manual')
-      setInvoices(invoices.map((i) => (i.id === invoice_id ? { ...i, status: 'paid' } : i)))
+      const paidAmt = paidAmounts[invoice_id]
+        ? parseFloat(paidAmounts[invoice_id])
+        : invoice.total_amount
+
+      await markInvoicePaid(invoice_id, paidAmt, 'manual')
+      setInvoices(invoices.map((i) => (i.id === invoice_id ? { ...i, status: 'paid', paid_amount: paidAmt } : i)))
+      setShowPaidInput((prev) => ({ ...prev, [invoice_id]: false }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark invoice as paid')
+    }
+  }
+
+  const handleSendInvoice = async (invoice_id: string) => {
+    try {
+      setSendingId(invoice_id)
+      setError(null)
+      await sendInvoiceEmail(invoice_id)
+      setInvoices(invoices.map((i) => (i.id === invoice_id ? { ...i, status: 'sent' } : i)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send invoice')
+    } finally {
+      setSendingId(null)
     }
   }
 
@@ -268,6 +294,42 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
             </div>
           </div>
 
+          {/* Deposit / Final quick-set buttons */}
+          {formData.amount && (
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, type: 'deposit', amount: String((parseFloat(formData.amount) * 0.5).toFixed(2)) })}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--accent)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Set as 50% Deposit
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, type: 'standard', amount: String((parseFloat(formData.amount) * 0.5).toFixed(2)) })}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--accent)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Set as 50% Final
+              </button>
+            </div>
+          )}
+
           <button
             type="submit"
             style={{
@@ -349,25 +411,101 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
                     </span>
                   </td>
                   <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                    {invoice.status !== 'paid' && (
-                      <button
-                        onClick={() => handleMarkPaid(invoice.id)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border)',
-                          backgroundColor: 'transparent',
-                          color: 'var(--accent)',
-                          fontSize: '12px',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.15s',
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--accent-dim)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                      >
-                        Mark Paid
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                        <>
+                          {showPaidInput[invoice.id] ? (
+                            <>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={paidAmounts[invoice.id] ?? String(invoice.total_amount)}
+                                onChange={(e) => setPaidAmounts((prev) => ({ ...prev, [invoice.id]: e.target.value }))}
+                                placeholder="Amount paid"
+                                style={{
+                                  width: '90px',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'var(--surface)',
+                                  color: 'var(--text)',
+                                  fontSize: '12px',
+                                }}
+                              />
+                              <button
+                                onClick={() => handleMarkPaid(invoice.id)}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #22c55e',
+                                  backgroundColor: 'transparent',
+                                  color: '#22c55e',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                onClick={() => setShowPaidInput((prev) => ({ ...prev, [invoice.id]: false }))}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'transparent',
+                                  color: 'var(--text-secondary)',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setPaidAmounts((prev) => ({ ...prev, [invoice.id]: String(invoice.total_amount) }))
+                                setShowPaidInput((prev) => ({ ...prev, [invoice.id]: true }))
+                              }}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                backgroundColor: 'transparent',
+                                color: 'var(--accent)',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.15s',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--accent-dim)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            >
+                              Mark Paid
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleSendInvoice(invoice.id)}
+                            disabled={sendingId === invoice.id}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border)',
+                              backgroundColor: 'transparent',
+                              color: 'var(--text-secondary)',
+                              fontSize: '12px',
+                              cursor: sendingId === invoice.id ? 'not-allowed' : 'pointer',
+                              opacity: sendingId === invoice.id ? 0.5 : 1,
+                              transition: 'background-color 0.15s',
+                            }}
+                            onMouseEnter={(e) => { if (sendingId !== invoice.id) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-secondary)' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                          >
+                            {sendingId === invoice.id ? 'Sending...' : 'Send'}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

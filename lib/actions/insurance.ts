@@ -52,22 +52,14 @@ export async function updateClaimStatus(
   if (new_status === 'approved') jobStatus = 'sold'
   if (new_status === 'done') jobStatus = 'completed'
 
+  // Update job status based on claim progression (do NOT touch notes)
   const updatePayload: Record<string, unknown> = {}
+  if (new_status === 'approved') updatePayload.status = 'sold'
+  if (new_status === 'done') updatePayload.status = 'completed'
 
-  // Store claim metadata
-  const metadata = {
-    claim_status: new_status,
-    last_status_update: new Date().toISOString(),
-    notes: notes,
-  }
-
-  // Update via JSONB (assuming claim_metadata column, or use notes)
   const { data: updatedJob, error: updateError } = await supabase
     .from('jobs')
-    .update({
-      ...updatePayload,
-      notes: `[CLAIM: ${new_status.toUpperCase()}] ${notes || ''}`,
-    })
+    .update(updatePayload)
     .eq('id', job_id)
     .select()
     .single()

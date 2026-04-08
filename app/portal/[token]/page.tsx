@@ -88,8 +88,14 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const currentStatusIndex = STATUS_STEPS.findIndex((s) => s.key === job.status)
   const progressPercent = currentStatusIndex >= 0 ? ((currentStatusIndex + 1) / STATUS_STEPS.length) * 100 : 0
 
+  const company = job.companies as any
+  const accentColor = company?.color || 'var(--accent)'
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-deep)' }}>
+      {/* Company accent bar */}
+      <div style={{ height: '6px', backgroundColor: accentColor }} />
+
       {/* Header */}
       <header
         style={{
@@ -100,8 +106,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       >
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
           <h1 style={{ fontSize: '24px', fontWeight: 600, color: 'var(--text-primary)' }}>
-            {job.companies?.name || 'Roofing Project'}
+            {company?.name || 'Roofing Project'}
           </h1>
+          {company?.address && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
+              {company.address}
+            </p>
+          )}
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
             Project #{job.job_number}
           </p>
@@ -242,30 +253,32 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             Questions?
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-            Contact the roofing company directly for more information about your project.
+            Contact {company?.name || 'us'} directly for more information about your project.
           </p>
-          <button
-            onClick={() => window.history.back()}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: 500,
-              border: '1px solid var(--border-subtle)',
-              backgroundColor: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-              transition: 'background-color 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              (e.target as HTMLButtonElement).style.backgroundColor = 'var(--accent-dim)'
-            }}
-            onMouseLeave={(e) => {
-              (e.target as HTMLButtonElement).style.backgroundColor = 'var(--bg-secondary)'
-            }}
-          >
-            Go Back
-          </button>
+          {company?.phone && (
+            <a
+              href={`tel:${company.phone}`}
+              style={{
+                display: 'inline-block',
+                padding: '10px 24px',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: 600,
+                border: `1px solid ${accentColor}`,
+                backgroundColor: accentColor,
+                color: '#fff',
+                textDecoration: 'none',
+                transition: 'opacity 0.15s',
+              }}
+            >
+              Call {company.name}
+            </a>
+          )}
+          {!company?.phone && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Please use the contact information provided to you by {company?.name || 'your contractor'}.
+            </p>
+          )}
         </div>
       </main>
     </div>
