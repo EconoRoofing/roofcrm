@@ -7,25 +7,28 @@ import { formatTime, formatDate } from '@/lib/utils'
 interface JobMessagesProps {
   jobId: string
   customerPhone: string | null
+  initialMessages?: Message[]
 }
 
 const twilioConfigured =
   typeof process !== 'undefined' &&
   !!(process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_CONFIGURED)
 
-export function JobMessages({ jobId, customerPhone }: JobMessagesProps) {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState(true)
+export function JobMessages({ jobId, customerPhone, initialMessages }: JobMessagesProps) {
+  const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
+  const [loading, setLoading] = useState(!initialMessages)
   const [inputValue, setInputValue] = useState('')
   const [sending, setSending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // Only fetch if no initial messages were provided server-side
+    if (initialMessages) return
     getJobMessages(jobId).then((msgs) => {
       setMessages(msgs)
       setLoading(false)
     })
-  }, [jobId])
+  }, [jobId, initialMessages])
 
   async function handleSend() {
     const body = inputValue.trim()

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUser, getUserRole } from '@/lib/auth'
-import { getJobsByDate, getJobs } from '@/lib/actions/jobs'
+import { getJobsByDate, getSalesStats } from '@/lib/actions/jobs'
 import { getMyFollowUps } from '@/lib/actions/follow-up-tasks'
 import { TodayView } from '@/components/sales/today-view'
 import { formatDisplayDate } from '@/lib/utils'
@@ -15,13 +15,6 @@ function getGreeting(hour: number): string {
   if (hour < 12) return 'Good morning'
   if (hour < 17) return 'Good afternoon'
   return 'Good evening'
-}
-
-
-function daysSince(dateStr: string): number {
-  const created = new Date(dateStr)
-  const now = new Date()
-  return Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24))
 }
 
 export default async function TodayPage() {
@@ -66,27 +59,14 @@ export default async function TodayPage() {
   const now = new Date()
   const todayString = now.toISOString().split('T')[0]
 
-  // Fetch today's jobs, all user jobs, and due follow-ups in parallel
-  const [todayJobs, allJobs, myFollowUps] = await Promise.all([
+  // Fetch today's jobs, sales stats, and due follow-ups in parallel
+  const [todayJobs, salesStats, myFollowUps] = await Promise.all([
     getJobsByDate(todayString, user.id, role ?? 'sales'),
-    getJobs({ rep_id: user.id }),
+    getSalesStats(user.id),
     getMyFollowUps(user.id),
   ])
 
-  // Find stale jobs: pending or lead status, created more than 14 days ago
-  const staleJobs = allJobs.filter((job) => {
-    if (job.status !== 'pending' && job.status !== 'lead') return false
-    return daysSince(job.created_at) >= 14
-  })
-
-  // Calculate stats
-  const pendingCount = allJobs.filter((j) => j.status === 'pending').length
-
-  // Monthly revenue from sold jobs this month
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const monthlyRevenue = allJobs
-    .filter((j) => j.status === 'sold' && j.created_at >= monthStart)
-    .reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
+  const { pendingCount, monthlyRevenue, staleJobs } = salesStats
 
   const hour = now.getHours()
   const greeting = getGreeting(hour)
@@ -134,7 +114,7 @@ export default async function TodayPage() {
 
       <TodayView
         todayJobs={todayJobs as JobWithCompany[]}
-        staleJobs={staleJobs}
+        staleJobs={staleJobs as unknown as Job[]}
         followUps={myFollowUps as FollowUp[]}
         currentUserId={user.id}
         stats={{

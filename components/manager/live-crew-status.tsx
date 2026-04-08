@@ -221,8 +221,32 @@ export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) 
   }, [])
 
   useEffect(() => {
-    const id = setInterval(refresh, 60_000)
-    return () => clearInterval(id)
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
+    function startPolling() {
+      intervalId = setInterval(refresh, 60_000)
+    }
+
+    function stopPolling() {
+      if (intervalId) { clearInterval(intervalId); intervalId = null }
+    }
+
+    function handleVisibility() {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        refresh() // catch up on missed data when tab becomes visible
+        startPolling()
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [refresh])
 
   return (

@@ -9,6 +9,7 @@ import { JobCostCard } from '@/components/manager/job-cost-card'
 import { JobCalendarWarning } from '@/components/job-calendar-warning'
 import { CompanyCamLinker } from '@/components/companycam-linker'
 import { JobMessages } from '@/components/job-messages'
+import { getJobMessages } from '@/lib/actions/messages'
 import { JobAssignment } from '@/components/job-assignment'
 import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
 import { createClient } from '@/lib/supabase/server'
@@ -304,6 +305,14 @@ export async function JobDetail({ job, role }: JobDetailProps) {
     } catch {
       // silently fall back to zeros
     }
+  }
+
+  // Fetch messages server-side to eliminate client-side loading spinner
+  let initialMessages: Awaited<ReturnType<typeof getJobMessages>> = []
+  try {
+    initialMessages = await getJobMessages(job.id)
+  } catch {
+    // best-effort — client will fall back to its own fetch
   }
 
   // Fetch crew members for assignment — manager only
@@ -640,7 +649,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       )}
 
       {/* Messages */}
-      <JobMessages jobId={job.id} customerPhone={job.phone ?? null} />
+      <JobMessages jobId={job.id} customerPhone={job.phone ?? null} initialMessages={initialMessages} />
 
       {/* Calendar deleted warning */}
       <JobCalendarWarning jobId={job.id} />

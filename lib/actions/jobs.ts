@@ -485,6 +485,34 @@ export async function getJobsByDate(date: string, userId: string, role: UserRole
   return data ?? []
 }
 
+export async function getSalesStats(repId: string): Promise<{
+  pendingCount: number
+  monthlyRevenue: number
+  staleJobs: Array<{ id: string; job_number: string; customer_name: string; job_type: string; created_at: string; company: { name: string; color: string } | null }>
+}> {
+  const supabase = await createClient()
+
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const fourteenDaysAgo = new Date()
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+
+  const [pendingResult, revenueResult, staleResult] = await Promise.all([
+    // Count pending/lead/estimate_scheduled (lightweight count-only query)
+    supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('rep_id', repId).in('status', ['pending', 'lead', 'estimate_scheduled']),
+    // Monthly revenue from sold jobs
+    supabase.from('jobs').select('total_amount').eq('rep_id', repId).eq('status', 'sold').gte('created_at', monthStart),
+    // Stale leads: pending/lead, older than 14 days
+    supabase.from('jobs').select('id, job_number, customer_name, job_type, created_at, company:companies(name, color)').eq('rep_id', repId).in('status', ['pending', 'lead']).lt('created_at', fourteenDaysAgo.toISOString()).order('created_at', { ascending: true }),
+  ])
+
+  const pendingCount = pendingResult.count ?? 0
+  const monthlyRevenue = (revenueResult.data ?? []).reduce((sum, j) => sum + (Number(j.total_amount) ?? 0), 0)
+  const staleJobs = (staleResult.data ?? []) as any
+
+  return { pendingCount, monthlyRevenue, staleJobs }
+}
+
 export async function deleteJob(id: string) {
   return updateJobStatus(id, 'cancelled')
 }

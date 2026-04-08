@@ -125,9 +125,32 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
   }, [timeEntryId])
 
   useEffect(() => {
-    checkCompliance()
-    const id = setInterval(checkCompliance, 60_000)
-    return () => clearInterval(id)
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
+    function startPolling() {
+      checkCompliance()
+      intervalId = setInterval(checkCompliance, 60_000)
+    }
+
+    function stopPolling() {
+      if (intervalId) { clearInterval(intervalId); intervalId = null }
+    }
+
+    function handleVisibility() {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        startPolling()
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [checkCompliance])
 
   // Compute hours since clock-in for banner logic
