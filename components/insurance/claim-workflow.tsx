@@ -145,7 +145,6 @@ export function ClaimWorkflow({
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
-                  border: 'none',
                   backgroundColor: index <= currentIndex ? STATUS_COLORS[s] : 'var(--surface)',
                   color: index <= currentIndex ? '#fff' : 'var(--text-secondary)',
                   fontSize: '13px',

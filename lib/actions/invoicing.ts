@@ -2,10 +2,21 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
-import { v4 as uuidv4 } from 'uuid'
-import type { Database } from '@/lib/types/supabase'
-
-type Invoice = Database['public']['Tables']['invoices']['Row']
+interface Invoice {
+  id: string
+  job_id: string
+  invoice_number: string
+  type: string
+  amount: number
+  total_amount: number
+  status: string
+  due_date: string | null
+  paid_date: string | null
+  paid_amount: number
+  payment_method: string | null
+  notes: string | null
+  created_at: string
+}
 
 export interface CreateInvoiceData {
   job_id: string
@@ -171,7 +182,7 @@ export async function generatePortalToken(job_id: string) {
 
   if (!user) throw new Error('Not authenticated')
 
-  const token = uuidv4()
+  const token = crypto.randomUUID()
 
   const { data: job, error } = await supabase
     .from('jobs')

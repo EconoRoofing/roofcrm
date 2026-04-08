@@ -2,9 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { getAutomationRules, toggleAutomationRule, deleteAutomationRule, createAutomationRule } from '@/lib/actions/automations'
-import type { Database } from '@/lib/types/supabase'
-
-type AutomationRule = Database['public']['Tables']['automation_rules']['Row']
+interface AutomationRule {
+  id: string
+  name: string
+  trigger_type: string
+  trigger_value: string | null
+  action_type: string
+  action_config: Record<string, unknown>
+  is_active: boolean
+  created_at: string
+}
 
 const TRIGGER_TYPES = ['status_change', 'job_created', 'estimate_sent', 'payment_received']
 const ACTION_TYPES = ['send_sms', 'send_email', 'create_follow_up', 'assign_crew']
@@ -74,10 +81,11 @@ export default function AutomationsPage() {
       }
 
       const actionConfig: Record<string, unknown> = {}
-      if (formData.action_type === 'send_sms') {
+      const actionType = formData.action_type as string
+      if (actionType === 'send_sms') {
         actionConfig.message_template = formData.message_template
       }
-      if (formData.action_type === 'create_follow_up') {
+      if (actionType === 'create_follow_up') {
         actionConfig.days_offset = parseInt(formData.days_offset)
       }
 
@@ -254,7 +262,7 @@ export default function AutomationsPage() {
             </div>
           </div>
 
-          {formData.action_type === 'send_sms' && (
+          {(formData.action_type as string) === 'send_sms' && (
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
                 SMS Template
@@ -279,7 +287,7 @@ export default function AutomationsPage() {
             </div>
           )}
 
-          {formData.action_type === 'create_follow_up' && (
+          {(formData.action_type as string) === 'create_follow_up' && (
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
                 Days Until Due

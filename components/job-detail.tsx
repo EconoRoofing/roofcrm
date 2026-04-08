@@ -612,12 +612,12 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         <>
           <ClaimWorkflow
             jobId={job.id}
-            claimNumber={job.claim_number}
+            claimNumber={job.claim_number ?? undefined}
             currentStatus={'filed'}
-            adjusterName={job.adjuster_name}
-            adjusterPhone={job.adjuster_phone}
-            adjusterEmail={job.adjuster_email}
-            supplementAmount={job.supplement_amount}
+            adjusterName={job.adjuster_name ?? undefined}
+            adjusterPhone={job.adjuster_phone ?? undefined}
+            adjusterEmail={job.adjuster_email ?? undefined}
+            supplementAmount={job.supplement_amount ?? undefined}
           />
           <div style={styles.sectionCard}>
             <h2 style={styles.sectionHeading}>Claim Details</h2>
@@ -745,7 +745,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ ...styles.sectionHeading, margin: 0 }}>Invoices</h2>
-          <ChevronRightIcon size={16} style={{ color: 'var(--text-secondary)' }} />
+          <span style={{ color: 'var(--text-secondary)' }}><ChevronRightIcon size={16} /></span>
         </div>
       </Link>
 

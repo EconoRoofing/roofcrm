@@ -2,9 +2,21 @@
 
 import { useEffect, useState } from 'react'
 import { getJobInvoices, createInvoice, markInvoicePaid, updateInvoiceStatus } from '@/lib/actions/invoicing'
-import type { Database } from '@/lib/types/supabase'
-
-type Invoice = Database['public']['Tables']['invoices']['Row']
+interface Invoice {
+  id: string
+  job_id: string
+  invoice_number: string
+  type: string
+  amount: number
+  total_amount: number
+  status: string
+  due_date: string | null
+  paid_date: string | null
+  paid_amount: number
+  payment_method: string | null
+  notes: string | null
+  created_at: string
+}
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'var(--text-secondary)',
@@ -320,7 +332,7 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
                   <td style={{ padding: '12px 8px', fontWeight: 500 }}>{invoice.invoice_number}</td>
                   <td style={{ padding: '12px 8px', textTransform: 'capitalize' }}>{invoice.type}</td>
                   <td style={{ padding: '12px 8px', textAlign: 'right' }}>{formatCurrency(invoice.amount)}</td>
-                  <td style={{ padding: '12px 8px' }}>{formatDate(invoice.due_date)}</td>
+                  <td style={{ padding: '12px 8px' }}>{invoice.due_date ? formatDate(invoice.due_date) : '—'}</td>
                   <td style={{ padding: '12px 8px' }}>
                     <span
                       style={{

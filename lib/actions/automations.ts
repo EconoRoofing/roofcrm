@@ -2,11 +2,19 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
-import { sendSMS } from '@/lib/actions/messages'
+import { sendSMS } from '@/lib/twilio'
 import { createFollowUp } from '@/lib/actions/follow-up-tasks'
-import type { Database } from '@/lib/types/supabase'
 
-type AutomationRule = Database['public']['Tables']['automation_rules']['Row']
+interface AutomationRule {
+  id: string
+  name: string
+  trigger_type: string
+  trigger_value: string | null
+  action_type: string
+  action_config: Record<string, unknown>
+  is_active: boolean
+  created_at: string
+}
 
 export interface CreateAutomationData {
   company_id: string

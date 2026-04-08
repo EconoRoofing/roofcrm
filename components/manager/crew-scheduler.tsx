@@ -323,12 +323,14 @@ export function CrewScheduler() {
                                 cursor: 'pointer',
                               }}
                               onMouseEnter={(e) => {
-                                (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--accent)'
-                                (e.currentTarget as HTMLDivElement).style.color = 'var(--bg-deep)'
+                                const el = e.currentTarget as HTMLElement
+                                el.style.backgroundColor = 'var(--accent)'
+                                el.style.color = 'var(--bg-deep)'
                               }}
                               onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--accent-dim)'
-                                (e.currentTarget as HTMLDivElement).style.color = 'var(--text-primary)'
+                                const el = e.currentTarget as HTMLElement
+                                el.style.backgroundColor = 'var(--accent-dim)'
+                                el.style.color = 'var(--text-primary)'
                               }}
                               title={`${job.jobNumber}\n${job.customerName}\nDouble-click to unassign`}
                               onDoubleClick={() => handleUnassignJob(job.jobId)}
