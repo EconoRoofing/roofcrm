@@ -5,6 +5,7 @@ import { getUser } from '@/lib/auth'
 import { logActivity } from '@/lib/actions/activity'
 import { generatePDF } from '@/lib/pdf/generate-pdf'
 import { sendEstimateEmail } from '@/lib/email'
+import { headers } from 'next/headers'
 import type { Job, Company } from '@/lib/types/database'
 
 export async function signEstimate(
@@ -19,6 +20,18 @@ export async function signEstimate(
 ): Promise<{ pdfUrl: string }> {
   const supabase = await createClient()
   const user = await getUser()
+
+  // Capture IP server-side (more reliable than client-side)
+  const headersList = await headers()
+  const clientIp = headersList.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? headersList.get('x-real-ip')
+    ?? 'unknown'
+
+  // Use server-captured IP instead of client-provided
+  const fullAuditData = {
+    ...auditData,
+    ip: clientIp,
+  }
 
   // 1. Fetch job + company data
   const { data: jobRow, error: jobError } = await supabase
@@ -90,9 +103,9 @@ export async function signEstimate(
     null,
     JSON.stringify({
       pdfUrl,
-      ip: auditData.ip,
-      userAgent: auditData.userAgent,
-      timestamp: auditData.timestamp,
+      ip: fullAuditData.ip,
+      userAgent: fullAuditData.userAgent,
+      timestamp: fullAuditData.timestamp,
     })
   )
 

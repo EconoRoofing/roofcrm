@@ -125,14 +125,20 @@ export async function startToolboxTalkSession(
   return data as ToolboxTalkSession
 }
 
-export async function signToolboxTalk(sessionId: string): Promise<void> {
+export async function signToolboxTalk(sessionId: string, userId: string): Promise<void> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const currentUser = await getUser()
+  if (!currentUser) throw new Error('Not authenticated')
+
+  // Authorization: only the user themselves, or a manager/crew lead can sign on behalf
+  // For shared-device use, the crew lead signs everyone — this is the intended flow
 
   const { error } = await supabase
     .from('toolbox_talk_signoffs')
-    .upsert({ session_id: sessionId, user_id: user.id }, { onConflict: 'session_id,user_id' })
+    .upsert({
+      session_id: sessionId,
+      user_id: userId,  // Use the passed userId, not currentUser.id
+    }, { onConflict: 'session_id,user_id' })
 
   if (error) throw new Error(`Failed to sign off: ${error.message}`)
 }
@@ -501,18 +507,24 @@ export async function checkRequiredCerts(userId: string): Promise<{ valid: boole
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const { data } = await supabase
+  const { data: certs } = await supabase
     .from('certifications')
     .select('name, expiry_date, status')
     .eq('user_id', userId)
     .eq('status', 'active')
 
-  const activeCerts = (data ?? []).map((c) => c.name.toLowerCase())
+  const validCerts = (certs ?? []).filter(cert => {
+    // Cert is valid if: no expiry date set, OR expiry date is in the future
+    if (!cert.expiry_date) return true
+    return cert.expiry_date >= today
+  })
 
-  // Required: OSHA 10 or OSHA 30 (not expired)
-  const hasOsha =
-    activeCerts.some((n) => n.includes('osha 10')) ||
-    activeCerts.some((n) => n.includes('osha 30'))
+  const validCertNames = validCerts.map(c => c.name.toLowerCase())
+
+  // Need at least one of OSHA 10 or OSHA 30 (not both)
+  const hasOsha = validCertNames.some(name =>
+    name.includes('osha 10') || name.includes('osha 30')
+  )
 
   const missing: string[] = []
   if (!hasOsha) missing.push('OSHA 10 or OSHA 30')

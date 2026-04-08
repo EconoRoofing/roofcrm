@@ -113,14 +113,13 @@ export function calculateMaterials(input: MaterialCalcInput): MaterialItem[] {
     })
   }
 
-  // Starter strip (eaves) — pitch-adjusted
+  // Starter strip (eaves) — eaves are horizontal, no pitch adjustment
   if (input.eave_length_ft && input.eave_length_ft > 0) {
-    const adjustedEaveFt = input.eave_length_ft * pitchMult
     items.push({
       name: 'Starter Strip',
-      quantity: Math.ceil(adjustedEaveFt / 100 * waste),
+      quantity: Math.ceil(input.eave_length_ft / 100 * waste),
       unit: 'bundles',
-      formula: `${input.eave_length_ft} lf × ${pitchMult.toFixed(2)} pitch / 100 lf/bundle × ${waste.toFixed(2)} waste`,
+      formula: `${input.eave_length_ft} lf / 100 lf/bundle × ${waste.toFixed(2)} waste`,
     })
   }
 

@@ -20,6 +20,7 @@ export async function GET(request: Request) {
     followUpTasks: { sent: 0, skipped: 0 },
     unclosedClockIns: { flagged: 0 },
     overdueEquipment: 0,
+    certStatusUpdates: false,
   }
 
   // 0. Check for unclosed clock-ins from yesterday (run first)
@@ -64,6 +65,34 @@ export async function GET(request: Request) {
     results.overdueEquipment = overdue.length
   } catch (error) {
     console.error('Cron: overdue equipment check failed', error)
+  }
+
+  // 6. Update expired certifications
+  try {
+    const { createClient } = await import('@/lib/supabase/server')
+    const supabase = await createClient()
+    const today = new Date().toISOString().split('T')[0]
+
+    // Mark expired certs
+    await supabase
+      .from('certifications')
+      .update({ status: 'expired' })
+      .eq('status', 'active')
+      .lt('expiry_date', today)
+
+    // Mark expiring-soon certs (within 30 days)
+    const thirtyDaysOut = new Date()
+    thirtyDaysOut.setDate(thirtyDaysOut.getDate() + 30)
+    await supabase
+      .from('certifications')
+      .update({ status: 'expiring_soon' })
+      .eq('status', 'active')
+      .lte('expiry_date', thirtyDaysOut.toISOString().split('T')[0])
+      .gte('expiry_date', today)
+
+    results.certStatusUpdates = true
+  } catch (error) {
+    console.error('Cron: cert status update failed', error)
   }
 
   return NextResponse.json(results)

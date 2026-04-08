@@ -78,7 +78,7 @@ export function ToolboxTalkConductor({ talks, crewMembers, jobId }: Props) {
         // For crew sign-off, each member needs to tap their own name
         // We store locally and batch-sign when complete
         setSignedUsers((prev) => new Set([...prev, userId]))
-        await signToolboxTalk(sessionId)
+        await signToolboxTalk(sessionId, userId)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Sign-off failed')
         setSignedUsers((prev) => {
