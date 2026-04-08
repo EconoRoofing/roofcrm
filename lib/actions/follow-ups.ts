@@ -24,13 +24,13 @@ export async function processFollowUps(): Promise<{ sent: number; skipped: numbe
   // Find pending/lead jobs that need follow-up
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('id, customer_name, phone, company_id, created_at, status, company:companies(name)')
+    .select('id, customer_name, phone, company_id, created_at, status, do_not_text, company:companies(name)')
     .in('status', ['pending'])
 
   if (!jobs) return { sent: 0, skipped: 0 }
 
   for (const job of jobs) {
-    if (!job.phone) { skipped++; continue }
+    if (!job.phone || job.do_not_text) { skipped++; continue }
 
     const daysSinceCreated = Math.floor(
       (now.getTime() - new Date(job.created_at).getTime()) / (1000 * 60 * 60 * 24)

@@ -36,7 +36,7 @@ async function fetchWeather(city: string): Promise<string> {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
     const res = await fetch(
       `${baseUrl}/api/weather?city=${encodeURIComponent(city)}`,
-      { cache: 'no-store' }
+      { cache: 'no-store', signal: AbortSignal.timeout(3000) }
     )
     if (!res.ok) return 'Unknown'
     const data = await res.json()
@@ -296,10 +296,13 @@ export async function clockOut(
       .lt('clock_in', clockOut.toISOString())
 
     for (const e of weekDayEntries ?? []) {
-      daysWorked.add(new Date(e.clock_in).getDay())
+      const day = new Date(e.clock_in).getDay()
+      if (day >= 1 && day <= 6) {  // Only count Mon-Sat
+        daysWorked.add(day)
+      }
     }
 
-    // If they worked Mon(1) through Sat(6) = 6 unique days
+    // If they worked Mon(1) through Sat(6) = 6 unique days, Sunday is the 7th consecutive day
     if (daysWorked.size >= 6) {
       // 7th day: first 8hrs at 1.5×, after 8hrs at 2×
       // Override the regular/OT split (takes priority over weekly OT calc)

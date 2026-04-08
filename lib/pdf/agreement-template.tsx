@@ -22,8 +22,10 @@ export interface AgreementProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function numberToWords(n: number): string {
-  if (n === 0) return 'zero'
+function numberToWords(amount: number): string {
+  if (amount < 0) return 'zero'
+  if (amount === 0) return 'zero'
+
   const ones = ['','one','two','three','four','five','six','seven','eight','nine',
     'ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen',
     'eighteen','nineteen']
@@ -36,15 +38,38 @@ function numberToWords(n: number): string {
     return ones[Math.floor(num / 100)] + ' hundred ' + below1000(num % 100)
   }
 
-  const dollars = Math.floor(n)
-  const cents = Math.round((n - dollars) * 100)
+  function capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  }
+
+  const dollars = Math.floor(amount)
+  const cents = Math.round((amount - dollars) * 100)
+
+  // Handle millions
+  if (dollars >= 1_000_000) {
+    const millions = Math.floor(dollars / 1_000_000)
+    const remainder = dollars % 1_000_000
+    const millionPart = below1000(millions).trim() + ' million'
+    let words: string
+    if (remainder === 0) {
+      words = millionPart
+    } else {
+      let remWords = ''
+      if (remainder >= 1000) remWords += below1000(Math.floor(remainder / 1000)) + 'thousand '
+      remWords += below1000(remainder % 1000)
+      words = millionPart + ' ' + remWords.trim()
+    }
+    const result = capitalize(words) + ' dollars'
+    if (cents > 0) return result + ` and ${cents}/100`
+    return result + ' and 00/100'
+  }
 
   let words = ''
   if (dollars >= 1000) words += below1000(Math.floor(dollars / 1000)) + 'thousand '
   words += below1000(dollars % 1000)
   words = words.trim()
 
-  const result = words.charAt(0).toUpperCase() + words.slice(1) + ' dollars'
+  const result = capitalize(words) + ' dollars'
   if (cents > 0) return result + ` and ${cents}/100`
   return result + ' and 00/100'
 }

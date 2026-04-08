@@ -60,6 +60,7 @@ async function companycamFetch<T>(path: string): Promise<T | null> {
   const res = await fetch(`${COMPANYCAM_BASE}${path}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     next: { revalidate: 300 }, // 5-minute cache
+    signal: AbortSignal.timeout(8000),
   })
 
   if (!res.ok) {
@@ -84,6 +85,7 @@ export async function searchProjectsByAddress(address: string): Promise<CompanyC
   const res = await fetch(`${COMPANYCAM_BASE}/projects?${params.toString()}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     next: { revalidate: 300 }, // 5-minute cache
+    signal: AbortSignal.timeout(8000),
   })
 
   if (!res.ok) {
@@ -113,6 +115,7 @@ export async function getProjectPhotos(
     {
       headers: { Authorization: `Bearer ${apiKey}` },
       next: { revalidate: 300 }, // 5-minute cache
+      signal: AbortSignal.timeout(8000),
     }
   )
 

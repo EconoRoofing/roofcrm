@@ -37,6 +37,7 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
       .select('body')
       .eq('job_id', job.id)
       .eq('auto_generated', true)
+      .eq('direction', 'outbound')
 
     const bodies = (existingMessages ?? []).map(m => m.body)
 

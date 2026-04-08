@@ -2,9 +2,6 @@
 
 import { createClient } from '@/lib/supabase/server'
 
-// Simple in-process cache — prevents redundant aggregation queries within a 2-minute window
-const dashboardCache = new Map<string, { data: DashboardData; expiresAt: number }>()
-
 export interface DashboardData {
   // Pipeline KPIs
   pipelineValue: number
@@ -39,13 +36,6 @@ export async function getDashboardData(filters?: {
   startDate?: string
   endDate?: string
 }): Promise<DashboardData> {
-  // Check cache first — 2 minute TTL
-  const cacheKey = JSON.stringify(filters ?? {})
-  const cached = dashboardCache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data
-  }
-
   const supabase = await createClient()
 
   // Build base job query
@@ -275,7 +265,7 @@ export async function getDashboardData(filters?: {
     completedDate: j.completed_date ?? '',
   }))
 
-  const result: DashboardData = {
+  return {
     pipelineValue,
     closeRate,
     revenueThisMonth,
@@ -291,9 +281,4 @@ export async function getDashboardData(filters?: {
     jobsByType,
     profitabilityTrend,
   }
-
-  // Cache for 2 minutes
-  dashboardCache.set(cacheKey, { data: result, expiresAt: Date.now() + 120_000 })
-
-  return result
 }

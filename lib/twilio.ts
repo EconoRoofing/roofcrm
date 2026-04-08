@@ -44,7 +44,7 @@ export async function sendSMS(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, options)
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) })
       const data = await response.json()
 
       if (data.sid) return { success: true, sid: data.sid }

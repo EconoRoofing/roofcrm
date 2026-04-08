@@ -4,9 +4,6 @@ import { timingSafeEqual } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
-// In-memory rate limiter for PIN verification
-const pinAttempts = new Map<string, { count: number; resetAt: number }>()
-
 // Get all companies (for primary company assignment)
 export async function getCompanies() {
   try {
@@ -52,15 +49,26 @@ export async function setPin(userId: string, pin: string) {
 // Verify a PIN
 export async function verifyPin(userId: string, pin: string): Promise<boolean> {
   try {
-    // Rate limiting: max 5 attempts per 15 minutes
-    const now = Date.now()
-    const attempts = pinAttempts.get(userId)
-    if (attempts && attempts.resetAt > now && attempts.count >= 5) {
-      throw new Error('Too many PIN attempts. Try again in 15 minutes.')
-    }
-
     const supabase = await createClient()
 
+    // Fetch user's pin data including rate-limit fields
+    const { data: user } = await supabase
+      .from('users')
+      .select('pin_hash, pin_failed_attempts, pin_locked_until')
+      .eq('id', userId)
+      .single()
+
+    if (!user) return false
+
+    // Check lockout (Supabase-persisted — works across serverless instances)
+    if (user.pin_locked_until && new Date(user.pin_locked_until) > new Date()) {
+      throw new Error('Too many PIN attempts. Try again later.')
+    }
+
+    // No PIN set — allow first-time access
+    if (!user.pin_hash) return true
+
+    // Compute hash for comparison
     const encoder = new TextEncoder()
     const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
     const data = encoder.encode(pin + userId + serverSalt)
@@ -68,31 +76,34 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 
-    const { data: user } = await supabase
-      .from('users')
-      .select('pin_hash')
-      .eq('id', userId)
-      .single()
-
-    if (!user?.pin_hash) {
-      // No PIN set — allow first-time access
-      return true
-    }
-
     // Timing-safe comparison to prevent timing attacks
     const storedBuf = Buffer.from(user.pin_hash, 'hex')
     const computedBuf = Buffer.from(pinHash, 'hex')
     const isMatch = storedBuf.length === computedBuf.length && timingSafeEqual(storedBuf, computedBuf)
 
     if (!isMatch) {
-      const current = pinAttempts.get(userId) ?? { count: 0, resetAt: now + 15 * 60 * 1000 }
-      current.count++
-      pinAttempts.set(userId, current)
-    } else {
-      pinAttempts.delete(userId)
+      // Increment failed attempts and set lockout if threshold reached
+      const attempts = (user.pin_failed_attempts ?? 0) + 1
+      const lockUntil = attempts >= 5
+        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        : null
+
+      await supabase.from('users').update({
+        pin_failed_attempts: attempts,
+        pin_locked_until: lockUntil,
+      }).eq('id', userId)
+
+      if (attempts >= 5) throw new Error('Too many PIN attempts. Try again in 15 minutes.')
+      return false
     }
 
-    return isMatch
+    // On success, reset failed attempts
+    await supabase.from('users').update({
+      pin_failed_attempts: 0,
+      pin_locked_until: null,
+    }).eq('id', userId)
+
+    return true
   } catch (err) {
     // Re-throw rate limit errors so callers can show the message
     if (err instanceof Error && err.message.includes('Too many PIN attempts')) {
@@ -105,6 +116,18 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 
 // Select a profile — sets the active_profile cookie
 export async function selectProfile(userId: string) {
+  const supabase = await createClient()
+
+  // Verify the profile exists and is active before setting the cookie
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, is_active')
+    .eq('id', userId)
+    .eq('is_active', true)
+    .single()
+
+  if (!profile) throw new Error('Profile not found or inactive')
+
   const cookieStore = await cookies()
   cookieStore.set('active_profile_id', userId, {
     path: '/',
@@ -126,6 +149,7 @@ export async function getActiveProfile() {
     .from('users')
     .select('*')
     .eq('id', profileId)
+    .eq('is_active', true)
     .single()
   return data
 }

@@ -50,6 +50,7 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     cache: 'no-store', // Token exchange is a mutation — never cache
+    signal: AbortSignal.timeout(8000),
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
@@ -157,6 +158,7 @@ export async function createCalendarEvent(
   const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
     cache: 'no-store', // Calendar mutations must never be cached
+    signal: AbortSignal.timeout(8000),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -202,6 +204,7 @@ export async function updateCalendarEvent(
     {
       method: 'PATCH',
       cache: 'no-store', // Calendar mutations must never be cached
+      signal: AbortSignal.timeout(8000),
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
@@ -237,6 +240,7 @@ export async function deleteCalendarEvent(userId: string, eventId: string, calen
     {
       method: 'DELETE',
       cache: 'no-store', // Calendar mutations must never be cached
+      signal: AbortSignal.timeout(8000),
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

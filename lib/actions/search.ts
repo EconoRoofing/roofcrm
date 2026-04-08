@@ -15,7 +15,7 @@ export interface SearchResult {
 export async function searchJobs(query: string): Promise<SearchResult[]> {
   if (!query || query.trim().length < 2) return []
 
-  const sanitized = query.replace(/[%_,().\\]/g, '')
+  const sanitized = query.replace(/[^a-zA-Z0-9\s\-']/g, '').trim()
   if (!sanitized) return []
 
   const supabase = await createClient()

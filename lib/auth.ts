@@ -29,6 +29,7 @@ export async function getUser() {
       .from('users')
       .select('*')
       .eq('id', profileId)
+      .eq('is_active', true)
       .single()
     if (profile) return profile
   }
@@ -60,6 +61,7 @@ export async function getActiveProfileOrRedirect() {
     .from('users')
     .select('*')
     .eq('id', profileId)
+    .eq('is_active', true)
     .single()
 
   if (!data) redirect('/select-profile')

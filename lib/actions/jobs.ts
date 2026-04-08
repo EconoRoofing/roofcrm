@@ -247,6 +247,27 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
 
   await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
 
+  // Auto-close any open time entries when a job is cancelled — prevents orphaned clock-ins
+  if (newStatus === 'cancelled') {
+    const { data: openEntries } = await supabase
+      .from('time_entries')
+      .select('id, clock_in')
+      .eq('job_id', id)
+      .is('clock_out', null)
+
+    if (openEntries && openEntries.length > 0) {
+      const now = new Date().toISOString()
+      for (const entry of openEntries) {
+        await supabase.from('time_entries').update({
+          clock_out: now,
+          flagged: true,
+          flag_reason: 'Job cancelled while clocked in — auto clock-out',
+          notes: 'Automatically clocked out due to job cancellation',
+        }).eq('id', entry.id)
+      }
+    }
+  }
+
   // Auto-create follow-up task when estimate is given (status -> pending) — best-effort
   if (newStatus === 'pending' && currentJob.rep_id) {
     try {
