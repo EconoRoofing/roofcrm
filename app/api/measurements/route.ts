@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSatelliteImage, getRoofMeasurements } from '@/lib/roof-measurements'
 import type { RoofMeasurements } from '@/lib/roof-measurements'
+import { createClient } from '@/lib/supabase/server'
 
 interface MeasurementsResponse {
   satellite_image_url: string | null

@@ -59,9 +59,16 @@ export interface User {
   avatar_url: string | null
   default_maps_app: string | null
   google_refresh_token: string | null
+  pay_type: string | null
+  hourly_rate: number | null
+  day_rate: number | null
+  profile_photo_url: string | null
+  primary_company_id: string | null
   commission_rate: number | null
   pin_hash: string | null
   is_active: boolean
+  pin_failed_attempts: number
+  pin_locked_until: string | null
   created_at: string
 }
 
@@ -109,6 +116,7 @@ export interface Job {
   assigned_crew_id: string | null
   scheduled_date: string | null
   completed_date: string | null
+  warranty_expiration: string | null
   lat: number | null
   lng: number | null
   commission_rate: number | null
@@ -116,8 +124,10 @@ export interface Job {
   insurance_claim: boolean | null
   insurance_company: string | null
   claim_number: string | null
+  lead_source: string | null
   adjuster_name: string | null
   adjuster_phone: string | null
+  adjuster_email: string | null
   date_of_loss: string | null
   claim_status: string | null
   deductible: number | null
