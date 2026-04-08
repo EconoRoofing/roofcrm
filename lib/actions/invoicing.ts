@@ -36,6 +36,16 @@ export async function createInvoice(data: CreateInvoiceData) {
 
   if (data.amount <= 0) throw new Error('Invoice amount must be greater than zero')
 
+  // Enforce max 20 invoices per job
+  const { count } = await supabase
+    .from('invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('job_id', data.job_id)
+
+  if (count !== null && count >= 20) {
+    throw new Error('Maximum of 20 invoices per job reached')
+  }
+
   // Fetch job to get company_id and job_number in one query
   const { data: job, error: jobError } = await supabase
     .from('jobs')

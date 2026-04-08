@@ -184,15 +184,10 @@ export async function processAutomationRules(
 
     if (rulesError || !rules || rules.length === 0) return
 
-    // Process each matching rule
-    for (const rule of rules) {
-      try {
-        await executeAutomationAction(rule, job, triggerValue)
-      } catch (err) {
-        console.error(`Failed to execute automation rule ${rule.id}:`, err)
-        // Continue processing other rules even if one fails
-      }
-    }
+    // Process all matching rules in parallel — faster than sequential and failures are isolated
+    await Promise.allSettled(
+      rules.map(rule => executeAutomationAction(rule, job, triggerValue))
+    )
   } finally {
     processingJobs.delete(jobId)
   }

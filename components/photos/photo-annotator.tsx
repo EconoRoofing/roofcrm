@@ -33,6 +33,7 @@ export function PhotoAnnotator({
   const [error, setError] = useState<string | null>(null)
 
   const MAX_CANVAS = 2000
+  const MAX_ANNOTATIONS = 50
 
   const ANNOTATION_COLOR = '#ff4444'
   const TEXT_COLOR = '#ffffff'
@@ -138,6 +139,7 @@ export function PhotoAnnotator({
     const y = (e.clientY - rect.top) * scale
 
     if (tool === 'text') {
+      if (annotations.length >= MAX_ANNOTATIONS) return
       const text = prompt('Enter annotation text:')
       if (text) {
         const newAnn: AnnotationData = { type: 'text', x, y, text }
@@ -187,6 +189,12 @@ export function PhotoAnnotator({
     const rect = canvas.getBoundingClientRect()
     const x = (e.clientX - rect.left) * scale
     const y = (e.clientY - rect.top) * scale
+
+    if (annotations.length >= MAX_ANNOTATIONS) {
+      setDrawing(false)
+      setStartPos(null)
+      return
+    }
 
     const newAnn: AnnotationData = {
       type: tool,
@@ -367,7 +375,7 @@ export function PhotoAnnotator({
           color: 'var(--text-muted)',
         }}
       >
-        {annotations.length} annotation(s) • Use {tool} tool to add • Double-click to add text
+        {annotations.length} / {MAX_ANNOTATIONS} annotations{annotations.length >= MAX_ANNOTATIONS ? ' — limit reached' : ''} • Active tool: {tool}
       </div>
     </div>
   )

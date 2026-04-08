@@ -268,6 +268,32 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
 
   await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
 
+  // Cancel any unpaid invoices when a job is cancelled — prevents collecting on a dead job
+  if (newStatus === 'cancelled') {
+    try {
+      await supabase
+        .from('invoices')
+        .update({ status: 'cancelled' })
+        .eq('job_id', id)
+        .in('status', ['draft', 'sent'])
+    } catch {}
+  }
+
+  // Log claim cancellation if this is an insurance job
+  if (newStatus === 'cancelled') {
+    try {
+      const { data: jobCheck } = await supabase
+        .from('jobs')
+        .select('insurance_claim')
+        .eq('id', id)
+        .single()
+
+      if (jobCheck?.insurance_claim) {
+        await logActivity(id, user?.id ?? null, 'claim_cancelled', currentJob.status, 'cancelled')
+      }
+    } catch {}
+  }
+
   // Auto-close any open time entries when a job is cancelled — prevents orphaned clock-ins
   if (newStatus === 'cancelled') {
     const { data: openEntries } = await supabase
