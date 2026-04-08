@@ -323,6 +323,14 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
     } catch (commErr) {
       console.error('Commission calculation error:', commErr)
     }
+
+    // Auto-generate portal token for customer — best-effort
+    try {
+      const { generatePortalToken } = await import('./portal')
+      await generatePortalToken(id)
+    } catch (portalErr) {
+      console.error('Portal token generation error:', portalErr)
+    }
   }
 
   // Calendar sync — best-effort, never blocks the status change
