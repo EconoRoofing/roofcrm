@@ -201,12 +201,16 @@ const THEMES: ThemePeriod[] = [
   },
 ]
 
-// The default (morning) theme — also used for times outside defined periods (midnight-5am)
+// The default (morning) theme
 export const DEFAULT_THEME = THEMES[1].vars
+
+// Night theme — used for midnight-5AM (after night period ends, before early morning starts)
+const NIGHT_THEME = THEMES[THEMES.length - 1].vars
 
 /**
  * Returns interpolated CSS variables for the given date/time.
  * In the last 30% of each period, smoothly blends into the next theme.
+ * Midnight-5AM uses the night theme (not morning — nobody wants bright green at 2 AM).
  */
 export function getThemeForTime(date: Date): ThemeVars {
   const mins = date.getHours() * 60 + date.getMinutes()
@@ -221,9 +225,9 @@ export function getThemeForTime(date: Date): ThemeVars {
     }
   }
 
-  // Outside all defined periods → return default (morning) theme
+  // Midnight to 5AM (0-300 mins) → use night theme (cool purple, easy on eyes)
   if (currentIndex === -1) {
-    return { ...DEFAULT_THEME }
+    return { ...NIGHT_THEME }
   }
 
   const current = THEMES[currentIndex]
@@ -239,8 +243,16 @@ export function getThemeForTime(date: Date): ThemeVars {
 
   // Calculate blend factor (0 at BLEND_START, 1 at period end)
   const blendT = (progress - BLEND_START) / (1 - BLEND_START)
-  const nextIndex = (currentIndex + 1) % THEMES.length
-  const next = THEMES[nextIndex]
+
+  // Determine the next theme to blend into
+  let nextVars: ThemeVars
+  if (currentIndex === THEMES.length - 1) {
+    // Night (last theme) → blend into itself (stay night through midnight)
+    // This prevents the jarring jump from warm amber to cool green at midnight
+    nextVars = current.vars
+  } else {
+    nextVars = THEMES[currentIndex + 1].vars
+  }
 
   const result = { ...current.vars } as ThemeVars
 
@@ -248,7 +260,7 @@ export function getThemeForTime(date: Date): ThemeVars {
   for (const key of HEX_KEYS) {
     result[key] = lerpHex(
       current.vars[key] as string,
-      next.vars[key] as string,
+      nextVars[key] as string,
       blendT
     )
   }
