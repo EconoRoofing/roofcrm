@@ -86,6 +86,14 @@ const crewStyles = {
     lineHeight: 1,
   } as React.CSSProperties,
 
+  companyTagLarge: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '3px 9px',
+    borderRadius: '5px',
+  } as React.CSSProperties,
+
   monoSmall: {
     fontFamily: 'var(--font-mono)',
     fontSize: '10px',
@@ -236,11 +244,14 @@ function ActiveCard({
   ].filter(Boolean)
   const materialsStr = materialParts.join(' · ')
 
+  const companyColor = job.company?.color ?? 'var(--accent)'
+
   return (
     <div
       style={{
         backgroundColor: 'var(--bg-card)',
         border: '1px solid var(--border-subtle)',
+        borderLeft: `4px solid ${companyColor}`,
         borderRadius: '12px',
         overflow: 'hidden',
       }}
@@ -249,7 +260,16 @@ function ActiveCard({
       <div style={{ padding: '16px 16px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
           {job.company && (
-            <CompanyTag name={job.company.name} color={job.company.color} />
+            <span
+              style={{
+                ...crewStyles.companyTagLarge,
+                color: job.company.color,
+                backgroundColor: job.company.color + '22',
+                border: `1px solid ${job.company.color}44`,
+              }}
+            >
+              {job.company.name}
+            </span>
           )}
           <span style={crewStyles.jobNumberTag}>
             #{job.job_number}

@@ -108,7 +108,7 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone()
 
       if (role === 'manager') {
-        url.pathname = '/pipeline'
+        url.pathname = '/home'
         return NextResponse.redirect(url)
       } else if (role === 'sales') {
         url.pathname = '/today'

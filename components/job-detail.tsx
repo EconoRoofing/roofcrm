@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { formatCurrency, formatJobType } from '@/lib/utils'
 import type { Job, Company, User } from '@/lib/types/database'
-import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
 import { JobActions } from '@/components/job-actions'
 import { getJobLaborCost } from '@/lib/actions/time-tracking'
@@ -14,6 +13,7 @@ import { JobAssignment } from '@/components/job-assignment'
 import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
 import { createClient } from '@/lib/supabase/server'
 import { ReviewReceivedToggle } from '@/components/review-received-toggle'
+import { ReviewQR } from '@/components/crew/review-qr'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -339,14 +339,40 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
   const split50 = job.total_amount != null ? job.total_amount / 2 : null
 
+  const companyColor = company?.color
+
   return (
+    <>
+      {/* Company color accent bar */}
+      {companyColor && (
+        <div
+          style={{
+            height: '4px',
+            backgroundColor: companyColor,
+            width: '100%',
+          }}
+        />
+      )}
     <div style={styles.outerContainer}>
       {/* Header */}
       <div style={styles.sectionCardGap12}>
         {/* Company + job number + status + edit link */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {company && (
-            <CompanyTag name={company.name} color={company.color} />
+            <span
+              style={{
+                fontFamily: 'var(--font-sans)',
+                fontSize: '13px',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: '6px',
+                color: company.color,
+                backgroundColor: company.color + '22',
+                border: `1px solid ${company.color}44`,
+              }}
+            >
+              {company.name}
+            </span>
           )}
           <code style={styles.inlineCodeBadge}>
             {job.job_number}
@@ -714,16 +740,26 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         </div>
       )}
 
-      {/* Review Received toggle — manager only, completed jobs */}
-      {isManager && job.status === 'completed' && (
+      {/* Review section — completed jobs */}
+      {job.status === 'completed' && job.company && (
         <div style={styles.sectionCardGap12}>
           <h2 style={styles.sectionHeading}>
             Review
           </h2>
-          <ReviewReceivedToggle
+          {/* QR code shown to any role for completed jobs */}
+          <ReviewQR
             jobId={job.id}
-            initialValue={job.review_received ?? false}
+            companyId={job.company_id}
+            companyName={job.company.name}
+            customerPhone={job.phone ?? null}
           />
+          {/* Review received toggle — manager only */}
+          {isManager && (
+            <ReviewReceivedToggle
+              jobId={job.id}
+              initialValue={job.review_received ?? false}
+            />
+          )}
         </div>
       )}
 
@@ -732,5 +768,6 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         <JobActions job={job} role={role} />
       </div>
     </div>
+    </>
   )
 }

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { signOut } from '@/lib/auth'
 import { clearActiveProfile } from '@/lib/actions/profiles'
 import ManagerTopNav from './_components/manager-top-nav'
+import { QuickAddFab } from '@/components/quick-add-fab'
 
 export default async function ManagerLayout({
   children,
@@ -10,9 +11,11 @@ export default async function ManagerLayout({
   children: React.ReactNode
 }) {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const [{ data: { user } }, companiesResult] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.from('companies').select('id, name, color').order('name', { ascending: true }),
+  ])
+  const companies = companiesResult.data ?? []
 
   return (
     <div className="flex flex-col min-h-screen" style={{ backgroundColor: 'var(--bg-deep)' }}>
@@ -118,6 +121,9 @@ export default async function ManagerLayout({
 
       {/* Page content */}
       <main style={{ flex: 1 }}>{children}</main>
+
+      {/* Quick-add FAB — appears on all manager pages */}
+      <QuickAddFab companies={companies} />
     </div>
   )
 }

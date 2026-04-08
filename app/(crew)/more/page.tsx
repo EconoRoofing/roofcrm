@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { getUser, getUserRole, signOut } from '@/lib/auth'
 import { RoleToggle } from '@/components/crew/role-toggle'
 import { clearActiveProfile } from '@/lib/actions/profiles'
 import { SectionLabel } from '@/components/ui/section-label'
 import { ListItem } from '@/components/ui/list-item'
+import { SimpleModeToggle } from '@/components/crew/simple-mode-toggle'
 import { PhoneIcon, AlertIcon, ClockIcon, PhotosIcon, MapIcon, BellIcon, ShieldIcon, IncidentIcon } from '@/components/icons'
 import { APP_CONFIG } from '@/lib/config'
 
@@ -12,6 +14,8 @@ const { OFFICE_PHONE, EMERGENCY_PHONE } = APP_CONFIG
 export default async function MorePage() {
   const user = await getUser()
   const role = user ? (await getUserRole(user.id)) ?? 'crew' : 'crew'
+  const cookieStore = await cookies()
+  const isSimpleMode = cookieStore.get('crew_simple_mode')?.value === 'true'
 
   return (
     <div
@@ -42,6 +46,14 @@ export default async function MorePage() {
 
         {/* Role toggle — only for sales_crew */}
         {role === 'sales_crew' && <RoleToggle currentRole={role} />}
+      </div>
+
+      {/* View Preferences */}
+      <div>
+        <SectionLabel label="View" />
+        <div style={{ padding: '0 16px' }}>
+          <SimpleModeToggle initialValue={isSimpleMode} />
+        </div>
       </div>
 
       {/* Safety */}

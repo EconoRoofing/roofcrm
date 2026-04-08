@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { getUser, getUserRole } from '@/lib/auth'
 import { getJobsByDate } from '@/lib/actions/jobs'
@@ -5,6 +6,7 @@ import { getActiveTimeEntry } from '@/lib/actions/time-tracking'
 import { WeatherWidget } from '@/components/crew/weather-widget'
 import { StatsBar } from '@/components/crew/stats-bar'
 import { DayTimeline } from '@/components/crew/day-timeline'
+import { SimpleMode } from '@/components/crew/simple-mode'
 import { formatDisplayDate } from '@/lib/utils'
 import type { Job, UserRole } from '@/lib/types/database'
 
@@ -83,6 +85,21 @@ export default async function RoutePage() {
   const hour = now.getHours()
   const greeting = getGreeting(hour)
   const displayDate = formatDisplayDate(now)
+
+  // Simple mode check
+  const cookieStore = await cookies()
+  const isSimpleMode = cookieStore.get('crew_simple_mode')?.value === 'true'
+
+  if (isSimpleMode) {
+    return (
+      <SimpleMode
+        jobs={jobs as unknown as Parameters<typeof SimpleMode>[0]['jobs']}
+        activeTimeEntry={activeTimeEntry}
+        userId={user.id}
+        firstName={firstName}
+      />
+    )
+  }
 
   return (
     <div

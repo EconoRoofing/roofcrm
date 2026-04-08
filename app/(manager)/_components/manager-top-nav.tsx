@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { JobSearch } from '@/components/job-search'
 
 const NAV_LINKS = [
+  { href: '/home', label: 'Home' },
   { href: '/pipeline', label: 'Pipeline' },
   { href: '/list', label: 'List' },
   { href: '/calendar', label: 'Calendar' },
