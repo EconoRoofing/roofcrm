@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { Job, EstimateSpecs } from '@/lib/types/database'
 import type { RoofMeasurements } from '@/lib/roof-measurements'
@@ -114,7 +114,7 @@ interface SpecsFormProps {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function TextInput({
+const TextInput = React.memo(function TextInput({
   label,
   value,
   onChange,
@@ -142,9 +142,9 @@ function TextInput({
       />
     </div>
   )
-}
+})
 
-function NumberInput({
+const NumberInput = React.memo(function NumberInput({
   label,
   value,
   onChange,
@@ -173,9 +173,9 @@ function NumberInput({
       />
     </div>
   )
-}
+})
 
-function ChipSelector({
+const ChipSelector = React.memo(function ChipSelector({
   label,
   options,
   value,
@@ -219,9 +219,9 @@ function ChipSelector({
       </div>
     </div>
   )
-}
+})
 
-function ToggleRow({
+const ToggleRow = React.memo(function ToggleRow({
   label,
   value,
   onChange,
@@ -301,7 +301,7 @@ function ToggleRow({
       )}
     </div>
   )
-}
+})
 
 // ─── Main component ───────────────────────────────────────────────────────────
 

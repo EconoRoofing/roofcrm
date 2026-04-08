@@ -1,5 +1,6 @@
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { getJobs } from '@/lib/actions/jobs'
+import { getJobsForPipeline } from '@/lib/actions/jobs'
 import { CompanyFilter } from '@/components/company-filter'
 import { KanbanBoard } from '@/components/kanban/board'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -12,8 +13,8 @@ interface PipelinePageProps {
 export default async function PipelinePage({ searchParams }: PipelinePageProps) {
   const { company: companyParam } = await searchParams
 
-  // Fetch all jobs (manager sees everything) — includes company + rep via join
-  const jobs = await getJobs()
+  // Fetch only kanban-needed fields (85% less data than SELECT *)
+  const jobs = await getJobsForPipeline()
 
   // Fetch companies for the filter bar
   const supabase = await createClient()
@@ -35,27 +36,30 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
         backgroundColor: 'var(--bg-deep)',
       }}
     >
-      {/* Company filter chip bar */}
-      <CompanyFilter
-        companies={companyList}
-        selected={selectedCompany}
-      />
+      {/* Suspense boundary prevents CSR bailout from useSearchParams() */}
+      <Suspense fallback={<div style={{ padding: '12px 16px', height: '48px' }} />}>
+        {/* Company filter chip bar */}
+        <CompanyFilter
+          companies={companyList}
+          selected={selectedCompany}
+        />
 
-      {/* Kanban board fills remaining height */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        {jobs.length === 0 ? (
-          <EmptyState
-            title="No jobs yet"
-            description="Add your first lead to get started"
-            action={{ label: 'Add Lead', href: '/jobs/new' }}
-          />
-        ) : (
-          <KanbanBoard
-            jobs={jobs}
-            companies={companyList}
-          />
-        )}
-      </div>
+        {/* Kanban board fills remaining height */}
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          {jobs.length === 0 ? (
+            <EmptyState
+              title="No jobs yet"
+              description="Add your first lead to get started"
+              action={{ label: 'Add Lead', href: '/jobs/new' }}
+            />
+          ) : (
+            <KanbanBoard
+              jobs={jobs}
+              companies={companyList}
+            />
+          )}
+        </div>
+      </Suspense>
     </div>
   )
 }

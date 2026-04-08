@@ -1,10 +1,24 @@
 'use client'
 
+import React from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
-import type { getJobs } from '@/lib/actions/jobs'
 
-export type KanbanJob = Awaited<ReturnType<typeof getJobs>>[number]
+// Minimal shape — only the fields the Kanban board actually renders.
+// company/rep are typed as arrays to match Supabase's join inference;
+// the card picks index [0] at render time (FK guarantees at most one row).
+export interface KanbanJob {
+  id: string
+  job_number: string
+  customer_name: string
+  company_id: string
+  status: string
+  job_type: string
+  total_amount: number | null
+  created_at: string
+  company: { id: string; name: string; color: string | null }[] | { id: string; name: string; color: string | null } | null
+  rep: { id: string; name: string }[] | { id: string; name: string } | null
+}
 
 interface KanbanCardProps {
   job: KanbanJob
@@ -39,10 +53,18 @@ function getStaleBorderStyle(job: KanbanJob): React.CSSProperties {
   return { border: '1px solid var(--border-subtle)' }
 }
 
-export function KanbanCard({ job }: KanbanCardProps) {
+// Normalize Supabase join result — FK joins may come back as array or single object
+function normalizeJoin<T>(v: T[] | T | null): T | null {
+  if (v == null) return null
+  return Array.isArray(v) ? (v[0] ?? null) : v
+}
+
+export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProps) {
   const router = useRouter()
   const borderStyle = getStaleBorderStyle(job)
   const jobTypeLabel = job.job_type.replace(/_/g, ' ')
+  const company = normalizeJoin(job.company)
+  const rep = normalizeJoin(job.rep)
 
   const handleClick = () => {
     router.push(`/jobs/${job.id}`)
@@ -94,8 +116,8 @@ export function KanbanCard({ job }: KanbanCardProps) {
         >
           {job.job_number}
         </span>
-        {job.company && (
-          <CompanyTag name={job.company.name} color={job.company.color} />
+        {company && (
+          <CompanyTag name={company.name} color={company.color ?? '#888888'} />
         )}
       </div>
 
@@ -128,10 +150,10 @@ export function KanbanCard({ job }: KanbanCardProps) {
           style={{
             fontSize: '11px',
             color: 'var(--text-muted)',
-            fontStyle: job.rep ? 'normal' : 'italic',
+            fontStyle: rep ? 'normal' : 'italic',
           }}
         >
-          {job.rep ? job.rep.name : 'No rep'}
+          {rep ? rep.name : 'No rep'}
         </span>
         {job.total_amount != null && job.total_amount > 0 && (
           <span
@@ -148,4 +170,4 @@ export function KanbanCard({ job }: KanbanCardProps) {
       </div>
     </div>
   )
-}
+})

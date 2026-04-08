@@ -427,6 +427,24 @@ export async function getJobs(filters?: JobFilters) {
   return data ?? []
 }
 
+export async function getJobsForPipeline(filters?: { company_id?: string }) {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('jobs')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .not('status', 'eq', 'cancelled')
+    .order('created_at', { ascending: false })
+
+  if (filters?.company_id) {
+    query = query.eq('company_id', filters.company_id)
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(`Failed to fetch pipeline jobs: ${error.message}`)
+  return data ?? []
+}
+
 export async function getJobsByDate(date: string, userId: string, role: UserRole) {
   const supabase = await createClient()
 

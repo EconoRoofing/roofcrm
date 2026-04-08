@@ -1,16 +1,25 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { updateJob } from '@/lib/actions/jobs'
 import { getPreviousJobAtAddress } from '@/lib/actions/price-memory'
 import { ChevronLeftNavIcon } from '@/components/icons'
 import { SpecsForm } from './specs-form'
-import { PricingForm } from './pricing-form'
-import { ReviewScreen } from './review-screen'
 import type { Job } from '@/lib/types/database'
 import type { SpecsData } from './specs-form'
 import type { PricingData } from './pricing-form'
+
+const PricingForm = dynamic(
+  () => import('./pricing-form').then(m => ({ default: m.PricingForm })),
+  { loading: () => <div style={{ padding: '16px', color: 'var(--text-muted)' }}>Loading pricing...</div> }
+)
+
+const ReviewScreen = dynamic(
+  () => import('./review-screen').then(m => ({ default: m.ReviewScreen })),
+  { loading: () => <div style={{ padding: '16px', color: 'var(--text-muted)' }}>Loading review...</div> }
+)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

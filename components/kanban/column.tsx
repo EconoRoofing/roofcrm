@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { KanbanCard } from './card'
 import type { KanbanJob } from './card'
 import type { JobStatus } from '@/lib/types/database'
@@ -12,7 +12,7 @@ interface KanbanColumnProps {
   onMoveJob: (jobId: string, newStatus: JobStatus) => void
 }
 
-export function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnProps) {
+export const KanbanColumn = React.memo(function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnProps) {
   const [isDragOver, setIsDragOver] = useState(false)
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -139,4 +139,4 @@ export function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnPro
       </div>
     </div>
   )
-}
+})
