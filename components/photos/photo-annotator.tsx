@@ -30,6 +30,9 @@ export function PhotoAnnotator({
   const [tool, setTool] = useState<'circle' | 'arrow' | 'text'>('circle')
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null)
   const [scale, setScale] = useState(1)
+  const [error, setError] = useState<string | null>(null)
+
+  const MAX_CANVAS = 2000
 
   const ANNOTATION_COLOR = '#ff4444'
   const TEXT_COLOR = '#ffffff'
@@ -45,19 +48,28 @@ export function PhotoAnnotator({
       const ctx = canvas.getContext('2d')
       if (!ctx) return
 
-      // Set canvas to natural image dimensions
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
+      // Cap canvas dimensions to prevent memory exhaustion on huge images
+      let w = img.naturalWidth
+      let h = img.naturalHeight
+      if (w > MAX_CANVAS || h > MAX_CANVAS) {
+        const ratio = Math.min(MAX_CANVAS / w, MAX_CANVAS / h)
+        w = Math.round(w * ratio)
+        h = Math.round(h * ratio)
+      }
+      canvas.width = w
+      canvas.height = h
 
       // Calculate scale: canvas display size vs natural size
       const rect = canvas.getBoundingClientRect()
       if (rect.width > 0) {
-        setScale(img.naturalWidth / rect.width)
+        setScale(w / rect.width)
       }
 
-      ctx.drawImage(img, 0, 0)
+      ctx.drawImage(img, 0, 0, w, h)
       redrawAnnotations(initialAnnotations)
     }
+
+    img.onerror = () => setError('Failed to load image')
 
     img.src = imageUrl
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,8 +82,8 @@ export function PhotoAnnotator({
 
     if (!canvas || !ctx || !img) return
 
-    // Clear and redraw image
-    ctx.drawImage(img, 0, 0)
+    // Clear and redraw image at canvas dimensions (respects size cap)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
     // Draw all annotations from the provided array (avoids stale closure)
     anns.forEach((ann) => {
@@ -153,7 +165,7 @@ export function PhotoAnnotator({
     const y = (e.clientY - rect.top) * scale
 
     // Redraw with preview (pass current annotations array to avoid stale state)
-    ctx.drawImage(img, 0, 0)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     annotations.forEach((ann) => drawAnnotation(ctx, ann))
 
     const preview: AnnotationData = {
@@ -201,8 +213,8 @@ export function PhotoAnnotator({
     const img = imageRef.current
     const ctx = canvas?.getContext('2d')
 
-    if (ctx && img) {
-      ctx.drawImage(img, 0, 0)
+    if (ctx && canvas && img) {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     }
   }
 
@@ -210,6 +222,23 @@ export function PhotoAnnotator({
     const newAnnotations = annotations.slice(0, -1)
     setAnnotations(newAnnotations)
     redrawAnnotations(newAnnotations)
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderRadius: '8px',
+          padding: '24px',
+          textAlign: 'center',
+          color: 'var(--text-danger, #ef4444)',
+          fontSize: '14px',
+        }}
+      >
+        {error}
+      </div>
+    )
   }
 
   return (

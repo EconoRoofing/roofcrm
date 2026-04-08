@@ -34,22 +34,19 @@ export async function createInvoice(data: CreateInvoiceData) {
 
   if (!user) throw new Error('Not authenticated')
 
-  // Fetch job to get company_id
+  if (data.amount <= 0) throw new Error('Invoice amount must be greater than zero')
+
+  // Fetch job to get company_id and job_number in one query
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select('id, company_id, total_amount')
+    .select('id, company_id, total_amount, job_number')
     .eq('id', data.job_id)
     .single()
 
   if (jobError || !job) throw new Error('Job not found')
 
   // Generate collision-safe invoice number using job number + timestamp
-  const { data: jobFull } = await supabase
-    .from('jobs')
-    .select('job_number')
-    .eq('id', data.job_id)
-    .single()
-  const jobNum = jobFull?.job_number || 'JOB'
+  const jobNum = job.job_number || 'JOB'
   const invoiceNumber = `INV-${jobNum}-${Date.now()}`
 
   // Use job's total_amount if not specified
@@ -100,6 +97,16 @@ export async function markInvoicePaid(
   const user = await getUser()
 
   if (!user) throw new Error('Not authenticated')
+
+  if (paid_amount <= 0) throw new Error('Payment amount must be greater than zero')
+
+  // Check if already paid
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('status')
+    .eq('id', invoice_id)
+    .single()
+  if (existing?.status === 'paid') throw new Error('Invoice is already marked as paid')
 
   const { data: invoice, error } = await supabase
     .from('invoices')

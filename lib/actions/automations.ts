@@ -6,6 +6,10 @@ import { sendSMS } from '@/lib/twilio'
 import { createFollowUp } from '@/lib/actions/follow-up-tasks'
 import { Resend } from 'resend'
 
+// Module-level guards against infinite automation loops
+const processingJobs = new Set<string>()
+const MAX_AUTOMATION_DEPTH = 3
+
 interface AutomationRule {
   id: string
   name: string
@@ -138,43 +142,59 @@ export async function toggleAutomationRule(rule_id: string, is_active: boolean) 
 export async function processAutomationRules(
   trigger: 'status_change' | 'job_created' | 'estimate_sent' | 'payment_received',
   jobId: string,
-  triggerValue?: string
+  triggerValue?: string,
+  depth = 0
 ) {
-  const supabase = await createClient()
-
-  // Fetch job with company info
-  const { data: job, error: jobError } = await supabase
-    .from('jobs')
-    .select('id, company_id, customer_name, phone, email, status, rep_id')
-    .eq('id', jobId)
-    .single()
-
-  if (jobError || !job) return // Silent fail for async processing
-
-  // Fetch matching active automation rules, filtering by trigger_value
-  let query = supabase
-    .from('automation_rules')
-    .select('*')
-    .eq('company_id', job.company_id)
-    .eq('trigger_type', trigger)
-    .eq('is_active', true)
-
-  if (triggerValue) {
-    query = query.or(`trigger_value.eq.${triggerValue},trigger_value.is.null`)
+  // Guard against infinite recursion
+  if (depth >= MAX_AUTOMATION_DEPTH) {
+    console.warn(`Automation depth limit reached for job ${jobId}`)
+    return
   }
+  if (processingJobs.has(jobId)) {
+    console.warn(`Automation already processing for job ${jobId}`)
+    return
+  }
+  processingJobs.add(jobId)
 
-  const { data: rules, error: rulesError } = await query
+  try {
+    const supabase = await createClient()
 
-  if (rulesError || !rules || rules.length === 0) return
+    // Fetch job with company info
+    const { data: job, error: jobError } = await supabase
+      .from('jobs')
+      .select('id, company_id, customer_name, phone, email, status, rep_id')
+      .eq('id', jobId)
+      .single()
 
-  // Process each matching rule
-  for (const rule of rules) {
-    try {
-      await executeAutomationAction(rule, job, triggerValue)
-    } catch (err) {
-      console.error(`Failed to execute automation rule ${rule.id}:`, err)
-      // Continue processing other rules even if one fails
+    if (jobError || !job) return // Silent fail for async processing
+
+    // Fetch matching active automation rules, filtering by trigger_value
+    let query = supabase
+      .from('automation_rules')
+      .select('*')
+      .eq('company_id', job.company_id)
+      .eq('trigger_type', trigger)
+      .eq('is_active', true)
+
+    if (triggerValue) {
+      query = query.or(`trigger_value.eq.${triggerValue},trigger_value.is.null`)
     }
+
+    const { data: rules, error: rulesError } = await query.limit(10)
+
+    if (rulesError || !rules || rules.length === 0) return
+
+    // Process each matching rule
+    for (const rule of rules) {
+      try {
+        await executeAutomationAction(rule, job, triggerValue)
+      } catch (err) {
+        console.error(`Failed to execute automation rule ${rule.id}:`, err)
+        // Continue processing other rules even if one fails
+      }
+    }
+  } finally {
+    processingJobs.delete(jobId)
   }
 }
 

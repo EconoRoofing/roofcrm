@@ -71,6 +71,12 @@ export async function generateSupplierOrderText(jobId: string): Promise<string> 
   return text
 }
 
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (char) => (({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  } as Record<string, string>)[char] ?? char))
+}
+
 export async function emailSupplierOrder(
   jobId: string,
   supplierEmail: string,
@@ -97,6 +103,20 @@ export async function emailSupplierOrder(
   const jobNumber = job?.job_number || jobId
   const companyName = senderCompanyName || (job?.companies as any)?.name || 'Roofing Company'
 
+  // Rate-limit: reject if the same order was already emailed in the last 5 minutes
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  const { data: recentMessages } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('auto_generated', false)
+    .ilike('body', '%Material Order%')
+    .gte('created_at', fiveMinAgo)
+
+  if (recentMessages && recentMessages.length > 0) {
+    throw new Error('Order was already sent recently. Please wait 5 minutes before sending again.')
+  }
+
   const text = await generateSupplierOrderText(jobId)
 
   const { Resend } = await import('resend')
@@ -104,8 +124,9 @@ export async function emailSupplierOrder(
 
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
 
-  // Replace newlines with <br> for HTML rendering
-  const htmlBody = text.replace(/\n/g, '<br>')
+  // Escape HTML then replace newlines with <br>
+  const safeText = escapeHtml(text)
+  const htmlBody = safeText.replace(/\n/g, '<br>')
 
   await client.emails.send({
     from: `${companyName} <${fromEmail}>`,

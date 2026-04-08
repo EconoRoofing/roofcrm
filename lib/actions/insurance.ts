@@ -6,6 +6,16 @@ import { logActivity } from '@/lib/actions/activity'
 
 export type ClaimStatus = 'filed' | 'inspection' | 'approved' | 'supplement' | 'done'
 
+const CLAIM_STATUSES: ClaimStatus[] = ['filed', 'inspection', 'approved', 'supplement', 'done']
+
+const VALID_CLAIM_TRANSITIONS: Record<string, string[]> = {
+  filed: ['inspection'],
+  inspection: ['approved', 'filed'], // can go back to filed for re-inspection
+  approved: ['supplement', 'done'],
+  supplement: ['approved', 'done'],  // supplement approved or go to done
+  done: [],                          // terminal state
+}
+
 export interface ClaimTimeline {
   status: ClaimStatus
   timestamp: string
@@ -22,15 +32,25 @@ export async function updateClaimStatus(
 
   if (!user) throw new Error('Not authenticated')
 
-  // Fetch current job
+  // Runtime validation of the status value
+  if (!CLAIM_STATUSES.includes(new_status)) throw new Error('Invalid claim status')
+
+  // Fetch current job and claim_status together
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select('id, insurance_claim, claim_number, company_id')
+    .select('id, insurance_claim, claim_number, company_id, claim_status')
     .eq('id', job_id)
     .single()
 
   if (jobError || !job || !job.insurance_claim) {
     throw new Error('Job not found or is not an insurance claim')
+  }
+
+  // Enforce valid state transition
+  const currentStatus = (job as any).claim_status ?? 'filed'
+  const validNext = VALID_CLAIM_TRANSITIONS[currentStatus] ?? []
+  if (!validNext.includes(new_status)) {
+    throw new Error(`Cannot move claim from '${currentStatus}' to '${new_status}'`)
   }
 
   // Get current claim timeline from notes

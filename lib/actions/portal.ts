@@ -24,24 +24,24 @@ export async function generatePortalToken(jobId: string): Promise<string> {
 
 export async function getJobByPortalToken(token: string) {
   const supabase = await createClient()
-  
+
   const { data: job, error } = await supabase
     .from('jobs')
     .select(`
-      id,
       job_number,
       status,
       customer_name,
       scheduled_date,
-      company_id,
-      companies(id, name, phone, color, address)
+      completed_date,
+      companies(name, phone, color, address)
     `)
     .eq('portal_token', token)
+    .not('status', 'eq', 'cancelled')
     .single()
-  
+
   if (error || !job) {
     return null
   }
-  
+
   return job as any
 }

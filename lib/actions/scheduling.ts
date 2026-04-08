@@ -99,15 +99,48 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
   const user = await getUser()
   if (!user) throw new Error('Not authenticated')
 
-  const { error } = await supabase
+  // Reject past dates
+  const today = new Date().toISOString().split('T')[0]
+  if (new Date(date) < new Date(today)) {
+    throw new Error('Cannot schedule in the past')
+  }
+
+  // Validate crew member exists and is active
+  const { data: crewMember } = await supabase
+    .from('users')
+    .select('id, role, is_active')
+    .eq('id', crewId)
+    .single()
+
+  if (!crewMember) throw new Error('Crew member not found')
+  if (!crewMember.is_active) throw new Error('Crew member is deactivated')
+  if (!['crew', 'sales_crew'].includes(crewMember.role)) throw new Error('User is not a crew member')
+
+  // Check for double-booking
+  const { data: existing } = await supabase
+    .from('jobs')
+    .select('id, job_number, customer_name')
+    .eq('assigned_crew_id', crewId)
+    .eq('scheduled_date', date)
+    .not('status', 'in', '("cancelled","completed")')
+
+  if (existing && existing.length > 0) {
+    throw new Error(
+      `Crew member already assigned to Job ${existing[0].job_number} (${existing[0].customer_name}) on this date`
+    )
+  }
+
+  const { data: updatedJob, error } = await supabase
     .from('jobs')
     .update({
       assigned_crew_id: crewId,
       scheduled_date: date,
     })
     .eq('id', jobId)
+    .select()
+    .single()
 
-  if (error) {
+  if (error || !updatedJob) {
     console.error('Assignment error:', error)
     throw new Error('Failed to assign job to crew')
   }
