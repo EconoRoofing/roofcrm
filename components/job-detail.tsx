@@ -17,6 +17,8 @@ import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, D
 import { createClient } from '@/lib/supabase/server'
 import { ReviewReceivedToggle } from '@/components/review-received-toggle'
 import { ReviewQR } from '@/components/crew/review-qr'
+import { QuickPhoto } from '@/components/photos/quick-photo'
+import { getUser } from '@/lib/auth'
 
 type JobWithRelations = Job & { company?: Company; rep?: User }
 
@@ -334,6 +336,13 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       // best-effort
     }
   }
+
+  // Get current user id for QuickPhoto upload attribution
+  let currentUserId = ''
+  try {
+    const user = await getUser()
+    currentUserId = user?.id ?? ''
+  } catch {}
 
   const fullAddress = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(fullAddress)}`
@@ -687,12 +696,20 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           />
         )}
 
+        {/* Quick photo capture button */}
+        {currentUserId && (
+          <QuickPhoto
+            jobId={job.id}
+            userId={currentUserId}
+          />
+        )}
+
         {/* Photo annotator — shown when a primary photo URL is present */}
         {(job as any).photo_url && (
           <PhotoAnnotator
             imageUrl={(job as any).photo_url}
-            onSaveAnnotations={(annotations) => {
-              console.log('[job-detail] photo annotations saved', { jobId: job.id, count: annotations.length })
+            onSaveAnnotations={(annotations, category) => {
+              console.log('[job-detail] photo annotations saved', { jobId: job.id, count: annotations.length, category })
             }}
           />
         )}

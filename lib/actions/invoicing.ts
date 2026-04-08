@@ -82,6 +82,14 @@ export async function createInvoice(data: CreateInvoiceData) {
 
   if (error) throw new Error(`Failed to create invoice: ${error.message}`)
 
+  // Fire invoice_created automation — best-effort
+  if (invoice) {
+    try {
+      const { processAutomationRules } = await import('./automations')
+      await processAutomationRules('invoice_created', data.job_id)
+    } catch {}
+  }
+
   // Generate Stripe payment link if configured
   if (invoice) {
     const paymentLink = await createPaymentLink(

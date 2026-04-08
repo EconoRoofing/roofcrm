@@ -415,6 +415,9 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   try {
     const { processAutomationRules } = await import('./automations')
     await processAutomationRules('status_change', id, newStatus)
+    if (newStatus === 'completed') {
+      await processAutomationRules('job_completed', id)
+    }
   } catch (autoError) {
     console.error('Automation engine error:', autoError)
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getAutomationRules, toggleAutomationRule, deleteAutomationRule, createAutomationRule } from '@/lib/actions/automations'
+import { getAutomationRules, toggleAutomationRule, deleteAutomationRule, createAutomationRule, getAutomationHistory } from '@/lib/actions/automations'
 interface AutomationRule {
   id: string
   name: string
@@ -13,7 +13,19 @@ interface AutomationRule {
   created_at: string
 }
 
-const TRIGGER_TYPES = ['status_change', 'job_created', 'estimate_sent', 'payment_received']
+interface AutomationHistoryEntry {
+  rule_name: string
+  job_number: string
+  customer_name: string
+  action_type: string
+  executed_at: string
+  success: boolean
+}
+
+const TRIGGER_TYPES = [
+  'status_change', 'job_created', 'estimate_sent', 'payment_received',
+  'invoice_created', 'job_completed', 'crew_assigned',
+]
 const ACTION_TYPES = ['send_sms', 'send_email', 'create_follow_up', 'assign_crew']
 
 export default function AutomationsPage() {
@@ -22,6 +34,9 @@ export default function AutomationsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState<AutomationHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     trigger_type: 'status_change' as const,
@@ -29,6 +44,7 @@ export default function AutomationsPage() {
     action_type: 'send_sms' as const,
     message_template: '',
     days_offset: '3',
+    delay_minutes: '',
   })
 
   useEffect(() => {
@@ -49,6 +65,18 @@ export default function AutomationsPage() {
       setError(err instanceof Error ? err.message : 'Failed to load rules')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadHistory = async () => {
+    setHistoryLoading(true)
+    try {
+      const data = await getAutomationHistory()
+      setHistory(data)
+    } catch {
+      // non-fatal
+    } finally {
+      setHistoryLoading(false)
     }
   }
 
@@ -87,6 +115,9 @@ export default function AutomationsPage() {
       if (actionType === 'create_follow_up') {
         actionConfig.days_offset = parseInt(formData.days_offset)
       }
+      if (formData.delay_minutes && parseInt(formData.delay_minutes) > 0) {
+        actionConfig.delay_minutes = parseInt(formData.delay_minutes)
+      }
 
       await createAutomationRule({
         company_id: companyId,
@@ -104,6 +135,7 @@ export default function AutomationsPage() {
         action_type: 'send_sms',
         message_template: '',
         days_offset: '3',
+        delay_minutes: '',
       })
       setShowForm(false)
       await loadRules()
@@ -116,24 +148,41 @@ export default function AutomationsPage() {
     <div style={{ padding: '24px', maxWidth: '1200px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 600, margin: 0 }}>CRM Automations</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          style={{
-            padding: '8px 16px',
-            borderRadius: '6px',
-            border: 'none',
-            backgroundColor: 'var(--accent)',
-            color: '#fff',
-            fontSize: '14px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            transition: 'opacity 0.15s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-        >
-          {showForm ? 'Cancel' : 'Add Rule'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory() }}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              backgroundColor: showHistory ? 'var(--surface-hover)' : 'transparent',
+              color: 'var(--text-secondary)',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            History
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: 'none',
+              backgroundColor: 'var(--accent)',
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+          >
+            {showForm ? 'Cancel' : 'Add Rule'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -311,6 +360,29 @@ export default function AutomationsPage() {
             </div>
           )}
 
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+              Delay (minutes) — leave blank for immediate
+            </label>
+            <input
+              type="number"
+              value={formData.delay_minutes}
+              onChange={(e) => setFormData({ ...formData, delay_minutes: e.target.value })}
+              min="0"
+              placeholder="0 = immediate"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
           <button
             type="submit"
             style={{
@@ -330,6 +402,62 @@ export default function AutomationsPage() {
             Create Rule
           </button>
         </form>
+      )}
+
+      {showHistory && (
+        <div
+          style={{
+            marginBottom: '24px',
+            padding: '16px',
+            borderRadius: '8px',
+            backgroundColor: 'var(--surface-hover)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>Execution History</h2>
+          {historyLoading ? (
+            <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Loading history...</div>
+          ) : history.length === 0 ? (
+            <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>No automation executions recorded yet.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['Rule', 'Job', 'Customer', 'Action', 'Status', 'Time'].map((h) => (
+                      <th key={h} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '12px' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((entry, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '6px 8px' }}>{entry.rule_name}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.job_number}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.customer_name}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.action_type.replace('_', ' ')}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          backgroundColor: entry.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                          color: entry.success ? '#22c55e' : '#ef4444',
+                        }}>
+                          {entry.success ? 'OK' : 'Failed'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(entry.executed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {loading ? (

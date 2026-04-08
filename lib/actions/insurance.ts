@@ -184,3 +184,119 @@ export async function updateSupplementAmount(job_id: string, amount: number) {
   if (error) throw new Error(`Failed to update supplement amount: ${error.message}`)
   return job
 }
+
+export async function getAgingClaims(): Promise<Array<{
+  jobId: string
+  jobNumber: string
+  customerName: string
+  claimStatus: string
+  daysSinceLastUpdate: number
+}>> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const fourteenDaysAgo = new Date()
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+
+  // Get all active insurance claims (not done)
+  const { data: jobs, error } = await supabase
+    .from('jobs')
+    .select('id, job_number, customer_name, claim_status')
+    .eq('insurance_claim', true)
+    .neq('claim_status', 'done')
+    .neq('status', 'cancelled')
+
+  if (error || !jobs) return []
+
+  // For each job, find last claim-related activity
+  const results: Array<{ jobId: string; jobNumber: string; customerName: string; claimStatus: string; daysSinceLastUpdate: number }> = []
+
+  for (const job of jobs) {
+    const { data: lastActivity } = await supabase
+      .from('activity_log')
+      .select('created_at')
+      .eq('job_id', job.id)
+      .eq('action', 'insurance_claim_update')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    const lastUpdateDate = lastActivity?.created_at
+      ? new Date(lastActivity.created_at)
+      : fourteenDaysAgo // if no activity, treat as stale
+
+    const daysSince = Math.floor((Date.now() - lastUpdateDate.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (daysSince >= 14) {
+      results.push({
+        jobId: job.id,
+        jobNumber: job.job_number ?? '-',
+        customerName: job.customer_name,
+        claimStatus: job.claim_status ?? 'filed',
+        daysSinceLastUpdate: daysSince,
+      })
+    }
+  }
+
+  return results.sort((a, b) => b.daysSinceLastUpdate - a.daysSinceLastUpdate)
+}
+
+export interface ClaimDocument {
+  stage: string
+  url: string
+  name: string
+  uploaded_at: string
+}
+
+export async function addClaimDocument(
+  job_id: string,
+  document: ClaimDocument
+): Promise<ClaimDocument[]> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Fetch current documents
+  const { data: job, error: fetchError } = await supabase
+    .from('jobs')
+    .select('claim_documents')
+    .eq('id', job_id)
+    .single()
+
+  if (fetchError) throw new Error('Job not found')
+
+  const current: ClaimDocument[] = Array.isArray((job as any).claim_documents)
+    ? (job as any).claim_documents
+    : []
+
+  const updated = [...current, document]
+
+  const { error } = await supabase
+    .from('jobs')
+    .update({ claim_documents: updated })
+    .eq('id', job_id)
+
+  if (error) throw new Error(`Failed to add document: ${error.message}`)
+
+  await logActivity(job_id, user.id, 'claim_document_added', document.stage, document.name)
+
+  return updated
+}
+
+export async function getClaimDocuments(job_id: string): Promise<ClaimDocument[]> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: job, error } = await supabase
+    .from('jobs')
+    .select('claim_documents')
+    .eq('id', job_id)
+    .single()
+
+  if (error) return []
+
+  const docs = (job as any).claim_documents
+  return Array.isArray(docs) ? docs : []
+}

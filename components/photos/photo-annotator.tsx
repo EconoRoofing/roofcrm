@@ -2,6 +2,10 @@
 
 import { useRef, useEffect, useState } from 'react'
 
+export type PhotoCategory = 'Before' | 'During' | 'After' | 'Damage' | 'General'
+
+const PHOTO_CATEGORIES: PhotoCategory[] = ['Before', 'During', 'After', 'Damage', 'General']
+
 interface AnnotationData {
   type: 'circle' | 'arrow' | 'text'
   x: number
@@ -10,18 +14,21 @@ interface AnnotationData {
   y2?: number
   text?: string
   color?: string
+  category?: PhotoCategory
 }
 
 interface PhotoAnnotatorProps {
   imageUrl: string
-  onSaveAnnotations?: (annotations: AnnotationData[]) => void
+  onSaveAnnotations?: (annotations: AnnotationData[], category: PhotoCategory) => void
   initialAnnotations?: AnnotationData[]
+  initialCategory?: PhotoCategory
 }
 
 export function PhotoAnnotator({
   imageUrl,
   onSaveAnnotations,
   initialAnnotations = [],
+  initialCategory = 'General',
 }: PhotoAnnotatorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
@@ -31,6 +38,7 @@ export function PhotoAnnotator({
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null)
   const [scale, setScale] = useState(1)
   const [error, setError] = useState<string | null>(null)
+  const [category, setCategory] = useState<PhotoCategory>(initialCategory)
 
   const MAX_CANVAS = 2000
   const MAX_ANNOTATIONS = 50
@@ -212,7 +220,7 @@ export function PhotoAnnotator({
   }
 
   const handleSave = () => {
-    onSaveAnnotations?.(annotations)
+    onSaveAnnotations?.(annotations, category)
   }
 
   const handleClear = () => {
@@ -263,6 +271,26 @@ export function PhotoAnnotator({
           alignItems: 'center',
         }}
       >
+        {/* Category selector */}
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value as PhotoCategory)}
+          style={{
+            padding: '5px 8px',
+            borderRadius: '4px',
+            border: '1px solid var(--border-subtle)',
+            backgroundColor: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            fontSize: '12px',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
+        >
+          {PHOTO_CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+
         <div style={{ display: 'flex', gap: '4px' }}>
           {(['circle', 'arrow', 'text'] as const).map((t) => (
             <button

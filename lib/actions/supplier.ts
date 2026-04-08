@@ -1,7 +1,172 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUser } from '@/lib/auth'
 import { calculateMaterials, type MaterialCalcInput } from '@/lib/material-calculator'
+
+// ─── Purchase Orders ──────────────────────────────────────────────────────────
+
+export interface PurchaseOrder {
+  id: string
+  job_id: string
+  supplier_name: string
+  supplier_email: string | null
+  order_text: string
+  status: 'draft' | 'sent' | 'confirmed' | 'delivered'
+  total_estimated_cost: number
+  sent_at: string | null
+  confirmed_at: string | null
+  delivered_at: string | null
+  notes: string | null
+  created_at: string
+}
+
+export async function createPurchaseOrder(
+  jobId: string,
+  supplierName: string,
+  supplierEmail: string,
+  orderText: string
+): Promise<PurchaseOrder> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .insert({
+      job_id: jobId,
+      supplier_name: supplierName,
+      supplier_email: supplierEmail || null,
+      order_text: orderText,
+      status: 'draft',
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to create purchase order: ${error.message}`)
+  return data as PurchaseOrder
+}
+
+export async function getPurchaseOrders(jobId: string): Promise<PurchaseOrder[]> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(`Failed to fetch purchase orders: ${error.message}`)
+  return (data ?? []) as PurchaseOrder[]
+}
+
+export async function updatePurchaseOrderStatus(
+  orderId: string,
+  status: 'draft' | 'sent' | 'confirmed' | 'delivered'
+): Promise<PurchaseOrder> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const timestampField: Record<string, string> = {
+    sent: 'sent_at',
+    confirmed: 'confirmed_at',
+    delivered: 'delivered_at',
+  }
+
+  const update: Record<string, unknown> = { status }
+  if (timestampField[status]) {
+    update[timestampField[status]] = new Date().toISOString()
+  }
+
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .update(update)
+    .eq('id', orderId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update purchase order: ${error.message}`)
+  return data as PurchaseOrder
+}
+
+// ─── Supplier Contacts ────────────────────────────────────────────────────────
+
+export interface SupplierContact {
+  id: string
+  company_id: string | null
+  name: string
+  email: string
+  phone: string | null
+  specialty: string | null
+  is_preferred: boolean
+  created_at: string
+}
+
+export async function getSupplierContacts(): Promise<SupplierContact[]> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('supplier_contacts')
+    .select('*')
+    .order('is_preferred', { ascending: false })
+    .order('name', { ascending: true })
+
+  if (error) throw new Error(`Failed to fetch supplier contacts: ${error.message}`)
+  return (data ?? []) as SupplierContact[]
+}
+
+export async function addSupplierContact(contactData: {
+  name: string
+  email: string
+  phone?: string
+  specialty?: string
+  is_preferred?: boolean
+  company_id?: string
+}): Promise<SupplierContact> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  if (!contactData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactData.email)) {
+    throw new Error('Valid email is required')
+  }
+
+  const { data, error } = await supabase
+    .from('supplier_contacts')
+    .insert({
+      name: contactData.name,
+      email: contactData.email,
+      phone: contactData.phone ?? null,
+      specialty: contactData.specialty ?? null,
+      is_preferred: contactData.is_preferred ?? false,
+      company_id: contactData.company_id ?? null,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to add supplier contact: ${error.message}`)
+  return data as SupplierContact
+}
+
+export async function deleteSupplierContact(id: string): Promise<void> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('supplier_contacts')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw new Error(`Failed to delete supplier contact: ${error.message}`)
+}
+
+
 
 export async function generateSupplierOrderText(jobId: string): Promise<string> {
   const supabase = await createClient()
@@ -143,6 +308,12 @@ export async function emailSupplierOrder(
       </div>
     `,
   })
+
+  // Create purchase order record (best-effort)
+  try {
+    const po = await createPurchaseOrder(jobId, companyName, supplierEmail, text)
+    await updatePurchaseOrderStatus(po.id, 'sent')
+  } catch {}
 
   return true
 }

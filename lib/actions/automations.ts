@@ -24,7 +24,7 @@ interface AutomationRule {
 export interface CreateAutomationData {
   company_id: string
   name: string
-  trigger_type: 'status_change' | 'job_created' | 'estimate_sent' | 'payment_received'
+  trigger_type: 'status_change' | 'job_created' | 'estimate_sent' | 'payment_received' | 'invoice_created' | 'job_completed' | 'crew_assigned'
   trigger_value?: string
   action_type: 'send_sms' | 'send_email' | 'create_follow_up' | 'assign_crew'
   action_config: Record<string, unknown>
@@ -159,7 +159,7 @@ export async function toggleAutomationRule(rule_id: string, is_active: boolean) 
 }
 
 export async function processAutomationRules(
-  trigger: 'status_change' | 'job_created' | 'estimate_sent' | 'payment_received',
+  trigger: 'status_change' | 'job_created' | 'estimate_sent' | 'payment_received' | 'invoice_created' | 'job_completed' | 'crew_assigned',
   jobId: string,
   triggerValue?: string,
   depth = 0
@@ -199,7 +199,7 @@ export async function processAutomationRules(
       query = query.or(`trigger_value.eq.${triggerValue},trigger_value.is.null`)
     }
 
-    const { data: rules, error: rulesError } = await query.limit(10)
+    const { data: rules, error: rulesError } = await query.limit(50)
 
     if (rulesError || !rules || rules.length === 0) return
 
@@ -228,8 +228,37 @@ async function executeAutomationAction(
 ) {
   const config = rule.action_config as Record<string, unknown>
   const supabase = await createClient()
+  let success = false
 
-  switch (rule.action_type) {
+  try {
+    // Handle delayed actions — schedule as a follow-up instead of executing immediately
+    if (config.delay_minutes && typeof config.delay_minutes === 'number' && config.delay_minutes > 0) {
+      const dueDate = new Date()
+      dueDate.setMinutes(dueDate.getMinutes() + config.delay_minutes)
+      if (job.rep_id) {
+        await createFollowUp(
+          job.id,
+          job.rep_id,
+          dueDate.toISOString().split('T')[0],
+          `Automation: ${rule.name}`
+        ).catch(() => {})
+      }
+      success = true
+
+      // Log execution
+      try {
+        await supabase.from('activity_log').insert({
+          job_id: job.id,
+          user_id: null,
+          action: 'automation_executed',
+          old_value: rule.name,
+          new_value: JSON.stringify({ action_type: 'delayed_follow_up', rule_id: rule.id, delay_minutes: config.delay_minutes }),
+        })
+      } catch {}
+      return
+    }
+
+    switch (rule.action_type) {
     case 'send_sms': {
       if (!job.phone || job.do_not_text) return
       const message = (config.message_template as string)?.replace(
@@ -296,5 +325,65 @@ async function executeAutomationAction(
         .eq('id', job.id)
       break
     }
+    }
+    success = true
+  } catch (err) {
+    console.error(`Automation rule "${rule.name}" failed:`, err)
+    success = false
+  } finally {
+    // Log execution to activity_log for history
+    try {
+      await supabase.from('activity_log').insert({
+        job_id: job.id,
+        user_id: null,
+        action: 'automation_executed',
+        old_value: rule.name,
+        new_value: JSON.stringify({ action_type: rule.action_type, rule_id: rule.id, success }),
+      })
+    } catch {}
   }
+}
+
+export async function getAutomationHistory(ruleId?: string): Promise<Array<{
+  rule_name: string
+  job_number: string
+  customer_name: string
+  action_type: string
+  executed_at: string
+  success: boolean
+}>> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: logs, error } = await supabase
+    .from('activity_log')
+    .select(`
+      old_value,
+      new_value,
+      created_at,
+      job:jobs!activity_log_job_id_fkey(job_number, customer_name)
+    `)
+    .eq('action', 'automation_executed')
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) return []
+
+  return (logs ?? []).flatMap((log) => {
+    let parsed: { action_type?: string; rule_id?: string; success?: boolean } = {}
+    try { parsed = JSON.parse(log.new_value ?? '{}') } catch { return [] }
+
+    if (ruleId && parsed.rule_id !== ruleId) return []
+
+    const job = log.job as { job_number?: string; customer_name?: string } | null
+    return [{
+      rule_name: log.old_value ?? 'Unknown rule',
+      job_number: job?.job_number ?? '-',
+      customer_name: job?.customer_name ?? '-',
+      action_type: parsed.action_type ?? '-',
+      executed_at: log.created_at,
+      success: parsed.success ?? false,
+    }]
+  })
 }
