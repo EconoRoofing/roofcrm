@@ -169,13 +169,13 @@ export function ClockInButton({ jobId, jobLat, jobLng, userId }: ClockInButtonPr
       doClockIn(photoUrl)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gpsLat, gpsLng, notes, ppeVerified]
+    [gpsLat, gpsLng, notes, ppeVerified, costCode]
   )
 
   const handlePhotoSkip = useCallback(() => {
     doClockIn(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gpsLat, gpsLng, notes, ppeVerified])
+  }, [gpsLat, gpsLng, notes, ppeVerified, costCode])
 
   function doClockIn(photoUrl?: string) {
     startTransition(async () => {

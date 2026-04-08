@@ -41,7 +41,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const dateRange = getDateRange(range)
 
   const [data, companiesResult] = await Promise.all([
-    getDashboardData({ companyId, ...dateRange }),
+    getDashboardData({ ...dateRange }),
     createClient().then((supabase) =>
       supabase
         .from('companies')

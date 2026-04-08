@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { verifyPin, selectProfile } from '@/lib/actions/profiles'
 import { BackspaceIcon, BackArrowIcon } from '@/components/icons'
@@ -24,8 +24,16 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
   const [error, setError] = useState('')
   const [shaking, setShaking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [noPin, setNoPin] = useState(false)
+  const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    return () => {
+      if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current)
+      if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current)
+    }
+  }, [])
 
   const getRoleRoute = () => ROLE_ROUTES[profileRole] ?? '/route'
 
@@ -41,7 +49,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
       } else {
         setShaking(true)
         setError('Incorrect PIN')
-        setTimeout(() => {
+        shakeTimerRef.current = setTimeout(() => {
           setShaking(false)
           setDigits([])
           setError('')
@@ -62,7 +70,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
       const next = [...prev, d]
       if (next.length === 4) {
         // Auto-submit after next render
-        setTimeout(() => handleSubmit(next.join('')), 50)
+        autoSubmitTimerRef.current = setTimeout(() => handleSubmit(next.join('')), 50)
       }
       return next
     })
@@ -207,13 +215,13 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
       >
         {keypad.flat().map((key, i) => {
           if (key === '') {
-            return <div key={i} />
+            return <div key={`empty-${i}`} />
           }
           if (key === 'back') {
             return (
               <button
                 type="button"
-                key={i}
+                key="back"
                 onClick={pressBackspace}
                 disabled={submitting || digits.length === 0}
                 aria-label="Delete PIN digit"
@@ -245,7 +253,7 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           return (
             <button
               type="button"
-              key={i}
+              key={key}
               onClick={() => pressDigit(key)}
               disabled={submitting || digits.length >= 4}
               aria-label={`PIN digit ${key}`}

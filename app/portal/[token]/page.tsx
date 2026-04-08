@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import {
   getJobByPortalToken,
   getPortalInvoices,
@@ -19,7 +19,8 @@ const STATUS_STEPS = [
   { key: 'completed', label: 'Complete' },
 ]
 
-export default function PortalPage({ params }: { params: { token: string } }) {
+export default function PortalPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = React.use(params)
   const [job, setJob] = useState<any>(null)
   const [invoices, setInvoices] = useState<any[]>([])
   const [messages, setMessages] = useState<any[]>([])
@@ -39,10 +40,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     async function fetchAll() {
       try {
         const [jobData, invData, msgData, photoData] = await Promise.all([
-          getJobByPortalToken(params.token),
-          getPortalInvoices(params.token),
-          getPortalMessages(params.token),
-          getPortalPhotos(params.token),
+          getJobByPortalToken(token),
+          getPortalInvoices(token),
+          getPortalMessages(token),
+          getPortalPhotos(token),
         ])
 
         if (!jobData) {
@@ -61,18 +62,18 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       }
     }
     fetchAll()
-  }, [params.token])
+  }, [token])
 
   const handleSendMessage = async () => {
     if (!msgText.trim() || msgSending) return
     setMsgSending(true)
     try {
-      const ok = await sendPortalMessage(params.token, msgText)
+      const ok = await sendPortalMessage(token, msgText)
       if (ok) {
         setMsgSent(true)
         setMsgText('')
         // Reload messages
-        const newMessages = await getPortalMessages(params.token)
+        const newMessages = await getPortalMessages(token)
         setMessages(newMessages)
       }
     } catch (err) {

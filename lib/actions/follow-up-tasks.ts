@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 
 export interface FollowUp {
   id: string
@@ -15,12 +16,16 @@ export interface FollowUp {
   assignee?: { name: string } | null
 }
 
+// Called from jobs.ts + automations — add auth since this is exported from 'use server'
 export async function createFollowUp(
   jobId: string,
   assignedTo: string,
   dueDate: string,
   note: string
 ): Promise<FollowUp> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
+
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -35,7 +40,20 @@ export async function createFollowUp(
 
 // Returns follow-ups due today and overdue for a specific user
 export async function getMyFollowUps(userId: string): Promise<FollowUp[]> {
+  const { userId: callerId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the requested user belongs to the caller's company
+  if (userId !== callerId) {
+    const { data: targetUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .eq('primary_company_id', companyId)
+      .maybeSingle()
+    if (!targetUser) throw new Error('User not found or not in your company')
+  }
+
   const today = new Date().toISOString().split('T')[0]
 
   const { data, error } = await supabase
@@ -54,7 +72,8 @@ export async function getMyFollowUps(userId: string): Promise<FollowUp[]> {
   return (data ?? []) as FollowUp[]
 }
 
-// Returns all follow-ups due today across all users (for cron)
+// CRON-ONLY: Returns all follow-ups due today across all users.
+// Should only be called from the cron route handler which verifies CRON_SECRET.
 export async function getDueFollowUps(): Promise<FollowUp[]> {
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
@@ -75,7 +94,19 @@ export async function getDueFollowUps(): Promise<FollowUp[]> {
 }
 
 export async function completeFollowUp(id: string): Promise<void> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the follow-up's job belongs to the user's company
+  const { data: followUp } = await supabase
+    .from('follow_ups')
+    .select('id, job:jobs!follow_ups_job_id_fkey(company_id)')
+    .eq('id', id)
+    .single()
+
+  if (!followUp) throw new Error('Follow-up not found')
+  const jobCompanyId = (followUp.job as any)?.company_id
+  if (jobCompanyId !== companyId) throw new Error('Follow-up not found or access denied')
 
   const { error } = await supabase
     .from('follow_ups')
@@ -85,7 +116,8 @@ export async function completeFollowUp(id: string): Promise<void> {
   if (error) throw new Error(`Failed to complete follow-up: ${error.message}`)
 }
 
-// Called by daily cron — sends SMS reminders for today's due follow-ups
+// CRON-ONLY: Called by daily cron — sends SMS reminders for today's due follow-ups.
+// Should only be called from the cron route handler which verifies CRON_SECRET.
 export async function processFollowUpTasks(): Promise<{ sent: number; skipped: number }> {
   const dueFollowUps = await getDueFollowUps()
   let sent = 0

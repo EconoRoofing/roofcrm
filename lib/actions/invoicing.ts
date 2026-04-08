@@ -1,9 +1,13 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
 import { Resend } from 'resend'
 import { createPaymentLink } from '@/lib/stripe'
+import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName } from '@/lib/auth-helpers'
+import { logActivity } from '@/lib/actions/activity'
+
+/** Ensure a URL starts with https:// before embedding in HTML */
+const safeUrl = (url: string) => url.startsWith('https://') ? url : '#'
 
 interface Invoice {
   id: string
@@ -30,13 +34,30 @@ export interface CreateInvoiceData {
   notes?: string
 }
 
+// Valid invoice status transitions
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  draft: ['sent', 'cancelled'],
+  sent: ['viewed', 'paid', 'overdue', 'cancelled'],
+  viewed: ['paid', 'overdue', 'cancelled'],
+  overdue: ['paid', 'cancelled'],
+  paid: [], // terminal
+  cancelled: ['draft'], // allow re-draft
+}
+
 export async function createInvoice(data: CreateInvoiceData) {
   const supabase = await createClient()
-  const user = await getUser()
-
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   if (data.amount <= 0) throw new Error('Invoice amount must be greater than zero')
+
+  // Validate due_date
+  const dueDate = new Date(data.due_date)
+  if (isNaN(dueDate.getTime())) {
+    throw new Error('Invalid due date format')
+  }
+  if (dueDate < new Date(new Date().toISOString().split('T')[0])) {
+    console.warn(`[invoicing] Invoice created with past due date: ${data.due_date}`)
+  }
 
   // Enforce max 20 invoices per job
   const { count } = await supabase
@@ -48,18 +69,12 @@ export async function createInvoice(data: CreateInvoiceData) {
     throw new Error('Maximum of 20 invoices per job reached')
   }
 
-  // Fetch job to get company_id and job_number in one query
-  const { data: job, error: jobError } = await supabase
-    .from('jobs')
-    .select('id, company_id, total_amount, job_number')
-    .eq('id', data.job_id)
-    .single()
-
-  if (jobError || !job) throw new Error('Job not found')
+  // Verify job belongs to user's company
+  const job = await verifyJobOwnership(data.job_id, companyId)
 
   // Generate collision-safe invoice number using job number + timestamp
   const jobNum = job.job_number || 'JOB'
-  const invoiceNumber = `INV-${jobNum}-${Date.now()}`
+  const invoiceNumber = `INV-${jobNum}-${crypto.randomUUID().slice(0, 8)}`
 
   // Use job's total_amount if not specified
   const totalAmount = data.total_amount || job.total_amount || data.amount
@@ -85,8 +100,13 @@ export async function createInvoice(data: CreateInvoiceData) {
   // Fire invoice_created automation — best-effort
   if (invoice) {
     try {
-      const { processAutomationRules } = await import('./automations')
+      const { processAutomationRules } = await import('./automations-internal')
       await processAutomationRules('invoice_created', data.job_id)
+    } catch {}
+
+    // Audit log
+    try {
+      await logActivity(data.job_id, null, 'invoice_created', null, invoice.invoice_number)
     } catch {}
   }
 
@@ -94,7 +114,7 @@ export async function createInvoice(data: CreateInvoiceData) {
   if (invoice) {
     const paymentLink = await createPaymentLink(
       invoice.id,
-      totalAmount,
+      data.amount,
       job.job_number,
       invoiceNumber
     )
@@ -110,11 +130,37 @@ export async function createInvoice(data: CreateInvoiceData) {
   return invoice
 }
 
+export async function createInvoiceFromEstimate(jobId: string) {
+  const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  const job = await verifyJobOwnership(jobId, companyId)
+
+  const amount = job.total_amount
+  if (!amount || amount <= 0) {
+    throw new Error('Job has no estimate amount to convert')
+  }
+
+  // Default due date: 30 days from now
+  const dueDate = new Date()
+  dueDate.setDate(dueDate.getDate() + 30)
+
+  return createInvoice({
+    job_id: jobId,
+    type: 'standard',
+    amount,
+    total_amount: amount,
+    due_date: dueDate.toISOString().split('T')[0],
+    notes: 'Created from estimate',
+  })
+}
+
 export async function getJobInvoices(job_id: string) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
+  // Verify the job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
 
   const { data: invoices, error } = await supabase
     .from('invoices')
@@ -132,19 +178,21 @@ export async function markInvoicePaid(
   payment_method?: string
 ) {
   const supabase = await createClient()
-  const user = await getUser()
-
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   if (paid_amount <= 0) throw new Error('Payment amount must be greater than zero')
 
-  // Check if already paid
+  // Fetch invoice with job join to verify company ownership
   const { data: existing } = await supabase
     .from('invoices')
-    .select('status')
+    .select('status, jobs!inner(company_id)')
     .eq('id', invoice_id)
     .single()
-  if (existing?.status === 'paid') throw new Error('Invoice is already marked as paid')
+
+  if (!existing) throw new Error('Invoice not found')
+  if ((existing as any).jobs.company_id !== companyId) throw new Error('Access denied')
+  if (existing.status === 'paid') throw new Error('Invoice is already marked as paid')
+  if (existing.status === 'cancelled') throw new Error('Cannot mark a cancelled invoice as paid. Re-draft it first.')
 
   const { data: invoice, error } = await supabase
     .from('invoices')
@@ -156,10 +204,18 @@ export async function markInvoicePaid(
       updated_at: new Date().toISOString(),
     })
     .eq('id', invoice_id)
-    .select()
+    .select('*, jobs!inner(id)')
     .single()
 
   if (error) throw new Error(`Failed to mark invoice as paid: ${error.message}`)
+
+  // Audit log
+  if (invoice) {
+    try {
+      await logActivity((invoice as any).jobs.id, null, 'invoice_marked_paid', existing.status, 'paid')
+    } catch {}
+  }
+
   return invoice
 }
 
@@ -168,9 +224,23 @@ export async function updateInvoiceStatus(
   status: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue' | 'cancelled'
 ) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
+  // Fetch invoice with job join to verify company ownership and current status
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('status, jobs!inner(company_id)')
+    .eq('id', invoice_id)
+    .single()
+
+  if (!existing) throw new Error('Invoice not found')
+  if ((existing as any).jobs.company_id !== companyId) throw new Error('Access denied')
+
+  // Validate status transition
+  const allowed = VALID_STATUS_TRANSITIONS[existing.status]
+  if (!allowed || !allowed.includes(status)) {
+    throw new Error(`Cannot transition invoice from '${existing.status}' to '${status}'`)
+  }
 
   const { data: invoice, error } = await supabase
     .from('invoices')
@@ -179,18 +249,44 @@ export async function updateInvoiceStatus(
       updated_at: new Date().toISOString(),
     })
     .eq('id', invoice_id)
-    .select()
+    .select('*, jobs!inner(id)')
     .single()
 
   if (error) throw new Error(`Failed to update invoice status: ${error.message}`)
+
+  // Audit log
+  if (invoice) {
+    try {
+      await logActivity((invoice as any).jobs.id, null, 'invoice_status_changed', existing.status, status)
+    } catch {}
+  }
+
   return invoice
 }
 
 export async function deleteInvoice(invoice_id: string) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
+  // Fetch invoice with job join to verify company ownership and status
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('status, jobs!inner(company_id)')
+    .eq('id', invoice_id)
+    .single()
+
+  if (!existing) throw new Error('Invoice not found')
+  if ((existing as any).jobs.company_id !== companyId) throw new Error('Access denied')
+  if (existing.status !== 'draft') {
+    throw new Error('Only draft invoices can be deleted. Cancel paid/sent invoices instead.')
+  }
+
+  // Fetch job_id before deleting for audit log
+  const { data: invoiceRow } = await supabase
+    .from('invoices')
+    .select('invoice_number, job_id')
+    .eq('id', invoice_id)
+    .single()
 
   const { error } = await supabase
     .from('invoices')
@@ -198,19 +294,25 @@ export async function deleteInvoice(invoice_id: string) {
     .eq('id', invoice_id)
 
   if (error) throw new Error(`Failed to delete invoice: ${error.message}`)
+
+  // Audit log
+  if (invoiceRow) {
+    try {
+      await logActivity(invoiceRow.job_id, null, 'invoice_deleted', invoiceRow.invoice_number, null)
+    } catch {}
+  }
 }
 
-export async function getInvoiceByNumber(invoice_number: string, company_id: string) {
+export async function getInvoiceByNumber(invoice_number: string, _company_id?: string) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
-
+  // Always use authenticated user's company (param ignored for security)
   const { data: invoice, error } = await supabase
     .from('invoices')
     .select('*')
     .eq('invoice_number', invoice_number)
-    .eq('company_id', company_id)
+    .eq('company_id', companyId)
     .single()
 
   if (error) throw new Error(`Invoice not found: ${error.message}`)
@@ -226,12 +328,21 @@ export async function addLineItem(
   unitPrice: number
 ) {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   if (!description.trim()) throw new Error('Description is required')
   if (quantity <= 0) throw new Error('Quantity must be greater than zero')
   if (unitPrice < 0) throw new Error('Unit price cannot be negative')
+
+  // Verify the invoice belongs to user's company
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, jobs!inner(company_id)')
+    .eq('id', invoiceId)
+    .single()
+
+  if (!invoice) throw new Error('Invoice not found')
+  if ((invoice as any).jobs.company_id !== companyId) throw new Error('Access denied')
 
   const { data, error } = await supabase
     .from('invoice_line_items')
@@ -250,8 +361,17 @@ export async function addLineItem(
 
 export async function getInvoiceLineItems(invoiceId: string) {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
+
+  // Verify the invoice belongs to user's company
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, jobs!inner(company_id)')
+    .eq('id', invoiceId)
+    .single()
+
+  if (!invoice) throw new Error('Invoice not found')
+  if ((invoice as any).jobs.company_id !== companyId) throw new Error('Access denied')
 
   const { data, error } = await supabase
     .from('invoice_line_items')
@@ -265,8 +385,17 @@ export async function getInvoiceLineItems(invoiceId: string) {
 
 export async function removeLineItem(lineItemId: string) {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
+
+  // Look up the line item's invoice to verify company ownership
+  const { data: lineItem } = await supabase
+    .from('invoice_line_items')
+    .select('invoice_id, invoices!inner(jobs!inner(company_id))')
+    .eq('id', lineItemId)
+    .single()
+
+  if (!lineItem) throw new Error('Line item not found')
+  if ((lineItem as any).invoices.jobs.company_id !== companyId) throw new Error('Access denied')
 
   const { error } = await supabase
     .from('invoice_line_items')
@@ -276,30 +405,71 @@ export async function removeLineItem(lineItemId: string) {
   if (error) throw new Error(`Failed to remove line item: ${error.message}`)
 }
 
+export async function updateLineItem(
+  lineItemId: string,
+  description: string,
+  quantity: number,
+  unitPrice: number
+) {
+  const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  if (!description.trim()) throw new Error('Description is required')
+  if (quantity <= 0) throw new Error('Quantity must be greater than zero')
+  if (unitPrice < 0) throw new Error('Unit price cannot be negative')
+
+  // Verify the line item belongs to user's company via invoice -> job
+  const { data: lineItem } = await supabase
+    .from('invoice_line_items')
+    .select('invoice_id, invoices!inner(jobs!inner(company_id))')
+    .eq('id', lineItemId)
+    .single()
+
+  if (!lineItem) throw new Error('Line item not found')
+  if ((lineItem as any).invoices.jobs.company_id !== companyId) throw new Error('Access denied')
+
+  const { data, error } = await supabase
+    .from('invoice_line_items')
+    .update({
+      description: description.trim(),
+      quantity,
+      unit_price: unitPrice,
+    })
+    .eq('id', lineItemId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update line item: ${error.message}`)
+  return data
+}
+
 // ─── PDF Generation ───────────────────────────────────────────────────────────
 
 export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('job_id')
+    .select('job_id, jobs!inner(company_id)')
     .eq('id', invoiceId)
     .single()
 
   if (!invoice) throw new Error('Invoice not found')
+  if ((invoice as any).jobs.company_id !== companyId) throw new Error('Access denied')
 
   // Delegate to the API route which handles rendering + storage
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000'
+    : 'http://localhost:3000')
 
   // Use server-side fetch with service key for internal route call
   const response = await fetch(`${baseUrl}/api/jobs/${invoice.job_id}/invoice-pdf`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.CRON_SECRET || ''}`,
+    },
     body: JSON.stringify({ invoiceId }),
   })
 
@@ -312,10 +482,9 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   return (result as { url: string }).url
 }
 
-export async function sendInvoiceWithPDF(invoiceId: string): Promise<boolean> {
+export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boolean; pdfIncluded: boolean }> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   // Get or generate PDF URL
   const { data: invoice } = await supabase
@@ -327,14 +496,17 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<boolean> {
   if (!invoice) throw new Error('Invoice not found')
 
   const job = (invoice as any).jobs
+  if (job.company_id !== companyId) throw new Error('Access denied')
   if (!job?.email) throw new Error('Customer has no email address on file')
 
   let pdfUrl = invoice.pdf_url as string | null
+  let pdfIncluded = true
   if (!pdfUrl) {
     try {
       pdfUrl = await generateInvoicePDF(invoiceId)
     } catch (err) {
       console.warn('[invoicing] PDF generation failed, sending without attachment:', err)
+      pdfIncluded = false
     }
   }
 
@@ -343,7 +515,13 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<boolean> {
 
   const resend = new Resend(resendKey)
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
-  const companyName = job.companies?.name || 'Your Roofing Company'
+  const companyName = sanitizeEmailName(job.companies?.name || 'Your Roofing Company')
+
+  // Escape user-controlled values for safe HTML insertion
+  const safeCustomerName = escapeHtml(job.customer_name || '')
+  const safeCompanyName = escapeHtml(companyName)
+  const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
+  const safeJobNumber = escapeHtml(job.job_number || '')
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
@@ -353,34 +531,34 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<boolean> {
     : 'Upon receipt'
 
   const paymentSection = invoice.payment_link
-    ? `<p style="margin-top:20px;"><a href="${invoice.payment_link}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now — ${formatCurrency(invoice.total_amount)}</a></p>`
+    ? `<p style="margin-top:20px;"><a href="${safeUrl(invoice.payment_link)}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now — ${formatCurrency(invoice.total_amount)}</a></p>`
     : ''
 
   const pdfSection = pdfUrl
-    ? `<p style="margin-top:12px;font-size:13px;color:#555;">View your invoice PDF: <a href="${pdfUrl}" style="color:#0066cc;">Download Invoice</a></p>`
+    ? `<p style="margin-top:12px;font-size:13px;color:#555;">View your invoice PDF: <a href="${safeUrl(pdfUrl)}" style="color:#0066cc;">Download Invoice</a></p>`
     : ''
 
   await resend.emails.send({
     from: `${companyName} <${fromEmail}>`,
     to: job.email,
-    subject: `Invoice ${invoice.invoice_number} from ${companyName} — ${formatCurrency(invoice.total_amount)} due ${dueDate}`,
+    subject: `Invoice ${safeInvoiceNumber} from ${companyName} — ${formatCurrency(invoice.total_amount)} due ${dueDate}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111;">
         <div style="background:#1a1a1a;padding:24px;border-radius:8px 8px 0 0;">
-          <h2 style="color:#fff;margin:0;font-size:22px;">${companyName}</h2>
+          <h2 style="color:#fff;margin:0;font-size:22px;">${safeCompanyName}</h2>
           <p style="color:#aaa;margin:4px 0 0;font-size:13px;">Invoice</p>
         </div>
         <div style="background:#fff;padding:32px;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 8px 8px;">
-          <p style="font-size:15px;">Hello ${job.customer_name},</p>
+          <p style="font-size:15px;">Hello ${safeCustomerName},</p>
           <p>Please find your invoice details below. Payment is due <strong>${dueDate}</strong>.</p>
           <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;">
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:10px 0;color:#666;">Invoice #</td>
-              <td style="padding:10px 0;font-weight:600;text-align:right;">${invoice.invoice_number}</td>
+              <td style="padding:10px 0;font-weight:600;text-align:right;">${safeInvoiceNumber}</td>
             </tr>
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:10px 0;color:#666;">Job #</td>
-              <td style="padding:10px 0;text-align:right;">${job.job_number}</td>
+              <td style="padding:10px 0;text-align:right;">${safeJobNumber}</td>
             </tr>
             <tr style="border-bottom:2px solid #1a1a1a;">
               <td style="padding:10px 0;font-weight:700;">Amount Due</td>
@@ -389,36 +567,145 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<boolean> {
           </table>
           ${paymentSection}
           ${pdfSection}
-          ${invoice.notes ? `<p style="margin-top:20px;padding:12px;background:#f5f5f5;border-left:3px solid #ccc;font-size:13px;color:#555;">${String(invoice.notes).replace(/[&<>"']/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]??c))}</p>` : ''}
-          <p style="margin-top:28px;font-size:12px;color:#999;">Questions? Contact ${companyName} directly.</p>
+          ${invoice.notes ? `<p style="margin-top:20px;padding:12px;background:#f5f5f5;border-left:3px solid #ccc;font-size:13px;color:#555;">${escapeHtml(String(invoice.notes))}</p>` : ''}
+          <p style="margin-top:28px;font-size:12px;color:#999;">Questions? Contact ${safeCompanyName} directly.</p>
         </div>
       </div>
     `,
   })
 
-  await supabase
-    .from('invoices')
-    .update({ status: 'sent', updated_at: new Date().toISOString() })
-    .eq('id', invoiceId)
+  // Only advance status to 'sent' if currently draft — don't regress paid/overdue
+  if (invoice.status === 'draft') {
+    await supabase
+      .from('invoices')
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', invoiceId)
+  }
 
-  return true
+  return { sent: true, pdfIncluded }
 }
 
-// ─── Payment Reminders ────────────────────────────────────────────────────────
+// ─── Multi-Stage Invoice Escalation ──────────────────────────────────────────
 
+/**
+ * Escalation tiers based on days overdue.
+ * Each tier has a minimum days threshold, subject template, and styling.
+ */
+interface EscalationTier {
+  tier: 1 | 2 | 3 | 4
+  minDays: number
+  headerBg: string
+  headerSubColor: string
+  buttonBg: string
+  buildSubject: (invoiceNum: string, days: number, amount: string) => string
+  buildBody: (customerName: string, invoiceNum: string, amount: string, dueDate: string, days: number, companyName: string) => string
+}
+
+const ESCALATION_TIERS: EscalationTier[] = [
+  {
+    tier: 4,
+    minDays: 30,
+    headerBg: '#1a1a1a',
+    headerSubColor: '#666',
+    buttonBg: '#1a1a1a',
+    buildSubject: (inv, _d, amt) =>
+      `FINAL NOTICE: Invoice ${inv} — ${amt} past due`,
+    buildBody: (name, inv, amt, due, days, _co) =>
+      `<p>Dear ${name},</p>` +
+      `<p>This is a <strong>final notice</strong> regarding invoice <strong>${inv}</strong> for <strong>${amt}</strong>, which was due on ${due} and is now <strong>${days} days past due</strong>.</p>` +
+      `<p>Despite previous reminders, this balance remains outstanding. If payment is not received promptly, further action may be required to resolve this matter.</p>` +
+      `<p style="font-size:13px;color:#555;">Please remit payment immediately. If you believe this is an error or have already sent payment, contact us right away.</p>`,
+  },
+  {
+    tier: 3,
+    minDays: 14,
+    headerBg: '#cc0000',
+    headerSubColor: '#ffcccc',
+    buttonBg: '#cc0000',
+    buildSubject: (inv, days, amt) =>
+      `URGENT: Invoice ${inv} is ${days} days past due — ${amt}`,
+    buildBody: (name, inv, amt, due, days, _co) =>
+      `<p>Dear ${name},</p>` +
+      `<p>This is an <strong>urgent notice</strong> that invoice <strong>${inv}</strong> for <strong>${amt}</strong> was due on ${due} and is now <strong>${days} days past due</strong>.</p>` +
+      `<p>Continued non-payment may result in service suspension or additional late fees. Please arrange payment at your earliest convenience to avoid any disruption.</p>` +
+      `<p style="font-size:13px;color:#555;">If you have already sent payment, please disregard this message and contact us so we can update our records.</p>`,
+  },
+  {
+    tier: 2,
+    minDays: 7,
+    headerBg: '#d97706',
+    headerSubColor: '#fef3c7',
+    buttonBg: '#d97706',
+    buildSubject: (inv, days, _amt) =>
+      `Reminder: Invoice ${inv} is ${days} days overdue`,
+    buildBody: (name, inv, amt, due, days, _co) =>
+      `<p>Hello ${name},</p>` +
+      `<p>This is a reminder that invoice <strong>${inv}</strong> for <strong>${amt}</strong> was due on ${due} and is now <strong>${days} days past due</strong>.</p>` +
+      `<p>We would appreciate prompt payment to keep your account in good standing.</p>` +
+      `<p style="font-size:13px;color:#555;">If you have already sent payment, please disregard this message. Contact us if you have any questions.</p>`,
+  },
+  {
+    tier: 1,
+    minDays: 3,
+    headerBg: '#2563eb',
+    headerSubColor: '#bfdbfe',
+    buttonBg: '#2563eb',
+    buildSubject: (inv, _d, _a) =>
+      `Friendly Reminder: Invoice ${inv} is past due`,
+    buildBody: (name, inv, amt, due, _days, _co) =>
+      `<p>Hi ${name},</p>` +
+      `<p>Just a quick reminder that invoice <strong>${inv}</strong> for <strong>${amt}</strong> was due on ${due}. We wanted to check in and make sure everything is on track.</p>` +
+      `<p>No action is needed if you&rsquo;ve already sent payment. Otherwise, we&rsquo;d appreciate it if you could arrange payment at your convenience.</p>` +
+      `<p style="font-size:13px;color:#555;">Feel free to reach out if you have any questions or need to discuss payment options.</p>`,
+  },
+]
+
+/** Determine which escalation tier applies based on days overdue */
+function getEscalationTier(daysPastDue: number): EscalationTier | null {
+  // ESCALATION_TIERS is sorted highest-first, so first match wins
+  for (const tier of ESCALATION_TIERS) {
+    if (daysPastDue >= tier.minDays) return tier
+  }
+  return null
+}
+
+/** Map tier number to a label for determining if we should skip re-sending */
+function inferLastTierFromDays(daysPastDue: number, lastReminderAt: string | null): number {
+  if (!lastReminderAt) return 0
+  // Use days overdue at the time of last reminder to infer which tier was sent
+  const lastSentDate = new Date(lastReminderAt)
+  const dueDate = new Date(Date.now() - daysPastDue * 24 * 60 * 60 * 1000)
+  const daysAtLastReminder = Math.floor(
+    (lastSentDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)
+  )
+  const tier = getEscalationTier(daysAtLastReminder)
+  return tier?.tier ?? 0
+}
+
+/**
+ * Process overdue invoice reminders with 4-tier escalation.
+ * Called from cron API route only (the API route handles auth via CRON_SECRET).
+ *
+ * Tier 1 (3+ days):  Friendly reminder  — blue header
+ * Tier 2 (7+ days):  Standard reminder  — amber header
+ * Tier 3 (14+ days): Urgent notice      — red header
+ * Tier 4 (30+ days): Final notice       — dark/black header
+ *
+ * Won't re-send the same tier within 3 days.
+ */
 export async function processInvoiceReminders(): Promise<{ sent: number }> {
   const supabase = await createClient()
 
   const today = new Date().toISOString().split('T')[0]
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
 
-  // Find sent invoices: past due, not paid, no reminder in last 7 days
+  // Find overdue invoices: past due, not paid, no reminder in last 3 days
   const { data: overdueInvoices, error } = await supabase
     .from('invoices')
     .select('*, jobs(customer_name, email, job_number, companies(name))')
     .in('status', ['sent', 'viewed', 'overdue'])
     .lt('due_date', today)
-    .or(`last_reminder_sent_at.is.null,last_reminder_sent_at.lt.${sevenDaysAgo}`)
+    .or(`last_reminder_sent_at.is.null,last_reminder_sent_at.lt.${threeDaysAgo}`)
 
   if (error) {
     console.error('[invoicing] processInvoiceReminders query failed:', error)
@@ -431,45 +718,69 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
   const resend = new Resend(resendKey)
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
 
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+
   let sent = 0
 
   for (const invoice of overdueInvoices) {
     const job = (invoice as any).jobs
     if (!job?.email) continue
 
-    const companyName = job.companies?.name || 'Your Roofing Company'
-    const formatCurrency = (n: number) =>
-      new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+    const daysPastDue = Math.floor(
+      (Date.now() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)
+    )
+
+    // Determine which tier to send
+    const tier = getEscalationTier(daysPastDue)
+    if (!tier) continue // Less than 3 days overdue — skip
+
+    // Don't re-send the same tier within 3 days
+    const lastTier = inferLastTierFromDays(daysPastDue, invoice.last_reminder_sent_at)
+    if (lastTier >= tier.tier && invoice.last_reminder_sent_at) {
+      // Same or higher tier was already sent, and cooldown hasn't passed
+      // (the query already filters for 3-day cooldown, but double-check tier escalation)
+      continue
+    }
+
+    const companyName = sanitizeEmailName(job.companies?.name || 'Your Roofing Company')
+    const safeCustomerName = escapeHtml(job.customer_name || '')
+    const safeCompanyName = escapeHtml(companyName)
+    const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
 
     const dueDate = invoice.due_date
       ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : 'a past date'
 
-    const daysPastDue = Math.floor(
-      (Date.now() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)
-    )
+    const amount = formatCurrency(invoice.total_amount)
+
+    const subject = tier.buildSubject(safeInvoiceNumber, daysPastDue, amount)
+    const bodyContent = tier.buildBody(safeCustomerName, safeInvoiceNumber, amount, dueDate, daysPastDue, safeCompanyName)
 
     const paymentSection = invoice.payment_link
-      ? `<p style="margin-top:20px;"><a href="${invoice.payment_link}" style="display:inline-block;padding:12px 28px;background:#cc0000;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now — ${formatCurrency(invoice.total_amount)}</a></p>`
+      ? `<p style="margin-top:20px;"><a href="${safeUrl(invoice.payment_link)}" style="display:inline-block;padding:12px 28px;background:${tier.buttonBg};color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now &mdash; ${amount}</a></p>`
       : ''
+
+    const tierLabel = tier.tier === 1 ? 'Friendly Reminder'
+      : tier.tier === 2 ? 'Payment Reminder'
+      : tier.tier === 3 ? 'Urgent Notice'
+      : 'Final Notice'
 
     try {
       await resend.emails.send({
         from: `${companyName} <${fromEmail}>`,
         to: job.email,
-        subject: `[Reminder] Invoice ${invoice.invoice_number} is ${daysPastDue} days overdue — ${formatCurrency(invoice.total_amount)}`,
+        subject,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-            <div style="background:#cc0000;padding:20px;border-radius:8px 8px 0 0;">
-              <h2 style="color:#fff;margin:0;">Payment Reminder</h2>
-              <p style="color:#ffcccc;margin:4px 0 0;font-size:13px;">${companyName}</p>
+            <div style="background:${tier.headerBg};padding:20px;border-radius:8px 8px 0 0;">
+              <h2 style="color:#fff;margin:0;">${escapeHtml(tierLabel)}</h2>
+              <p style="color:${tier.headerSubColor};margin:4px 0 0;font-size:13px;">${safeCompanyName}</p>
             </div>
             <div style="background:#fff;padding:28px;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 8px 8px;">
-              <p>Hello ${job.customer_name},</p>
-              <p>This is a reminder that invoice <strong>${invoice.invoice_number}</strong> for <strong>${formatCurrency(invoice.total_amount)}</strong> was due on ${dueDate} and is now <strong>${daysPastDue} days past due</strong>.</p>
+              ${bodyContent}
               ${paymentSection}
-              <p style="margin-top:20px;font-size:13px;color:#555;">If you have already sent payment, please disregard this message. Contact us if you have any questions.</p>
-              <p style="margin-top:20px;font-size:12px;color:#999;">&mdash; ${companyName}</p>
+              <p style="margin-top:20px;font-size:12px;color:#999;">&mdash; ${safeCompanyName}</p>
             </div>
           </div>
         `,
@@ -487,7 +798,7 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
 
       sent++
     } catch (err) {
-      console.error('[invoicing] reminder send failed for invoice', invoice.id, err)
+      console.error(`[invoicing] tier ${tier.tier} reminder failed for invoice`, invoice.id, err)
     }
   }
 
@@ -498,9 +809,7 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
 
 export async function sendInvoiceEmail(invoice_id: string) {
   const supabase = await createClient()
-  const user = await getUser()
-
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
@@ -511,6 +820,7 @@ export async function sendInvoiceEmail(invoice_id: string) {
   if (invError || !invoice) throw new Error('Invoice not found')
 
   const job = (invoice as any).jobs
+  if (job.company_id !== companyId) throw new Error('Access denied')
   if (!job?.email) throw new Error('Customer has no email address on file')
 
   const resendKey = process.env.RESEND_API_KEY
@@ -518,7 +828,13 @@ export async function sendInvoiceEmail(invoice_id: string) {
 
   const resend = new Resend(resendKey)
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
-  const companyName = job.companies?.name || 'Your Roofing Company'
+  const companyName = sanitizeEmailName(job.companies?.name || 'Your Roofing Company')
+
+  // Escape user-controlled values for safe HTML insertion
+  const safeCustomerName = escapeHtml(job.customer_name || '')
+  const safeCompanyName = escapeHtml(companyName)
+  const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
+  const safeJobNumber = escapeHtml(job.job_number || '')
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
@@ -530,33 +846,35 @@ export async function sendInvoiceEmail(invoice_id: string) {
   await resend.emails.send({
     from: `${companyName} <${fromEmail}>`,
     to: job.email,
-    subject: `Invoice ${invoice.invoice_number} from ${companyName}`,
+    subject: `Invoice ${safeInvoiceNumber} from ${companyName}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Invoice from ${companyName}</h2>
-        <p>Hello ${job.customer_name},</p>
+        <h2>Invoice from ${safeCompanyName}</h2>
+        <p>Hello ${safeCustomerName},</p>
         <p>Please find your invoice details below:</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Invoice #</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">${invoice.invoice_number}</td></tr>
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Job #</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${job.job_number}</td></tr>
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Type</td><td style="padding: 8px; border-bottom: 1px solid #eee; text-transform: capitalize;">${invoice.type}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Invoice #</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">${safeInvoiceNumber}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Job #</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${safeJobNumber}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Type</td><td style="padding: 8px; border-bottom: 1px solid #eee; text-transform: capitalize;">${escapeHtml(invoice.type || '')}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount Due</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 18px;">${formatCurrency(invoice.total_amount)}</td></tr>
           <tr><td style="padding: 8px; color: #666;">Due Date</td><td style="padding: 8px;">${dueDate}</td></tr>
         </table>
-        ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${String(invoice.notes).replace(/[&<>"']/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c))}</p>` : ''}
+        ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${escapeHtml(String(invoice.notes))}</p>` : ''}
         <p style="color: #666; font-size: 14px; margin-top: 24px;">
           Please contact us if you have any questions about this invoice.
         </p>
-        <p style="color: #666; font-size: 12px; margin-top: 32px;">&mdash; ${companyName}</p>
+        <p style="color: #666; font-size: 12px; margin-top: 32px;">&mdash; ${safeCompanyName}</p>
       </div>
     `,
   })
 
-  // Mark invoice as sent
-  await supabase
-    .from('invoices')
-    .update({ status: 'sent', updated_at: new Date().toISOString() })
-    .eq('id', invoice_id)
+  // Only advance to 'sent' if currently draft — don't regress paid/overdue
+  if (invoice.status === 'draft') {
+    await supabase
+      .from('invoices')
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', invoice_id)
+  }
 
   return true
 }

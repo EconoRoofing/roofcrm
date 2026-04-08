@@ -7,6 +7,14 @@ import { createClient } from '@/lib/supabase/client'
 
 const CLAIM_STATUSES: ClaimStatus[] = ['filed', 'inspection', 'approved', 'supplement', 'done']
 
+const VALID_CLAIM_TRANSITIONS: Record<ClaimStatus, ClaimStatus[]> = {
+  filed: ['inspection'],
+  inspection: ['approved', 'filed'],
+  approved: ['supplement', 'done'],
+  supplement: ['approved', 'done'],
+  done: [],
+}
+
 const STATUS_COLORS: Record<ClaimStatus, string> = {
   filed: '#64748b',
   inspection: '#3b82f6',
@@ -60,6 +68,7 @@ export function ClaimWorkflow({
     phone: adjusterPhone || '',
     email: adjusterEmail || '',
   })
+  const [displaySupplementAmount, setDisplaySupplementAmount] = useState(supplementAmount)
   const [supplementForm, setSupplementForm] = useState({
     amount: supplementAmount.toString(),
   })
@@ -75,21 +84,25 @@ export function ClaimWorkflow({
   }, [jobId])
 
   const handleDocumentUpload = async (stage: string, file: File) => {
+    if (file.size > 25 * 1024 * 1024) {
+      setError('File too large (max 25MB)')
+      setTimeout(() => setError(null), 5000)
+      return
+    }
     setUploadingStage(stage)
     try {
       const supabase = createClient()
       const path = `claim-docs/${jobId}/${stage}/${Date.now()}-${file.name}`
       const { error: uploadError } = await supabase.storage
-        .from('estimates')
+        .from('claim-documents')
         .upload(path, file, { contentType: file.type, upsert: false })
 
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('estimates').getPublicUrl(path)
-
+      // Store the storage path (not a signed URL) so it never expires
       const doc: ClaimDocument = {
         stage,
-        url: publicUrl,
+        url: path,
         name: file.name,
         uploaded_at: new Date().toISOString(),
       }
@@ -97,7 +110,9 @@ export function ClaimWorkflow({
       const updated = await addClaimDocument(jobId, doc)
       setDocuments(updated)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
+      const msg = err instanceof Error ? err.message : 'Upload failed'
+      setError(msg)
+      setTimeout(() => setError(null), 5000)
     } finally {
       setUploadingStage(null)
       setPendingUploadStage(null)
@@ -116,8 +131,12 @@ export function ClaimWorkflow({
       await updateClaimStatus(jobId, newStatus)
       setStatus(newStatus)
       onStatusChange?.(newStatus)
+      // Auto-refresh timeline to show the new entry
+      getClaimTimeline(jobId).then(setTimeline).catch(() => {})
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update status')
+      const msg = err instanceof Error ? err.message : 'Failed to update status'
+      setError(msg)
+      setTimeout(() => setError(null), 5000)
     } finally {
       setLoading(false)
     }
@@ -133,7 +152,9 @@ export function ClaimWorkflow({
       setAdjusterDisplay({ ...adjusterForm })
       setShowAdjusterForm(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update adjuster info')
+      const msg = err instanceof Error ? err.message : 'Failed to update adjuster info'
+      setError(msg)
+      setTimeout(() => setError(null), 5000)
     } finally {
       setLoading(false)
     }
@@ -141,13 +162,22 @@ export function ClaimWorkflow({
 
   const handleSupplementSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const parsed = parseFloat(supplementForm.amount)
+    if (isNaN(parsed) || parsed <= 0) {
+      setError('Please enter a valid supplement amount')
+      setTimeout(() => setError(null), 5000)
+      return
+    }
     try {
       setLoading(true)
       setError(null)
-      await updateSupplementAmount(jobId, parseFloat(supplementForm.amount))
+      await updateSupplementAmount(jobId, parsed)
+      setDisplaySupplementAmount(parsed)
       setShowSupplementForm(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update supplement amount')
+      const msg = err instanceof Error ? err.message : 'Failed to update supplement amount'
+      setError(msg)
+      setTimeout(() => setError(null), 5000)
     } finally {
       setLoading(false)
     }
@@ -198,34 +228,39 @@ export function ClaimWorkflow({
             marginBottom: '16px',
           }}
         >
-          {CLAIM_STATUSES.map((s, index) => (
+          {CLAIM_STATUSES.map((s, index) => {
+            const isCurrentOrPast = index <= currentIndex
+            const isValidNext = VALID_CLAIM_TRANSITIONS[status]?.includes(s) ?? false
+            const canClick = s !== status && isValidNext
+            return (
             <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <button
                 onClick={() => handleStatusChange(s)}
-                disabled={loading || index > currentIndex + 1}
+                disabled={loading || !canClick}
                 style={{
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
-                  backgroundColor: index <= currentIndex ? STATUS_COLORS[s] : 'var(--surface)',
-                  color: index <= currentIndex ? '#fff' : 'var(--text-secondary)',
+                  backgroundColor: isCurrentOrPast ? STATUS_COLORS[s] : 'var(--surface)',
+                  color: isCurrentOrPast ? '#fff' : 'var(--text-secondary)',
                   fontSize: '13px',
                   fontWeight: 600,
-                  cursor: index <= currentIndex + 1 && !loading ? 'pointer' : 'not-allowed',
+                  cursor: canClick && !loading ? 'pointer' : 'not-allowed',
                   transition: 'all 0.15s',
-                  opacity: index > currentIndex + 1 ? 0.5 : 1,
+                  opacity: !canClick && !isCurrentOrPast ? 0.5 : 1,
                   border: index === currentIndex ? `2px solid ${STATUS_COLORS[s]}` : '1px solid var(--border)',
                   boxSizing: 'border-box',
                 }}
-                title={s.replace('_', ' ')}
+                title={s.replace(/_/g, ' ')}
               >
                 {index + 1}
               </button>
               <div style={{ fontSize: '11px', marginTop: '6px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                {s.replace('_', ' ')}
+                {s.replace(/_/g, ' ')}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Status Line Connector */}
@@ -378,7 +413,7 @@ export function ClaimWorkflow({
       </div>
 
       {/* Supplement Amount Tracker — show whenever there is a supplement amount or status is supplement */}
-      {(status === 'supplement' || supplementAmount > 0) && (
+      {(status === 'supplement' || displaySupplementAmount > 0) && (
         <div
           style={{
             padding: '16px',
@@ -448,7 +483,7 @@ export function ClaimWorkflow({
             </form>
           ) : (
             <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--accent)' }}>
-              ${supplementAmount.toFixed(2)}
+              ${displaySupplementAmount.toFixed(2)}
             </div>
           )}
         </div>
@@ -467,8 +502,8 @@ export function ClaimWorkflow({
         >
           <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 12px' }}>Claim History</h3>
           <div style={{ display: 'grid', gap: '8px' }}>
-            {timeline.map((entry, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', fontSize: '13px' }}>
+            {timeline.map((entry) => (
+              <div key={entry.timestamp} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', fontSize: '13px' }}>
                 <span
                   style={{
                     display: 'inline-block',
@@ -500,7 +535,7 @@ export function ClaimWorkflow({
       )}
 
       {/* Supplement Comparison — show when status is supplement or approved and amounts are set */}
-      {(status === 'supplement' || status === 'approved') && (originalAmount > 0 || supplementAmount > 0 || approvedAmount > 0) && (
+      {(status === 'supplement' || status === 'approved') && (originalAmount > 0 || displaySupplementAmount > 0 || approvedAmount > 0) && (
         <div
           style={{
             marginTop: '16px',
@@ -514,7 +549,7 @@ export function ClaimWorkflow({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
             {[
               { label: 'Original', amount: originalAmount, color: '#64748b' },
-              { label: 'Supplement Request', amount: supplementAmount, color: '#f59e0b' },
+              { label: 'Supplement Request', amount: displaySupplementAmount, color: '#f59e0b' },
               { label: 'Approved', amount: approvedAmount, color: '#22c55e' },
             ].map(({ label, amount, color }) => (
               <div key={label} style={{ textAlign: 'center' }}>
@@ -523,10 +558,10 @@ export function ClaimWorkflow({
               </div>
             ))}
           </div>
-          {approvedAmount > 0 && supplementAmount > 0 && (
+          {approvedAmount > 0 && displaySupplementAmount > 0 && (
             <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-              Difference: <span style={{ fontWeight: 600, color: approvedAmount >= supplementAmount ? '#22c55e' : '#ef4444' }}>
-                {approvedAmount >= supplementAmount ? '+' : ''}{(approvedAmount - supplementAmount).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+              Difference: <span style={{ fontWeight: 600, color: approvedAmount >= displaySupplementAmount ? '#22c55e' : '#ef4444' }}>
+                {approvedAmount >= displaySupplementAmount ? '+' : ''}{(approvedAmount - displaySupplementAmount).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
               </span>
             </div>
           )}

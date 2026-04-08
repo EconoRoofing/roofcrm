@@ -2,7 +2,9 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership, requireManager, escapeHtml } from '@/lib/auth-helpers'
 import { calculateMaterials, type MaterialCalcInput } from '@/lib/material-calculator'
+import type { SupplierType, SupplierIntegration } from '@/lib/suppliers'
 
 // ─── Purchase Orders ──────────────────────────────────────────────────────────
 
@@ -18,7 +20,15 @@ export interface PurchaseOrder {
   confirmed_at: string | null
   delivered_at: string | null
   notes: string | null
+  delivery_notes: string | null
+  estimated_delivery: string | null
   created_at: string
+}
+
+export interface OrderTimelineEntry {
+  status: string
+  timestamp: string
+  note?: string
 }
 
 export async function createPurchaseOrder(
@@ -28,8 +38,8 @@ export async function createPurchaseOrder(
   orderText: string
 ): Promise<PurchaseOrder> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
 
   const { data, error } = await supabase
     .from('purchase_orders')
@@ -49,8 +59,10 @@ export async function createPurchaseOrder(
 
 export async function getPurchaseOrders(jobId: string): Promise<PurchaseOrder[]> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
+
+  // Verify job belongs to user's company
+  await verifyJobOwnership(jobId, companyId)
 
   const { data, error } = await supabase
     .from('purchase_orders')
@@ -67,8 +79,31 @@ export async function updatePurchaseOrderStatus(
   status: 'draft' | 'sent' | 'confirmed' | 'delivered'
 ): Promise<PurchaseOrder> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
+
+  // Fetch the PO to get job_id and current status, then verify ownership
+  const { data: po, error: poError } = await supabase
+    .from('purchase_orders')
+    .select('job_id, status')
+    .eq('id', orderId)
+    .single()
+
+  if (poError || !po) throw new Error('Purchase order not found')
+  await verifyJobOwnership(po.job_id, companyId)
+
+  // Enforce forward-only status transitions
+  const validTransitions: Record<string, string> = {
+    draft: 'sent',
+    sent: 'confirmed',
+    confirmed: 'delivered',
+  }
+
+  const currentStatus = po.status as string
+  if (validTransitions[currentStatus] !== status) {
+    throw new Error(
+      `Invalid status transition: cannot move from "${currentStatus}" to "${status}"`
+    )
+  }
 
   const timestampField: Record<string, string> = {
     sent: 'sent_at',
@@ -92,6 +127,84 @@ export async function updatePurchaseOrderStatus(
   return data as PurchaseOrder
 }
 
+// ─── Delivery Tracking ──────────────────────────────────────────────────────
+
+export async function addDeliveryNote(
+  orderId: string,
+  note: string,
+  estimatedDelivery?: string
+): Promise<PurchaseOrder> {
+  const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  // Fetch the PO to verify ownership
+  const { data: po, error: poError } = await supabase
+    .from('purchase_orders')
+    .select('job_id')
+    .eq('id', orderId)
+    .single()
+
+  if (poError || !po) throw new Error('Purchase order not found')
+  await verifyJobOwnership(po.job_id, companyId)
+
+  const update: Record<string, unknown> = {
+    delivery_notes: note,
+  }
+  if (estimatedDelivery) {
+    update.estimated_delivery = estimatedDelivery
+  }
+
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .update(update)
+    .eq('id', orderId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to add delivery note: ${error.message}`)
+  return data as PurchaseOrder
+}
+
+export async function getOrderTimeline(
+  orderId: string
+): Promise<OrderTimelineEntry[]> {
+  const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  // Fetch the PO to verify ownership and get timestamps
+  const { data: po, error: poError } = await supabase
+    .from('purchase_orders')
+    .select('job_id, status, created_at, sent_at, confirmed_at, delivered_at, delivery_notes')
+    .eq('id', orderId)
+    .single()
+
+  if (poError || !po) throw new Error('Purchase order not found')
+  await verifyJobOwnership(po.job_id, companyId)
+
+  // Build timeline from the PO's own timestamp fields
+  const timeline: OrderTimelineEntry[] = []
+
+  if (po.created_at) {
+    timeline.push({ status: 'draft', timestamp: po.created_at, note: 'Order created' })
+  }
+  if (po.sent_at) {
+    timeline.push({ status: 'sent', timestamp: po.sent_at, note: 'Order sent to supplier' })
+  }
+  if (po.confirmed_at) {
+    timeline.push({ status: 'confirmed', timestamp: po.confirmed_at, note: 'Supplier confirmed order' })
+  }
+  if (po.delivered_at) {
+    timeline.push({
+      status: 'delivered',
+      timestamp: po.delivered_at,
+      note: po.delivery_notes || 'Materials delivered',
+    })
+  }
+
+  timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  return timeline
+}
+
 // ─── Supplier Contacts ────────────────────────────────────────────────────────
 
 export interface SupplierContact {
@@ -107,12 +220,12 @@ export interface SupplierContact {
 
 export async function getSupplierContacts(): Promise<SupplierContact[]> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   const { data, error } = await supabase
     .from('supplier_contacts')
     .select('*')
+    .eq('company_id', companyId)
     .order('is_preferred', { ascending: false })
     .order('name', { ascending: true })
 
@@ -126,11 +239,9 @@ export async function addSupplierContact(contactData: {
   phone?: string
   specialty?: string
   is_preferred?: boolean
-  company_id?: string
 }): Promise<SupplierContact> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   if (!contactData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactData.email)) {
     throw new Error('Valid email is required')
@@ -144,7 +255,7 @@ export async function addSupplierContact(contactData: {
       phone: contactData.phone ?? null,
       specialty: contactData.specialty ?? null,
       is_preferred: contactData.is_preferred ?? false,
-      company_id: contactData.company_id ?? null,
+      company_id: companyId,
     })
     .select()
     .single()
@@ -155,21 +266,64 @@ export async function addSupplierContact(contactData: {
 
 export async function deleteSupplierContact(id: string): Promise<void> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { companyId } = await getUserWithCompany()
 
   const { error } = await supabase
     .from('supplier_contacts')
     .delete()
     .eq('id', id)
+    .eq('company_id', companyId)
 
   if (error) throw new Error(`Failed to delete supplier contact: ${error.message}`)
 }
 
+export async function updateSupplierContact(
+  contactId: string,
+  updates: {
+    name?: string
+    email?: string
+    phone?: string
+    specialty?: string
+    is_preferred?: boolean
+  }
+): Promise<SupplierContact> {
+  const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
+  const updatePayload: Record<string, unknown> = {}
+  if (updates.name !== undefined) updatePayload.name = updates.name
+  if (updates.email !== undefined) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email)) {
+      throw new Error('Valid email is required')
+    }
+    updatePayload.email = updates.email
+  }
+  if (updates.phone !== undefined) updatePayload.phone = updates.phone || null
+  if (updates.specialty !== undefined) updatePayload.specialty = updates.specialty || null
+  if (updates.is_preferred !== undefined) updatePayload.is_preferred = updates.is_preferred
+
+  if (Object.keys(updatePayload).length === 0) {
+    throw new Error('No fields to update')
+  }
+
+  const { data, error } = await supabase
+    .from('supplier_contacts')
+    .update(updatePayload)
+    .eq('id', contactId)
+    .eq('company_id', companyId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update supplier contact: ${error.message}`)
+  return data as SupplierContact
+}
 
 export async function generateSupplierOrderText(jobId: string): Promise<string> {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  // Verify job belongs to user's company
+  await verifyJobOwnership(jobId, companyId)
 
   const { data: job, error: jobError } = await supabase
     .from('jobs')
@@ -236,10 +390,148 @@ export async function generateSupplierOrderText(jobId: string): Promise<string> 
   return text
 }
 
-function escapeHtml(str: string): string {
-  return str.replace(/[&<>"']/g, (char) => (({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  } as Record<string, string>)[char] ?? char))
+// ─── Supplier Integrations (ABC Supply, SRS / Roof Hub) ─────────────────────
+
+// Re-export types from the canonical supplier module
+export type { SupplierType, SupplierIntegration } from '@/lib/suppliers'
+
+export interface SupplierProduct {
+  id: string
+  name: string
+  description: string
+  price?: number
+  uom: string
+  availability?: string
+}
+
+export interface SupplierBranch {
+  id: string
+  name: string
+  address: string
+  city: string
+  state: string
+  phone: string
+}
+
+export async function getSupplierIntegrations(): Promise<SupplierIntegration[]> {
+  await getUserWithCompany()
+
+  try {
+    const { getAvailableSuppliers } = await import('@/lib/suppliers')
+    return getAvailableSuppliers()
+  } catch {
+    return []
+  }
+}
+
+export async function searchSupplierProducts(
+  supplierType: SupplierType,
+  query: string,
+  branchId?: string
+): Promise<SupplierProduct[]> {
+  await getUserWithCompany()
+
+  if (!query.trim()) return []
+
+  const { getSupplierClient } = await import('@/lib/suppliers')
+  const client = getSupplierClient(supplierType)
+  if (!client) throw new Error(`Supplier "${supplierType}" is not configured`)
+
+  const results = await client.searchProducts(query, branchId)
+  // Normalize different supplier result shapes to SupplierProduct
+  return (results as any[]).map((item: any) => ({
+    id: item.itemNumber || item.productId || item.id || '',
+    name: item.description || item.name || '',
+    description: item.category || item.description || '',
+    price: item.price,
+    uom: item.uom || 'EA',
+    availability: item.availability,
+  }))
+}
+
+export async function getSupplierProductPrice(
+  supplierType: SupplierType,
+  productId: string,
+  branchId: string
+): Promise<{ productId: string; price: number; uom: string }> {
+  await getUserWithCompany()
+
+  const { getSupplierClient } = await import('@/lib/suppliers')
+  const client = getSupplierClient(supplierType)
+  if (!client) throw new Error(`Supplier "${supplierType}" is not configured`)
+
+  return client.getProductPrice(productId, branchId)
+}
+
+export async function placeSupplierOrder(
+  supplierType: SupplierType,
+  order: {
+    branchId: string
+    items: Array<{ productId: string; quantity: number; uom: string }>
+    jobId: string
+    deliveryNotes?: string
+  }
+): Promise<{ confirmationNumber: string; localOrderId: string }> {
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
+  await verifyJobOwnership(order.jobId, companyId)
+
+  const { getSupplierClient } = await import('@/lib/suppliers')
+  const client = getSupplierClient(supplierType)
+  if (!client) throw new Error(`Supplier "${supplierType}" is not configured`)
+
+  const result = await (client.placeOrder as any)(order)
+
+  // Create local PO record
+  const supabase = await createClient()
+  const supplierLabel = supplierType === 'abc_supply' ? 'ABC Supply' : 'SRS / Roof Hub'
+
+  const orderText = order.items
+    .map((item) => `${item.quantity} ${item.uom} - Product #${item.productId}`)
+    .join('\n')
+
+  const { data: po, error } = await supabase
+    .from('purchase_orders')
+    .insert({
+      job_id: order.jobId,
+      supplier_name: `${supplierLabel} (API)`,
+      supplier_email: null,
+      order_text: `Confirmation: ${result.confirmationNumber}\n\n${orderText}`,
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Order placed but failed to save locally: ${error.message}`)
+
+  return {
+    confirmationNumber: result.confirmationNumber,
+    localOrderId: (po as PurchaseOrder).id,
+  }
+}
+
+export async function searchSupplierBranches(
+  supplierType: SupplierType,
+  zip: string
+): Promise<SupplierBranch[]> {
+  await getUserWithCompany()
+
+  if (!zip.trim() || zip.length < 5) return []
+
+  const { getSupplierClient } = await import('@/lib/suppliers')
+  const client = getSupplierClient(supplierType)
+  if (!client) throw new Error(`Supplier "${supplierType}" is not configured`)
+
+  const results = await client.searchBranches(zip)
+  return (results as any[]).map((b: any) => ({
+    id: b.branchNumber || b.branchId || b.id || '',
+    name: b.name || '',
+    address: b.address || '',
+    city: b.city || '',
+    state: b.state || '',
+    phone: b.phone || '',
+  }))
 }
 
 export async function emailSupplierOrder(
@@ -247,6 +539,7 @@ export async function emailSupplierOrder(
   supplierEmail: string,
   senderCompanyName?: string
 ): Promise<boolean> {
+  const { companyId } = await getUserWithCompany()
   const resendKey = process.env.RESEND_API_KEY
   if (!resendKey) {
     throw new Error('Email service not configured — RESEND_API_KEY is missing')
@@ -257,28 +550,28 @@ export async function emailSupplierOrder(
     throw new Error(`Invalid supplier email address: ${supplierEmail}`)
   }
 
-  // Fetch job to get job_number and company name
+  // Fetch job scoped to user's company
   const supabase = await createClient()
   const { data: job } = await supabase
     .from('jobs')
     .select('job_number, company_id, companies(name)')
     .eq('id', jobId)
+    .eq('company_id', companyId)
     .single()
 
   const jobNumber = job?.job_number || jobId
-  const companyName = senderCompanyName || (job?.companies as any)?.name || 'Roofing Company'
+  const companyName = (senderCompanyName || (job?.companies as any)?.name || 'Roofing Company').replace(/[\r\n]/g, '')
 
-  // Rate-limit: reject if the same order was already emailed in the last 5 minutes
+  // Rate-limit: reject if a PO was already sent for this job in the last 5 minutes
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-  const { data: recentMessages } = await supabase
-    .from('messages')
+  const { data: recentOrders } = await supabase
+    .from('purchase_orders')
     .select('id')
     .eq('job_id', jobId)
-    .eq('auto_generated', false)
-    .ilike('body', '%Material Order%')
-    .gte('created_at', fiveMinAgo)
+    .eq('status', 'sent')
+    .gte('sent_at', fiveMinAgo)
 
-  if (recentMessages && recentMessages.length > 0) {
+  if (recentOrders && recentOrders.length > 0) {
     throw new Error('Order was already sent recently. Please wait 5 minutes before sending again.')
   }
 
@@ -309,11 +602,13 @@ export async function emailSupplierOrder(
     `,
   })
 
-  // Create purchase order record (best-effort)
+  // Create purchase order record (best-effort — email already sent)
   try {
     const po = await createPurchaseOrder(jobId, companyName, supplierEmail, text)
     await updatePurchaseOrderStatus(po.id, 'sent')
-  } catch {}
+  } catch (err) {
+    console.error('[supplier] PO record creation failed after email sent:', err)
+  }
 
   return true
 }

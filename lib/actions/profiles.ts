@@ -3,7 +3,12 @@
 import { timingSafeEqual } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
+import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import { cookies } from 'next/headers'
+
+// INTENTIONAL: No auth on getCompanies/getProfiles — these are used by the
+// Netflix-style shared-device profile picker. All profiles must be shown so
+// users can select theirs before authenticating via PIN.
 
 // Get all companies (for primary company assignment)
 export async function getCompanies() {
@@ -34,8 +39,15 @@ export async function getProfiles() {
   }
 }
 
-// Set a user's PIN (manager only, or first-time setup)
+// Set a user's PIN (manager only, or self-service for own PIN)
 export async function setPin(userId: string, pin: string) {
+  const { userId: callerId, role } = await getUserWithCompany()
+
+  // Crew members can only set their own PIN; managers can set anyone's
+  if (userId !== callerId) {
+    requireManager(role)
+  }
+
   const supabase = await createClient()
   const encoder = new TextEncoder()
   const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
@@ -47,18 +59,15 @@ export async function setPin(userId: string, pin: string) {
   await supabase.from('users').update({ pin_hash: pinHash }).eq('id', userId)
 
   // Audit trail for PIN changes
-  const caller = await getUser()
-  if (caller) {
-    try {
-      await supabase.from('activity_log').insert({
-        job_id: userId,
-        user_id: caller.id,
-        action: 'pin_changed',
-        old_value: null,
-        new_value: 'PIN updated',
-      })
-    } catch {}
-  }
+  try {
+    await supabase.from('activity_log').insert({
+      job_id: userId,
+      user_id: callerId,
+      action: 'pin_changed',
+      old_value: null,
+      new_value: 'PIN updated',
+    })
+  } catch {}
 }
 
 // Unlock a locked account (manager only — resets failed attempts)
@@ -146,18 +155,35 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 }
 
 // Select a profile — sets the active_profile cookie
+// Shared-device model: all profiles on the same Google account can be selected.
+// Scoped to companies the auth user owns to prevent cross-org impersonation.
 export async function selectProfile(userId: string) {
   const supabase = await createClient()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser) throw new Error('Not authenticated')
 
-  // Verify the profile exists and is active before setting the cookie
-  const { data: profile } = await supabase
+  // Get companies owned by the auth user
+  const { data: ownedCompanies } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_id', authUser.id)
+
+  const companyIds = (ownedCompanies ?? []).map(c => c.id)
+
+  // Verify the profile exists, is active, and belongs to one of the auth user's companies
+  let query = supabase
     .from('users')
-    .select('id, is_active')
+    .select('id, is_active, primary_company_id')
     .eq('id', userId)
     .eq('is_active', true)
-    .single()
 
-  if (!profile) throw new Error('Profile not found or inactive')
+  if (companyIds.length > 0) {
+    query = query.in('primary_company_id', companyIds)
+  }
+
+  const { data: profile } = await query.single()
+
+  if (!profile) throw new Error('Profile not found or access denied')
 
   const cookieStore = await cookies()
   cookieStore.set('active_profile_id', userId, {
@@ -196,21 +222,21 @@ export async function clearActiveProfile() {
   }
 }
 
-// Create a new team member profile (manager creates these)
+// Create a new team member profile (manager only)
 export async function createProfile(name: string, role: string, pin?: string, primaryCompanyId?: string) {
+  const { companyId, role: callerRole } = await getUserWithCompany()
+  requireManager(callerRole)
+
   const supabase = await createClient()
 
-  // Get the shared Google auth user ID to link
-  const { data: { user: authUser } } = await supabase.auth.getUser()
-  if (!authUser) throw new Error('Not authenticated')
-
+  // Always use the authenticated user's company — ignore client-supplied companyId
   const { data, error } = await supabase.from('users').insert({
     id: crypto.randomUUID(),
     email: `${name.toLowerCase().replace(/\s+/g, '.')}@team.roofcrm`,
     name,
     role,
     is_active: true,
-    ...(primaryCompanyId ? { primary_company_id: primaryCompanyId } : {}),
+    primary_company_id: companyId,
   }).select().single()
 
   if (error) throw new Error(error.message)
@@ -230,12 +256,25 @@ export async function signOutAndClear() {
   await supabase.auth.signOut()
 }
 
-// Update an existing profile
+// Update an existing profile (manager only, target must be in same company)
 export async function updateProfile(
   userId: string,
   updates: { name?: string; role?: string; is_active?: boolean; primary_company_id?: string | null }
 ) {
+  const { companyId, role: callerRole } = await getUserWithCompany()
+  requireManager(callerRole)
+
   const supabase = await createClient()
+
+  // Verify the target user belongs to the manager's company
+  const { data: targetUser } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .eq('primary_company_id', companyId)
+    .maybeSingle()
+  if (!targetUser) throw new Error('User not found or not in your company')
+
   const { error } = await supabase.from('users').update(updates).eq('id', userId)
   if (error) throw new Error(error.message)
 }

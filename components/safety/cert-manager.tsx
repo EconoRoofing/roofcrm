@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addCertification, deleteCertification } from '@/lib/actions/safety'
 import type { Certification } from '@/lib/actions/safety'
@@ -20,7 +20,7 @@ interface Props {
 export function CertManager({ usersWithCerts }: Props) {
   const router = useRouter()
   const [addingFor, setAddingFor] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
+  const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Form state
@@ -37,39 +37,41 @@ export function CertManager({ usersWithCerts }: Props) {
     setError(null)
   }
 
-  function handleAdd(userId: string) {
+  async function handleAdd(userId: string) {
     if (!certName.trim()) {
       setError('Certification name is required')
       return
     }
 
-    startTransition(async () => {
-      try {
-        await addCertification({
-          userId,
-          name: certName.trim(),
-          certNumber: certNumber.trim() || undefined,
-          issuedDate: issuedDate || undefined,
-          expiryDate: expiryDate || undefined,
-        })
-        resetForm()
-        setAddingFor(null)
-        router.refresh()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add certification')
-      }
-    })
+    setPendingId(`add-${userId}`)
+    try {
+      await addCertification({
+        userId,
+        name: certName.trim(),
+        certNumber: certNumber.trim() || undefined,
+        issuedDate: issuedDate || undefined,
+        expiryDate: expiryDate || undefined,
+      })
+      resetForm()
+      setAddingFor(null)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add certification')
+    } finally {
+      setPendingId(null)
+    }
   }
 
-  function handleDelete(certId: string) {
-    startTransition(async () => {
-      try {
-        await deleteCertification(certId)
-        router.refresh()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to delete certification')
-      }
-    })
+  async function handleDelete(certId: string) {
+    setPendingId(`del-${certId}`)
+    try {
+      await deleteCertification(certId)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete certification')
+    } finally {
+      setPendingId(null)
+    }
   }
 
   return (
@@ -273,11 +275,11 @@ export function CertManager({ usersWithCerts }: Props) {
               <button
                 type="button"
                 onClick={() => handleAdd(user.id)}
-                disabled={isPending || !certName.trim()}
+                disabled={pendingId !== null || !certName.trim()}
                 style={{
                   padding: '10px 16px',
                   background:
-                    certName.trim() && !isPending
+                    certName.trim() && pendingId === null
                       ? 'linear-gradient(135deg, var(--nav-gradient-1), var(--nav-gradient-2))'
                       : 'var(--bg-surface)',
                   border: certName.trim() ? 'none' : '1px solid var(--border-subtle)',
@@ -285,12 +287,12 @@ export function CertManager({ usersWithCerts }: Props) {
                   fontFamily: 'var(--font-sans)',
                   fontSize: '13px',
                   fontWeight: 700,
-                  color: certName.trim() && !isPending ? 'var(--nav-text)' : 'var(--text-muted)',
-                  cursor: certName.trim() && !isPending ? 'pointer' : 'not-allowed',
-                  opacity: isPending ? 0.6 : 1,
+                  color: certName.trim() && pendingId === null ? 'var(--nav-text)' : 'var(--text-muted)',
+                  cursor: certName.trim() && pendingId === null ? 'pointer' : 'not-allowed',
+                  opacity: pendingId === `add-${user.id}` ? 0.6 : 1,
                 }}
               >
-                {isPending ? 'Saving...' : 'Save Certification'}
+                {pendingId === `add-${user.id}` ? 'Saving...' : 'Save Certification'}
               </button>
             </div>
           )}
@@ -399,14 +401,14 @@ export function CertManager({ usersWithCerts }: Props) {
                     <button
                       type="button"
                       onClick={() => handleDelete(cert.id)}
-                      disabled={isPending}
+                      disabled={pendingId === `del-${cert.id}`}
                       style={{
                         padding: '4px',
                         backgroundColor: 'transparent',
                         border: 'none',
                         borderRadius: '4px',
                         color: 'var(--text-muted)',
-                        cursor: 'pointer',
+                        cursor: pendingId === `del-${cert.id}` ? 'not-allowed' : 'pointer',
                         flexShrink: 0,
                         display: 'flex',
                         alignItems: 'center',

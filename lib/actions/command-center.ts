@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 export interface CommandCenterData {
   // Today
@@ -26,6 +27,7 @@ export interface CommandCenterData {
 }
 
 export async function getCommandCenterData(): Promise<CommandCenterData> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const now = new Date()
@@ -53,19 +55,22 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     supabase
       .from('jobs')
       .select('id, customer_name, address, city, status, company:companies(name, color)')
+      .eq('company_id', companyId)
       .eq('scheduled_date', today)
       .not('status', 'in', '("cancelled")'),
 
-    // Currently clocked-in crew (open time entries)
+    // Currently clocked-in crew (open time entries) — scoped via job join
     supabase
       .from('time_entries')
-      .select('user_id', { count: 'exact', head: true })
-      .is('clock_out', null),
+      .select('user_id, job:jobs!inner(company_id)', { count: 'exact', head: true })
+      .is('clock_out', null)
+      .eq('jobs.company_id', companyId),
 
     // Total crew with jobs today
     supabase
       .from('jobs')
       .select('assigned_crew_id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
       .eq('scheduled_date', today)
       .not('assigned_crew_id', 'is', null),
 
@@ -73,17 +78,19 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     supabase
       .from('jobs')
       .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
       .in('status', ['lead', 'pending'])
       .lt('created_at', staleCutoff),
 
-    // Due follow-ups
+    // Due follow-ups — scoped via job join
     supabase
       .from('follow_ups')
       .select(`
         id,
         note,
-        job:jobs!follow_ups_job_id_fkey(customer_name, phone)
+        job:jobs!inner(customer_name, phone, company_id)
       `)
+      .eq('job.company_id', companyId)
       .lte('due_date', today)
       .is('completed_at', null)
       .order('due_date', { ascending: true })
@@ -93,6 +100,7 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     supabase
       .from('jobs')
       .select('total_amount')
+      .eq('company_id', companyId)
       .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
       .gte('created_at', monthStart),
 
@@ -100,19 +108,22 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     supabase
       .from('jobs')
       .select('total_amount')
+      .eq('company_id', companyId)
       .in('status', ['lead', 'estimate_scheduled', 'pending', 'sold', 'scheduled', 'in_progress']),
 
     // Yesterday completed
     supabase
       .from('jobs')
       .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
       .eq('status', 'completed')
       .eq('completed_date', yesterdayStr),
 
-    // Open incidents (safety)
+    // Open incidents (safety) — scoped by company
     supabase
       .from('incidents')
       .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
       .eq('status', 'open'),
   ])
 

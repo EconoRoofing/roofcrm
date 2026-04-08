@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
+import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import { ROOFING_CHECKLIST_ITEMS } from '@/lib/safety-constants'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -91,10 +91,12 @@ const ROOFING_CHECKLIST: ChecklistItem[] = ROOFING_CHECKLIST_ITEMS
 // ─── TOOLBOX TALKS ────────────────────────────────────────────────────────────
 
 export async function getToolboxTalks(): Promise<ToolboxTalk[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('toolbox_talks')
     .select('*')
+    .eq('company_id', companyId)
     .order('is_template', { ascending: false })
     .order('title')
 
@@ -106,17 +108,17 @@ export async function startToolboxTalkSession(
   talkId: string,
   jobId: string | null
 ): Promise<ToolboxTalkSession> {
+  const { userId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
   const { data, error } = await supabase
     .from('toolbox_talk_sessions')
     .insert({
       talk_id: talkId,
       job_id: jobId,
-      conducted_by: user.id,
+      conducted_by: userId,
       conducted_at: new Date().toISOString(),
+      company_id: companyId,
     })
     .select()
     .single()
@@ -126,30 +128,45 @@ export async function startToolboxTalkSession(
 }
 
 export async function signToolboxTalk(sessionId: string, userId: string): Promise<void> {
+  const { userId: currentUserId, companyId, role } = await getUserWithCompany()
   const supabase = await createClient()
-  const currentUser = await getUser()
-  if (!currentUser) throw new Error('Not authenticated')
 
   // Authorization: only the user themselves, or a manager/crew lead can sign on behalf
-  // For shared-device use, the crew lead signs everyone — this is the intended flow
+  if (userId !== currentUserId && role !== 'manager' && role !== 'crew_lead') {
+    throw new Error('Only managers or crew leads can sign on behalf of others')
+  }
+
+  // Verify the target user belongs to the same company
+  if (userId !== currentUserId) {
+    const { data: targetUser } = await supabase
+      .from('users')
+      .select('primary_company_id')
+      .eq('id', userId)
+      .single()
+    if (!targetUser || targetUser.primary_company_id !== companyId) {
+      throw new Error('Target user not found in your company')
+    }
+  }
 
   const { error } = await supabase
     .from('toolbox_talk_signoffs')
     .upsert({
       session_id: sessionId,
-      user_id: userId,  // Use the passed userId, not currentUser.id
+      user_id: userId,
     }, { onConflict: 'session_id,user_id' })
 
   if (error) throw new Error(`Failed to sign off: ${error.message}`)
 }
 
 export async function getJobToolboxSessions(jobId: string): Promise<ToolboxTalkSession[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('toolbox_talk_sessions')
     .select('*, talk:toolbox_talks(*)')
     .eq('job_id', jobId)
+    .eq('company_id', companyId)
     .order('conducted_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch sessions: ${error.message}`)
@@ -157,11 +174,13 @@ export async function getJobToolboxSessions(jobId: string): Promise<ToolboxTalkS
 }
 
 export async function getRecentToolboxSessions(limit = 20): Promise<ToolboxTalkSession[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('toolbox_talk_sessions')
     .select('*, talk:toolbox_talks(*)')
+    .eq('company_id', companyId)
     .order('conducted_at', { ascending: false })
     .limit(limit)
 
@@ -170,6 +189,7 @@ export async function getRecentToolboxSessions(limit = 20): Promise<ToolboxTalkS
 }
 
 export async function getToolboxSessionsThisWeek(): Promise<number> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const weekAgo = new Date()
   weekAgo.setDate(weekAgo.getDate() - 7)
@@ -177,6 +197,7 @@ export async function getToolboxSessionsThisWeek(): Promise<number> {
   const { count, error } = await supabase
     .from('toolbox_talk_sessions')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .gte('conducted_at', weekAgo.toISOString())
 
   if (error) return 0
@@ -189,19 +210,19 @@ export async function createInspection(
   jobId: string,
   type: string
 ): Promise<SafetyInspection> {
+  const { userId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
   const { data, error } = await supabase
     .from('safety_inspections')
     .insert({
       job_id: jobId,
-      inspector_id: user.id,
+      inspector_id: userId,
       inspection_type: type,
       status: 'in_progress',
       checklist: ROOFING_CHECKLIST,
       inspected_at: new Date().toISOString(),
+      company_id: companyId,
     })
     .select()
     .single()
@@ -215,13 +236,15 @@ export async function updateInspectionItem(
   itemIndex: number,
   updates: { checked?: boolean; note?: string; photo_url?: string }
 ): Promise<void> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
-  // Fetch current checklist
+  // Fetch current checklist scoped to company
   const { data, error: fetchError } = await supabase
     .from('safety_inspections')
     .select('checklist')
     .eq('id', inspectionId)
+    .eq('company_id', companyId)
     .single()
 
   if (fetchError || !data) throw new Error('Inspection not found')
@@ -235,6 +258,7 @@ export async function updateInspectionItem(
     .from('safety_inspections')
     .update({ checklist })
     .eq('id', inspectionId)
+    .eq('company_id', companyId)
 
   if (error) throw new Error(`Failed to update item: ${error.message}`)
 }
@@ -243,12 +267,14 @@ export async function completeInspection(
   inspectionId: string,
   notes: string
 ): Promise<SafetyInspection> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data: existing, error: fetchError } = await supabase
     .from('safety_inspections')
     .select('checklist')
     .eq('id', inspectionId)
+    .eq('company_id', companyId)
     .single()
 
   if (fetchError || !existing) throw new Error('Inspection not found')
@@ -265,6 +291,7 @@ export async function completeInspection(
       completed_at: new Date().toISOString(),
     })
     .eq('id', inspectionId)
+    .eq('company_id', companyId)
     .select()
     .single()
 
@@ -273,12 +300,14 @@ export async function completeInspection(
 }
 
 export async function getJobInspections(jobId: string): Promise<SafetyInspection[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('safety_inspections')
     .select('*')
     .eq('job_id', jobId)
+    .eq('company_id', companyId)
     .order('inspected_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch inspections: ${error.message}`)
@@ -286,6 +315,7 @@ export async function getJobInspections(jobId: string): Promise<SafetyInspection
 }
 
 export async function getTodayInspectionForJob(jobId: string): Promise<SafetyInspection | null> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
@@ -294,6 +324,7 @@ export async function getTodayInspectionForJob(jobId: string): Promise<SafetyIns
     .from('safety_inspections')
     .select('*')
     .eq('job_id', jobId)
+    .eq('company_id', companyId)
     .gte('inspected_at', todayStart.toISOString())
     .order('inspected_at', { ascending: false })
     .limit(1)
@@ -303,6 +334,7 @@ export async function getTodayInspectionForJob(jobId: string): Promise<SafetyIns
 }
 
 export async function getInspectionsThisMonth(): Promise<{ passed: number; failed: number }> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const monthStart = new Date()
   monthStart.setDate(1)
@@ -311,6 +343,7 @@ export async function getInspectionsThisMonth(): Promise<{ passed: number; faile
   const { data } = await supabase
     .from('safety_inspections')
     .select('status')
+    .eq('company_id', companyId)
     .gte('inspected_at', monthStart.toISOString())
     .not('status', 'eq', 'in_progress')
 
@@ -332,15 +365,14 @@ export async function reportIncident(data: {
   photos?: string[]
   witnesses?: string
 }): Promise<Incident> {
+  const { userId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
   const { data: incident, error } = await supabase
     .from('incidents')
     .insert({
       job_id: data.jobId ?? null,
-      reported_by: user.id,
+      reported_by: userId,
       incident_type: data.incidentType,
       severity: data.severity,
       description: data.description,
@@ -351,6 +383,7 @@ export async function reportIncident(data: {
       witnesses: data.witnesses ?? null,
       status: 'reported',
       reported_at: new Date().toISOString(),
+      company_id: companyId,
     })
     .select()
     .single()
@@ -363,11 +396,13 @@ export async function getIncidents(filters?: {
   jobId?: string
   status?: string
 }): Promise<Incident[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   let query = supabase
     .from('incidents')
     .select('*, reporter:users!reported_by(name)')
+    .eq('company_id', companyId)
     .order('reported_at', { ascending: false })
 
   if (filters?.jobId) query = query.eq('job_id', filters.jobId)
@@ -379,11 +414,13 @@ export async function getIncidents(filters?: {
 }
 
 export async function getOpenIncidentsCount(): Promise<number> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { count } = await supabase
     .from('incidents')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .in('status', ['reported', 'investigating'])
 
   return count ?? 0
@@ -394,6 +431,8 @@ export async function updateIncidentStatus(
   status: string,
   correctiveAction?: string
 ): Promise<void> {
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
   const supabase = await createClient()
 
   const updates: Record<string, unknown> = { status }
@@ -402,7 +441,11 @@ export async function updateIncidentStatus(
     updates.resolved_at = new Date().toISOString()
   }
 
-  const { error } = await supabase.from('incidents').update(updates).eq('id', id)
+  const { error } = await supabase
+    .from('incidents')
+    .update(updates)
+    .eq('id', id)
+    .eq('company_id', companyId)
   if (error) throw new Error(`Failed to update incident: ${error.message}`)
 }
 
@@ -416,7 +459,18 @@ export async function addCertification(data: {
   expiryDate?: string
   documentUrl?: string
 }): Promise<Certification> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify target user belongs to same company
+  const { data: targetUser } = await supabase
+    .from('users')
+    .select('primary_company_id')
+    .eq('id', data.userId)
+    .single()
+  if (!targetUser || targetUser.primary_company_id !== companyId) {
+    throw new Error('Target user not found in your company')
+  }
 
   // Determine status
   let status = 'active'
@@ -438,6 +492,7 @@ export async function addCertification(data: {
       expiry_date: data.expiryDate ?? null,
       document_url: data.documentUrl ?? null,
       status,
+      company_id: companyId,
     })
     .select()
     .single()
@@ -447,12 +502,14 @@ export async function addCertification(data: {
 }
 
 export async function getUserCertifications(userId: string): Promise<Certification[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('certifications')
     .select('*')
     .eq('user_id', userId)
+    .eq('company_id', companyId)
     .order('expiry_date', { ascending: true, nullsFirst: false })
 
   if (error) throw new Error(`Failed to fetch certifications: ${error.message}`)
@@ -460,6 +517,7 @@ export async function getUserCertifications(userId: string): Promise<Certificati
 }
 
 export async function getExpiringCertifications(): Promise<Certification[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const in30Days = new Date()
   in30Days.setDate(in30Days.getDate() + 30)
@@ -467,6 +525,7 @@ export async function getExpiringCertifications(): Promise<Certification[]> {
   const { data, error } = await supabase
     .from('certifications')
     .select('*, user:users(name, avatar_url)')
+    .eq('company_id', companyId)
     .lte('expiry_date', in30Days.toISOString().split('T')[0])
     .neq('status', 'expired')
     .order('expiry_date', { ascending: true })
@@ -476,6 +535,7 @@ export async function getExpiringCertifications(): Promise<Certification[]> {
 }
 
 export async function getExpiringCertificationsCount(): Promise<number> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const in30Days = new Date()
   in30Days.setDate(in30Days.getDate() + 30)
@@ -484,6 +544,7 @@ export async function getExpiringCertificationsCount(): Promise<number> {
   const { count } = await supabase
     .from('certifications')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .lte('expiry_date', in30Days.toISOString().split('T')[0])
     .gte('expiry_date', today)
 
@@ -491,11 +552,13 @@ export async function getExpiringCertificationsCount(): Promise<number> {
 }
 
 export async function getAllCertificationsWithUsers(): Promise<Certification[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('certifications')
     .select('*, user:users(name, avatar_url)')
+    .eq('company_id', companyId)
     .order('user_id')
     .order('expiry_date', { ascending: true, nullsFirst: false })
 
@@ -504,6 +567,7 @@ export async function getAllCertificationsWithUsers(): Promise<Certification[]> 
 }
 
 export async function checkRequiredCerts(userId: string): Promise<{ valid: boolean; missing: string[] }> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
@@ -511,6 +575,7 @@ export async function checkRequiredCerts(userId: string): Promise<{ valid: boole
     .from('certifications')
     .select('name, expiry_date, status')
     .eq('user_id', userId)
+    .eq('company_id', companyId)
     .eq('status', 'active')
 
   const validCerts = (certs ?? []).filter(cert => {
@@ -533,22 +598,31 @@ export async function checkRequiredCerts(userId: string): Promise<{ valid: boole
 }
 
 export async function deleteCertification(id: string): Promise<void> {
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
   const supabase = await createClient()
-  const { error } = await supabase.from('certifications').delete().eq('id', id)
+
+  const { error } = await supabase
+    .from('certifications')
+    .delete()
+    .eq('id', id)
+    .eq('company_id', companyId)
   if (error) throw new Error(`Failed to delete certification: ${error.message}`)
 }
 
 // ─── MISSING TOOLBOX TALK DETECTION ──────────────────────────────────────────
 
 export async function getCrewsMissingTalkToday(): Promise<Array<{ userId: string; userName: string }>> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Get all active crew/sales_crew users
+  // Get all active crew/sales_crew users in this company
   const { data: crewMembers } = await supabase
     .from('users')
     .select('id, name')
+    .eq('primary_company_id', companyId)
     .in('role', ['crew', 'sales_crew'])
     .eq('is_active', true)
 
@@ -569,17 +643,78 @@ export async function getCrewsMissingTalkToday(): Promise<Array<{ userId: string
 
 // ─── SAFETY DASHBOARD STATS ───────────────────────────────────────────────────
 
+// Internal helpers that accept (supabase, companyId) to avoid redundant auth calls
+
+async function _talksThisWeek(supabase: Awaited<ReturnType<typeof createClient>>, companyId: string): Promise<number> {
+  const weekAgo = new Date()
+  weekAgo.setDate(weekAgo.getDate() - 7)
+
+  const { count, error } = await supabase
+    .from('toolbox_talk_sessions')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .gte('conducted_at', weekAgo.toISOString())
+
+  if (error) return 0
+  return count ?? 0
+}
+
+async function _inspectionsThisMonth(supabase: Awaited<ReturnType<typeof createClient>>, companyId: string): Promise<{ passed: number; failed: number }> {
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+
+  const { data } = await supabase
+    .from('safety_inspections')
+    .select('status')
+    .eq('company_id', companyId)
+    .gte('inspected_at', monthStart.toISOString())
+    .not('status', 'eq', 'in_progress')
+
+  const passed = (data ?? []).filter((r) => r.status === 'passed').length
+  const failed = (data ?? []).filter((r) => r.status === 'failed').length
+  return { passed, failed }
+}
+
+async function _openIncidentsCount(supabase: Awaited<ReturnType<typeof createClient>>, companyId: string): Promise<number> {
+  const { count } = await supabase
+    .from('incidents')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .in('status', ['reported', 'investigating'])
+
+  return count ?? 0
+}
+
+async function _expiringCertsCount(supabase: Awaited<ReturnType<typeof createClient>>, companyId: string): Promise<number> {
+  const in30Days = new Date()
+  in30Days.setDate(in30Days.getDate() + 30)
+  const today = new Date().toISOString().split('T')[0]
+
+  const { count } = await supabase
+    .from('certifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .lte('expiry_date', in30Days.toISOString().split('T')[0])
+    .gte('expiry_date', today)
+
+  return count ?? 0
+}
+
 export async function getSafetyStats(): Promise<{
   talksThisWeek: number
   inspectionsThisMonth: { passed: number; failed: number }
   openIncidents: number
   expiringCerts: number
 }> {
+  const { companyId } = await getUserWithCompany()
+  const supabase = await createClient()
+
   const [talksThisWeek, inspectionsThisMonth, openIncidents, expiringCerts] = await Promise.all([
-    getToolboxSessionsThisWeek(),
-    getInspectionsThisMonth(),
-    getOpenIncidentsCount(),
-    getExpiringCertificationsCount(),
+    _talksThisWeek(supabase, companyId),
+    _inspectionsThisMonth(supabase, companyId),
+    _openIncidentsCount(supabase, companyId),
+    _expiringCertsCount(supabase, companyId),
   ])
 
   return { talksThisWeek, inspectionsThisMonth, openIncidents, expiringCerts }

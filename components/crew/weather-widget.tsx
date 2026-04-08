@@ -19,15 +19,19 @@ export function WeatherWidget({ city }: WeatherWidgetProps) {
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    const controller = new AbortController()
     setWeather(null)
     setError(false)
-    fetch(`/api/weather?city=${encodeURIComponent(city)}`)
+    fetch(`/api/weather?city=${encodeURIComponent(city)}`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error('fetch failed')
         return r.json()
       })
       .then((d: WeatherData) => setWeather(d))
-      .catch(() => setError(true))
+      .catch((err) => {
+        if (err.name !== 'AbortError') setError(true)
+      })
+    return () => controller.abort()
   }, [city])
 
   if (error) {

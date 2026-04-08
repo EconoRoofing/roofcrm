@@ -13,8 +13,9 @@ const FOLLOW_UP_TEMPLATES = {
     `Hi ${name}, last check-in on your roofing estimate from ${company}. We're here whenever you're ready. Thanks for considering us!`,
 }
 
-// Check for and send due follow-ups
-// This should be called by a cron job (Vercel Cron or external scheduler)
+// CRON-ONLY: Check for and send due follow-ups.
+// This should only be called from the cron route handler which verifies CRON_SECRET.
+// No user auth context is available in cron jobs.
 export async function processFollowUps(): Promise<{ sent: number; skipped: number }> {
   const supabase = await createClient()
   const now = new Date()

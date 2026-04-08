@@ -1,9 +1,11 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 // Generate a QR code data URL for the company's Google review link
-export async function generateReviewQR(companyId: string): Promise<string | null> {
+export async function generateReviewQR(_companyId?: string): Promise<string | null> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const { data } = await supabase
     .from('companies')
@@ -18,8 +20,9 @@ export async function generateReviewQR(companyId: string): Promise<string | null
 export async function sendReviewLinkSMS(
   jobId: string,
   customerPhone: string,
-  companyId: string
+  _companyId?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
   const { data: company } = await supabase
     .from('companies')
@@ -36,23 +39,26 @@ export async function sendReviewLinkSMS(
   return sendSMS(customerPhone, message)
 }
 
-// Get review stats across all jobs
+// Get review stats for the user's company
 export async function getReviewStats(): Promise<{
   totalRequested: number
   totalReceived: number
   ratePercent: number
   byCompany: Array<{ name: string; requested: number; received: number }>
 }> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const [completedResult, companiesResult] = await Promise.all([
     supabase
       .from('jobs')
       .select('company_id, review_received')
-      .eq('status', 'completed'),
+      .eq('status', 'completed')
+      .eq('company_id', companyId),
     supabase
       .from('companies')
-      .select('id, name'),
+      .select('id, name')
+      .eq('id', companyId),
   ])
 
   const jobs = completedResult.data ?? []

@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
 
+// CRON-ONLY: Should only be called from the cron route handler which verifies CRON_SECRET.
+// No user auth context is available in cron jobs.
 export async function processPostJobAutomation(): Promise<{ sent: number }> {
   const supabase = await createClient()
   const now = new Date()

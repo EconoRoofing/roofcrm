@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 
 export type ClaimStatus = 'filed' | 'inspection' | 'approved' | 'supplement' | 'done'
@@ -27,19 +27,22 @@ export async function updateClaimStatus(
   new_status: ClaimStatus,
   notes?: string
 ) {
-  const supabase = await createClient()
-  const user = await getUser()
-
-  if (!user) throw new Error('Not authenticated')
+  const { userId, companyId } = await getUserWithCompany()
 
   // Runtime validation of the status value
   if (!CLAIM_STATUSES.includes(new_status)) throw new Error('Invalid claim status')
 
-  // Fetch current job and claim_status together
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
+  const supabase = await createClient()
+
+  // Fetch current claim_status
   const { data: job, error: jobError } = await supabase
     .from('jobs')
     .select('id, insurance_claim, claim_number, company_id, claim_status')
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .single()
 
   if (jobError || !job || !job.insurance_claim) {
@@ -53,13 +56,6 @@ export async function updateClaimStatus(
     throw new Error(`Cannot move claim from '${currentStatus}' to '${new_status}'`)
   }
 
-  // Get current claim timeline from notes
-  const timeline: ClaimTimeline[] = []
-  if (job.claim_number) {
-    // Parse existing timeline from metadata if available
-    // For now, just track status changes in activity logs
-  }
-
   // Add new timeline entry
   const newEntry: ClaimTimeline = {
     status: new_status,
@@ -67,14 +63,9 @@ export async function updateClaimStatus(
     notes: notes,
   }
 
-  // Update job status based on claim progression
-  let jobStatus = 'pending'
-  if (new_status === 'approved') jobStatus = 'sold'
-  if (new_status === 'done') jobStatus = 'completed'
-
   // Update claim_status + conditionally update job status (do NOT touch notes)
   const updatePayload: Record<string, unknown> = {
-    claim_status: new_status,  // Always persist the new claim status
+    claim_status: new_status,
   }
   if (new_status === 'approved') updatePayload.status = 'sold'
   if (new_status === 'done') updatePayload.status = 'completed'
@@ -88,8 +79,8 @@ export async function updateClaimStatus(
 
   if (updateError) throw new Error(`Failed to update claim status: ${updateError.message}`)
 
-  // Log activity for audit trail
-  await logActivity(job_id, user?.id ?? null, 'insurance_claim_update', '', new_status)
+  // Log activity for audit trail — pass currentStatus as old_value
+  await logActivity(job_id, userId, 'insurance_claim_update', currentStatus, new_status)
 
   return {
     job: updatedJob,
@@ -98,17 +89,19 @@ export async function updateClaimStatus(
 }
 
 export async function getClaimTimeline(job_id: string) {
+  const { companyId } = await getUserWithCompany()
+
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
   const supabase = await createClient()
-  const user = await getUser()
 
-  if (!user) throw new Error('Not authenticated')
-
-  // Fetch activity logs for this job filtered by insurance_claim_update
+  // Use correct table name (activity_log) and column name (action)
   const { data: activities, error } = await supabase
-    .from('activity_logs')
-    .select('id, action_type, old_value, new_value, created_at, user_id')
+    .from('activity_log')
+    .select('id, action, old_value, new_value, created_at, user_id')
     .eq('job_id', job_id)
-    .eq('action_type', 'insurance_claim_update')
+    .eq('action', 'insurance_claim_update')
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(`Failed to fetch claim timeline: ${error.message}`)
@@ -124,13 +117,14 @@ export async function getClaimTimeline(job_id: string) {
 
 export async function getInsuranceClaims(company_id: string) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
+  // Ensure user can only query their own company
+  if (company_id !== companyId) throw new Error('Access denied')
 
   const { data: jobs, error } = await supabase
     .from('jobs')
-    .select('id, customer_name, claim_number, insurance_company, adjuster_name, adjuster_phone, supplement_amount, notes')
+    .select('id, customer_name, claim_number, insurance_company, adjuster_name, adjuster_phone, supplement_amount, notes, claim_status')
     .eq('company_id', company_id)
     .eq('insurance_claim', true)
     .order('created_at', { ascending: false })
@@ -145,10 +139,12 @@ export async function updateAdjusterInfo(
   adjuster_phone?: string,
   adjuster_email?: string
 ) {
-  const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
+  const supabase = await createClient()
 
   const payload: Record<string, unknown> = {}
   if (adjuster_name !== undefined) payload.adjuster_name = adjuster_name
@@ -159,6 +155,7 @@ export async function updateAdjusterInfo(
     .from('jobs')
     .update(payload)
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .select()
     .single()
 
@@ -167,17 +164,21 @@ export async function updateAdjusterInfo(
 }
 
 export async function updateSupplementAmount(job_id: string, amount: number) {
-  const supabase = await createClient()
-  const user = await getUser()
+  const { companyId } = await getUserWithCompany()
 
-  if (!user) throw new Error('Not authenticated')
-  if (amount < 0) throw new Error('Supplement amount cannot be negative')
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
+  if (amount <= 0) throw new Error('Supplement amount must be greater than zero')
   if (amount > 500000) throw new Error('Supplement amount exceeds maximum ($500,000)')
+
+  const supabase = await createClient()
 
   const { data: job, error } = await supabase
     .from('jobs')
     .update({ supplement_amount: amount })
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .select()
     .single()
 
@@ -192,38 +193,46 @@ export async function getAgingClaims(): Promise<Array<{
   claimStatus: string
   daysSinceLastUpdate: number
 }>> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
-  const fourteenDaysAgo = new Date()
-  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
-
-  // Get all active insurance claims (not done)
+  // Get all active insurance claims for this company (not done)
   const { data: jobs, error } = await supabase
     .from('jobs')
     .select('id, job_number, customer_name, claim_status')
+    .eq('company_id', companyId)
     .eq('insurance_claim', true)
     .neq('claim_status', 'done')
     .neq('status', 'cancelled')
 
-  if (error || !jobs) return []
+  if (error || !jobs || jobs.length === 0) return []
 
-  // For each job, find last claim-related activity
+  // Batch query: get last claim-related activity for all jobs at once
+  const jobIds = jobs.map((j) => j.id)
+  const { data: activities } = await supabase
+    .from('activity_log')
+    .select('job_id, created_at')
+    .in('job_id', jobIds)
+    .eq('action', 'insurance_claim_update')
+    .order('created_at', { ascending: false })
+
+  // Build a map of job_id -> last activity date (first occurrence per job is latest)
+  const lastActivityMap = new Map<string, string>()
+  for (const activity of activities || []) {
+    if (!lastActivityMap.has(activity.job_id)) {
+      lastActivityMap.set(activity.job_id, activity.created_at)
+    }
+  }
+
+  const fourteenDaysAgo = new Date()
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+
   const results: Array<{ jobId: string; jobNumber: string; customerName: string; claimStatus: string; daysSinceLastUpdate: number }> = []
 
   for (const job of jobs) {
-    const { data: lastActivity } = await supabase
-      .from('activity_log')
-      .select('created_at')
-      .eq('job_id', job.id)
-      .eq('action', 'insurance_claim_update')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    const lastUpdateDate = lastActivity?.created_at
-      ? new Date(lastActivity.created_at)
+    const lastCreatedAt = lastActivityMap.get(job.id)
+    const lastUpdateDate = lastCreatedAt
+      ? new Date(lastCreatedAt)
       : fourteenDaysAgo // if no activity, treat as stale
 
     const daysSince = Math.floor((Date.now() - lastUpdateDate.getTime()) / (1000 * 60 * 60 * 24))
@@ -253,15 +262,19 @@ export async function addClaimDocument(
   job_id: string,
   document: ClaimDocument
 ): Promise<ClaimDocument[]> {
+  const { userId, companyId } = await getUserWithCompany()
+
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
   // Fetch current documents
   const { data: job, error: fetchError } = await supabase
     .from('jobs')
     .select('claim_documents')
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .single()
 
   if (fetchError) throw new Error('Job not found')
@@ -276,27 +289,193 @@ export async function addClaimDocument(
     .from('jobs')
     .update({ claim_documents: updated })
     .eq('id', job_id)
+    .eq('company_id', companyId)
 
   if (error) throw new Error(`Failed to add document: ${error.message}`)
 
-  await logActivity(job_id, user.id, 'claim_document_added', document.stage, document.name)
+  await logActivity(job_id, userId, 'claim_document_added', document.stage, document.name)
 
   return updated
 }
 
-export async function getClaimDocuments(job_id: string): Promise<ClaimDocument[]> {
+// ---------------------------------------------------------------------------
+// Multi-round supplement tracking
+// ---------------------------------------------------------------------------
+
+export async function addSupplementRound(
+  jobId: string,
+  amount: number,
+  notes?: string
+) {
+  const { userId, companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
+
+  if (amount <= 0) throw new Error('Supplement amount must be greater than zero')
+  if (amount > 500000) throw new Error('Supplement amount exceeds maximum ($500,000)')
+
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+
+  // Determine next round number
+  const { data: existing } = await supabase
+    .from('supplement_rounds')
+    .select('round_number')
+    .eq('job_id', jobId)
+    .order('round_number', { ascending: false })
+    .limit(1)
+
+  const nextRound = (existing && existing.length > 0) ? existing[0].round_number + 1 : 1
+
+  const { data: round, error } = await supabase
+    .from('supplement_rounds')
+    .insert({
+      job_id: jobId,
+      round_number: nextRound,
+      amount,
+      status: 'submitted',
+      notes: notes ?? null,
+      created_by: userId,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to create supplement round: ${error.message}`)
+
+  await logActivity(jobId, userId, 'supplement_round_added', null, `Round ${nextRound}: $${amount}`)
+
+  return round
+}
+
+export async function getSupplementRounds(jobId: string) {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
+
+  const supabase = await createClient()
+
+  const { data: rounds, error } = await supabase
+    .from('supplement_rounds')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('round_number', { ascending: true })
+
+  if (error) throw new Error(`Failed to fetch supplement rounds: ${error.message}`)
+  return rounds || []
+}
+
+export async function updateSupplementRoundStatus(
+  roundId: string,
+  status: 'submitted' | 'approved' | 'denied',
+  notes?: string
+) {
+  const { userId, companyId } = await getUserWithCompany()
+  const supabase = await createClient()
+
+  // Fetch the round and verify ownership through the job
+  const { data: round, error: fetchError } = await supabase
+    .from('supplement_rounds')
+    .select('*, jobs!inner(company_id)')
+    .eq('id', roundId)
+    .single()
+
+  if (fetchError || !round) throw new Error('Supplement round not found')
+  if ((round as any).jobs.company_id !== companyId) throw new Error('Access denied')
+
+  const updatePayload: Record<string, unknown> = { status }
+  if (notes !== undefined) updatePayload.notes = notes
+  if (status === 'approved') updatePayload.approved_at = new Date().toISOString()
+  if (status === 'denied') updatePayload.denied_at = new Date().toISOString()
+
+  const { data: updated, error } = await supabase
+    .from('supplement_rounds')
+    .update(updatePayload)
+    .eq('id', roundId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update supplement round: ${error.message}`)
+
+  await logActivity(
+    round.job_id,
+    userId,
+    'supplement_round_status',
+    round.status,
+    `Round ${round.round_number}: ${status}`
+  )
+
+  return updated
+}
+
+export async function getSupplementSummary(jobId: string) {
+  const { companyId } = await getUserWithCompany()
+  const job = await verifyJobOwnership(jobId, companyId)
+
+  const supabase = await createClient()
+
+  const { data: rounds, error } = await supabase
+    .from('supplement_rounds')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('round_number', { ascending: true })
+
+  if (error) throw new Error(`Failed to fetch supplement summary: ${error.message}`)
+
+  const allRounds = rounds || []
+  let totalSupplemented = 0
+  let totalApproved = 0
+  let totalDenied = 0
+
+  for (const r of allRounds) {
+    totalSupplemented += Number(r.amount) || 0
+    if (r.status === 'approved') totalApproved += Number(r.amount) || 0
+    if (r.status === 'denied') totalDenied += Number(r.amount) || 0
+  }
+
+  return {
+    originalEstimate: Number(job.total_amount ?? 0),
+    totalSupplemented: +totalSupplemented.toFixed(2),
+    totalApproved: +totalApproved.toFixed(2),
+    totalDenied: +totalDenied.toFixed(2),
+    rounds: allRounds,
+  }
+}
+
+export async function getClaimDocuments(job_id: string): Promise<ClaimDocument[]> {
+  const { companyId } = await getUserWithCompany()
+
+  // Verify job belongs to user's company
+  await verifyJobOwnership(job_id, companyId)
+
+  const supabase = await createClient()
 
   const { data: job, error } = await supabase
     .from('jobs')
     .select('claim_documents')
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .single()
 
   if (error) return []
 
-  const docs = (job as any).claim_documents
-  return Array.isArray(docs) ? docs : []
+  const docs: ClaimDocument[] = Array.isArray((job as any).claim_documents)
+    ? (job as any).claim_documents
+    : []
+
+  // Generate fresh signed URLs for documents stored as paths
+  if (docs.length > 0) {
+    const paths = docs.map(d => d.url).filter(u => !u.startsWith('http'))
+    if (paths.length > 0) {
+      const { data: signedData } = await supabase.storage
+        .from('claim-documents')
+        .createSignedUrls(paths, 3600)
+
+      if (signedData) {
+        const urlMap = new Map(signedData.map(s => [s.path, s.signedUrl]))
+        return docs.map(d => ({
+          ...d,
+          url: urlMap.get(d.url) || d.url,
+        }))
+      }
+    }
+  }
+
+  return docs
 }

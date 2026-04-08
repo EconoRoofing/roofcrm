@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 export interface DashboardData {
   // Pipeline KPIs
@@ -32,22 +33,19 @@ export interface DashboardData {
 }
 
 export async function getDashboardData(filters?: {
-  companyId?: string
   startDate?: string
   endDate?: string
 }): Promise<DashboardData> {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
-  // Build base job query
+  // Build base job query — always scoped to authenticated user's company
   let jobQuery = supabase
     .from('jobs')
     .select(
       'id, status, total_amount, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount'
     )
-
-  if (filters?.companyId) {
-    jobQuery = jobQuery.eq('company_id', filters.companyId)
-  }
+    .eq('company_id', companyId)
   if (filters?.startDate) {
     jobQuery = jobQuery.gte('created_at', filters.startDate)
   }
@@ -57,8 +55,8 @@ export async function getDashboardData(filters?: {
 
   const [jobsResult, companiesResult, usersResult] = await Promise.all([
     jobQuery,
-    supabase.from('companies').select('id, name, color'),
-    supabase.from('users').select('id, name').eq('role', 'sales'),
+    supabase.from('companies').select('id, name, color').eq('id', companyId),
+    supabase.from('users').select('id, name').eq('role', 'sales').eq('primary_company_id', companyId),
   ])
 
   const jobs = jobsResult.data ?? []
@@ -197,20 +195,29 @@ export async function getDashboardData(filters?: {
     weekStart.setDate(now.getDate() + mondayOffset)
     weekStart.setHours(0, 0, 0, 0)
 
+    // Scope time entries to this company's jobs
+    const companyJobIds = jobs.map(j => j.id)
+
+    // Skip time tracking queries if no jobs exist for this company
+    if (companyJobIds.length === 0) throw new Error('no jobs')
+
     const [timeEntriesResult, monthlyLaborResult, weeklyOTResult] = await Promise.all([
       supabase
         .from('time_entries')
         .select('job_id, total_hours')
+        .in('job_id', companyJobIds)
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')
         .select('total_cost')
+        .in('job_id', companyJobIds)
         .gte('clock_in', monthStart)
         .lte('clock_in', monthEnd)
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')
         .select('overtime_hours, doubletime_hours')
+        .in('job_id', companyJobIds)
         .gte('clock_in', weekStart.toISOString())
         .not('clock_out', 'is', null),
     ])
@@ -253,9 +260,7 @@ export async function getDashboardData(filters?: {
     .order('completed_date', { ascending: false })
     .limit(20)
 
-  if (filters?.companyId) {
-    jobQueryForTrend = jobQueryForTrend.eq('company_id', filters.companyId)
-  }
+  jobQueryForTrend = jobQueryForTrend.eq('company_id', companyId)
 
   const { data: trendJobs } = await jobQueryForTrend
 

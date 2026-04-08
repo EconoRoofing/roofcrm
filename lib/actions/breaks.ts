@@ -9,6 +9,16 @@ export async function startBreak(timeEntryId: string, type: BreakType): Promise<
   const user = await getUser()
   if (!user) throw new Error('Not authenticated')
 
+  // Verify the time entry belongs to the caller
+  const { data: entry } = await supabase
+    .from('time_entries')
+    .select('id, user_id')
+    .eq('id', timeEntryId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!entry) throw new Error('Time entry not found or access denied')
+
   // Guard: no active break already in progress
   const { data: existing } = await supabase
     .from('breaks')
@@ -38,14 +48,15 @@ export async function endBreak(breakId: string): Promise<Break> {
   const user = await getUser()
   if (!user) throw new Error('Not authenticated')
 
-  // Fetch the break to calculate duration
+  // Fetch the break and verify ownership through time_entry
   const { data: existing, error: fetchError } = await supabase
     .from('breaks')
-    .select('*')
+    .select('*, time_entry:time_entries!inner(user_id)')
     .eq('id', breakId)
     .single()
 
   if (fetchError || !existing) throw new Error('Break not found')
+  if ((existing.time_entry as any)?.user_id !== user.id) throw new Error('Access denied')
   if (existing.end_time) throw new Error('Break already ended')
 
   const endTime = new Date()
@@ -73,15 +84,18 @@ export async function getBreaksDue(timeEntryId: string): Promise<{
   violations: string[]
 }> {
   const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
 
-  // Fetch time entry clock_in
+  // Verify caller owns this time entry
   const { data: entry, error: entryError } = await supabase
     .from('time_entries')
-    .select('clock_in')
+    .select('clock_in, user_id')
     .eq('id', timeEntryId)
+    .eq('user_id', user.id)
     .single()
 
-  if (entryError || !entry) throw new Error('Time entry not found')
+  if (entryError || !entry) throw new Error('Time entry not found or access denied')
 
   const now = new Date()
   const clockIn = new Date(entry.clock_in as string)
@@ -115,6 +129,18 @@ export async function getBreaksDue(timeEntryId: string): Promise<{
 
 export async function getActiveBreak(timeEntryId: string): Promise<Break | null> {
   const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Verify caller owns this time entry
+  const { data: ownerCheck } = await supabase
+    .from('time_entries')
+    .select('id')
+    .eq('id', timeEntryId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!ownerCheck) throw new Error('Time entry not found or access denied')
 
   const { data, error } = await supabase
     .from('breaks')

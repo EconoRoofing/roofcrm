@@ -1,13 +1,21 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 export async function exportPayrollCSV(filters?: {
   startDate: string
   endDate: string
-  companyId?: string
 }): Promise<string> {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
+
+  // First get the company's job IDs to scope time entries at DB level
+  let jobQuery = supabase.from('jobs').select('id').eq('company_id', companyId)
+  const { data: companyJobs } = await jobQuery
+  const companyJobIds = (companyJobs ?? []).map(j => j.id)
+
+  if (companyJobIds.length === 0) return ''
 
   let query = supabase
     .from('time_entries')
@@ -17,22 +25,17 @@ export async function exportPayrollCSV(filters?: {
       user:users!time_entries_user_id_fkey(name, primary_company_id),
       job:jobs!time_entries_job_id_fkey(job_number, customer_name, company_id)
     `)
+    .in('job_id', companyJobIds)
     .not('clock_out', 'is', null)
     .order('clock_in', { ascending: true })
+    .limit(10000)
 
   if (filters?.startDate) query = query.gte('clock_in', filters.startDate)
   if (filters?.endDate) query = query.lte('clock_in', filters.endDate + 'T23:59:59')
 
   const { data } = await query
 
-  // Filter by company client-side (embedded resource filters don't work in PostgREST)
-  let filtered = data ?? []
-  if (filters?.companyId) {
-    filtered = filtered.filter(entry => {
-      const job = entry.job as any
-      return job?.company_id === filters.companyId
-    })
-  }
+  const filtered = data ?? []
 
   if (filtered.length === 0) return ''
 
@@ -75,6 +78,7 @@ export async function exportPayrollCSV(filters?: {
 
 export async function exportInvoicesQBFormat(dateRange: { start: string; end: string }): Promise<string> {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
   const { data: invoices } = await supabase
     .from('invoices')
@@ -84,9 +88,11 @@ export async function exportInvoicesQBFormat(dateRange: { start: string; end: st
       jobs(job_number, customer_name, address, city, state),
       companies(name)
     `)
+    .eq('company_id', companyId)
     .gte('created_at', dateRange.start)
     .lte('created_at', dateRange.end + 'T23:59:59')
     .order('created_at', { ascending: true })
+    .limit(10000)
 
   if (!invoices || invoices.length === 0) return ''
 
@@ -115,8 +121,9 @@ export async function exportInvoicesQBFormat(dateRange: { start: string; end: st
   return lines.join('\n')
 }
 
-export async function exportJobsCSV(filters?: { companyId?: string; status?: string }): Promise<string> {
+export async function exportJobsCSV(filters?: { status?: string }): Promise<string> {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
   let query = supabase.from('jobs').select(`
     job_number, customer_name, address, city, state, zip, phone, email,
@@ -126,10 +133,10 @@ export async function exportJobsCSV(filters?: { companyId?: string; status?: str
     rep:users!jobs_rep_id_fkey(name)
   `)
 
-  if (filters?.companyId) query = query.eq('company_id', filters.companyId)
+  query = query.eq('company_id', companyId)
   if (filters?.status) query = query.eq('status', filters.status)
 
-  const { data } = await query.order('created_at', { ascending: false })
+  const { data } = await query.order('created_at', { ascending: false }).limit(10000)
 
   if (!data || data.length === 0) return ''
 

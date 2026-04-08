@@ -34,7 +34,6 @@ export function PayrollExport({ companies = [] }: PayrollExportProps) {
       const csv = await exportPayrollCSV({
         startDate: `${startDate}T00:00:00.000Z`,
         endDate: `${endDate}T23:59:59.999Z`,
-        companyId: companyId || undefined,
       })
 
       if (!csv) {

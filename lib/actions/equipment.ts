@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 
 export interface Equipment {
   id: string
@@ -18,6 +19,7 @@ export interface Equipment {
 }
 
 export async function getEquipment(): Promise<Equipment[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -27,6 +29,7 @@ export async function getEquipment(): Promise<Equipment[]> {
       job:jobs(job_number, customer_name, address),
       user:users(name)
     `)
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch equipment: ${error.message}`)
@@ -34,7 +37,17 @@ export async function getEquipment(): Promise<Equipment[]> {
 }
 
 export async function getEquipmentForJob(jobId: string): Promise<Equipment[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the job belongs to the user's company
+  const { data: job } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('id', jobId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+  if (!job) throw new Error('Job not found or not in your company')
 
   const { data, error } = await supabase
     .from('equipment')
@@ -44,6 +57,7 @@ export async function getEquipmentForJob(jobId: string): Promise<Equipment[]> {
     `)
     .eq('current_job_id', jobId)
     .eq('status', 'in_use')
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch job equipment: ${error.message}`)
@@ -52,17 +66,20 @@ export async function getEquipmentForJob(jobId: string): Promise<Equipment[]> {
 
 export async function checkOutEquipment(equipmentId: string, jobId: string): Promise<void> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { userId, companyId } = await getUserWithCompany()
+
+  // Verify both equipment and job belong to user's company
+  await verifyJobOwnership(jobId, companyId)
 
   const { data: updated, error } = await supabase
     .from('equipment')
     .update({
       status: 'in_use',
       current_job_id: jobId,
-      current_user_id: user.id,
+      current_user_id: userId,
     })
     .eq('id', equipmentId)
+    .eq('company_id', companyId)
     .eq('status', 'available')
     .select()
     .maybeSingle()
@@ -71,16 +88,26 @@ export async function checkOutEquipment(equipmentId: string, jobId: string): Pro
 
   await supabase.from('equipment_logs').insert({
     equipment_id: equipmentId,
-    user_id: user.id,
+    user_id: userId,
     job_id: jobId,
     action: 'checked_out',
   })
 }
 
 export async function returnEquipment(equipmentId: string): Promise<void> {
+  const { userId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+
+  // Verify the equipment belongs to the user's company and is currently in use
+  const { data: equipment } = await supabase
+    .from('equipment')
+    .select('id, status, company_id')
+    .eq('id', equipmentId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (!equipment) throw new Error('Equipment not found or not in your company')
+  if (equipment.status !== 'in_use') throw new Error('Equipment is not currently in use')
 
   const { error } = await supabase
     .from('equipment')
@@ -95,19 +122,21 @@ export async function returnEquipment(equipmentId: string): Promise<void> {
 
   await supabase.from('equipment_logs').insert({
     equipment_id: equipmentId,
-    user_id: user.id,
+    user_id: userId,
     action: 'returned',
   })
 }
 
 export async function getOverdueEquipment(daysThreshold = 7): Promise<Equipment[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
-  // Get all in-use equipment
+  // Get all in-use equipment scoped to company
   const { data: inUseEquipment } = await supabase
     .from('equipment')
     .select('*, current_user:users(name), current_job:jobs(job_number, customer_name)')
     .eq('status', 'in_use')
+    .eq('company_id', companyId)
 
   if (!inUseEquipment || inUseEquipment.length === 0) return []
 
@@ -145,15 +174,16 @@ export async function addEquipment(data: {
   type: string
   notes?: string
 }): Promise<void> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
+  // Set company_id from authenticated user's company, not from client data
   const { error } = await supabase.from('equipment').insert({
     name: data.name,
     type: data.type,
     notes: data.notes ?? null,
     status: 'available',
+    company_id: companyId,
   })
 
   if (error) throw new Error(`Failed to add equipment: ${error.message}`)

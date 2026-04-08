@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 import { checkGeofence } from '@/lib/geo'
 import type { TimeEntry, GeofenceResult } from '@/lib/types/time-tracking'
 
@@ -26,6 +26,67 @@ function calcOvertime(workingHours: number): {
     overtimeHours: parseFloat(overtime.toFixed(4)),
     doubletimeHours: parseFloat(doubletime.toFixed(4)),
   }
+}
+
+/**
+ * Full California labor law overtime calculation.
+ * Handles daily 8hr OT threshold, daily 12hr doubletime threshold,
+ * weekly 40hr OT threshold, 7th consecutive day rules, and split shift aggregation.
+ */
+function calculateCaliforniaOT(params: {
+  sameDayHours: number
+  weeklyHoursBeforeToday: number
+  isSeventhConsecutiveDay: boolean
+  workingHours: number
+}): { regular: number; overtime: number; doubletime: number } {
+  const { sameDayHours, weeklyHoursBeforeToday, isSeventhConsecutiveDay, workingHours } = params
+
+  // Start from base calcOvertime result
+  let { regularHours, overtimeHours, doubletimeHours } = calcOvertime(workingHours)
+
+  // Split shift aggregation: if cumulative daily hours exceed 8, upgrade excess to OT
+  const totalDailyHours = sameDayHours + workingHours
+  if (totalDailyHours > 8 && regularHours > 0) {
+    const priorRegularUsed = Math.min(sameDayHours, 8)
+    const regularAllowedThisShift = Math.max(0, 8 - priorRegularUsed)
+
+    if (regularHours > regularAllowedThisShift) {
+      const excessRegular = regularHours - regularAllowedThisShift
+      regularHours = regularAllowedThisShift
+      overtimeHours = overtimeHours + excessRegular
+    }
+
+    // Check if cumulative > 12 for double-time
+    if (totalDailyHours > 12) {
+      const priorOtUsed = Math.max(0, Math.min(sameDayHours - 8, 4))
+      const otAllowedThisShift = Math.max(0, 4 - priorOtUsed)
+
+      if (overtimeHours > otAllowedThisShift) {
+        const excessOt = overtimeHours - otAllowedThisShift
+        overtimeHours = otAllowedThisShift
+        doubletimeHours = doubletimeHours + excessOt
+      }
+    }
+  }
+
+  // Weekly OT: hours over 40/week at 1.5x
+  const totalWeeklyHours = weeklyHoursBeforeToday + workingHours
+  if (totalWeeklyHours > 40 && regularHours > 0) {
+    const weeklyOtHours = Math.min(regularHours, totalWeeklyHours - 40)
+    if (weeklyOtHours > 0) {
+      regularHours = Math.max(0, regularHours - weeklyOtHours)
+      overtimeHours = overtimeHours + weeklyOtHours
+    }
+  }
+
+  // 7th consecutive day: all hours at minimum 1.5x, after 8hrs at 2x
+  if (isSeventhConsecutiveDay) {
+    regularHours = 0
+    overtimeHours = Math.min(workingHours, 8)
+    doubletimeHours = Math.max(0, workingHours - 8)
+  }
+
+  return { regular: regularHours, overtime: overtimeHours, doubletime: doubletimeHours }
 }
 
 /**
@@ -62,19 +123,23 @@ export async function clockIn(
   ppeVerified?: Record<string, boolean>
 ): Promise<{ entry: TimeEntry; geofence: GeofenceResult | null }> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { userId, companyId } = await getUserWithCompany()
 
   // Run dup-check, job fetch, and user pay data in parallel — all independent
   const [existingResult, jobResult, userDataResult] = await Promise.all([
-    supabase.from('time_entries').select('id').eq('user_id', user.id).is('clock_out', null).maybeSingle(),
-    supabase.from('jobs').select('lat, lng, city, status, job_type').eq('id', jobId).single(),
-    supabase.from('users').select('pay_type, hourly_rate, day_rate').eq('id', user.id).single(),
+    supabase.from('time_entries').select('id').eq('user_id', userId).is('clock_out', null).maybeSingle(),
+    supabase.from('jobs').select('lat, lng, city, status, job_type, company_id').eq('id', jobId).single(),
+    supabase.from('users').select('pay_type, hourly_rate, day_rate').eq('id', userId).single(),
   ])
 
   if (existingResult.data) throw new Error('Already clocked in. Clock out first.')
   if (jobResult.error || !jobResult.data) throw new Error('Job not found')
   if (userDataResult.error || !userDataResult.data) throw new Error('User pay data not found')
+
+  // Verify crew member's company matches the job's company
+  if (jobResult.data.company_id !== companyId) {
+    throw new Error('Job not found or access denied')
+  }
 
   const job = jobResult.data
   const userData = userDataResult.data
@@ -103,7 +168,7 @@ export async function clockIn(
   const { data: entry, error: insertError } = await supabase
     .from('time_entries')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       job_id: jobId,
       clock_in: clockInTime.toISOString(),
       clock_in_lat: lat,
@@ -140,7 +205,7 @@ export async function clockIn(
       .from('safety_inspections')
       .select('id')
       .eq('job_id', jobId)
-      .eq('inspector_id', user.id)
+      .eq('inspector_id', userId)
       .gte('created_at', todayStart.toISOString())
       .order('created_at', { ascending: false })
       .limit(1)
@@ -183,19 +248,23 @@ export async function clockOut(
   photoUrl?: string
 ): Promise<TimeEntry> {
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
+  const { userId, companyId } = await getUserWithCompany()
 
   // Find active time entry
   const { data: entry, error: fetchError } = await supabase
     .from('time_entries')
-    .select('*')
-    .eq('user_id', user.id)
+    .select('*, job:jobs!inner(company_id)')
+    .eq('user_id', userId)
     .is('clock_out', null)
     .maybeSingle()
 
   if (fetchError) throw new Error(`Failed to fetch active entry: ${fetchError.message}`)
   if (!entry) throw new Error('No active clock-in found.')
+
+  // Verify the time entry's job belongs to the user's company
+  if ((entry as any).job?.company_id !== companyId) {
+    throw new Error('No active clock-in found.')
+  }
 
   const clockInTime = new Date(entry.clock_in as string)
   const hoursSinceClock = (Date.now() - clockInTime.getTime()) / 1000 / 3600
@@ -222,8 +291,6 @@ export async function clockOut(
   const elapsedHours = (clockOutMs - clockInMs) / 1000 / 3600
   const workingHours = Math.max(0, elapsedHours - totalBreakMinutes / 60)
 
-  let { regularHours, overtimeHours, doubletimeHours } = calcOvertime(workingHours)
-
   // Cost calculation
   const payType = entry.pay_type as string
   const hourlyRate = Number(entry.hourly_rate ?? 0)
@@ -249,7 +316,7 @@ export async function clockOut(
       ? supabase
           .from('time_entries')
           .select('total_hours')
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .not('id', 'eq', entry.id)
           .not('clock_out', 'is', null)
           .gte('clock_in', dayStart.toISOString())
@@ -258,101 +325,66 @@ export async function clockOut(
     supabase
       .from('time_entries')
       .select('total_hours, regular_hours, overtime_hours, doubletime_hours')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('clock_in', weekStart.toISOString())
       .not('id', 'eq', entry.id),
   ])
 
-  // Split shift aggregation: check for other completed entries today (CA law)
-  // If cumulative daily hours exceed 8, upgrade the excess from regular to OT
-  if (payType !== 'day_rate') {
-    const sameDayEntries = sameDayResult.data
+  const sameDayHours = payType !== 'day_rate'
+    ? (sameDayResult.data ?? []).reduce((sum, e) => sum + (Number(e.total_hours) || 0), 0)
+    : 0
 
-    const priorDailyHours = (sameDayEntries ?? []).reduce(
-      (sum, e) => sum + (Number(e.total_hours) || 0), 0
-    )
-
-    const totalDailyHours = priorDailyHours + workingHours
-    if (totalDailyHours > 8 && regularHours > 0) {
-      // How many of the 8 regular hours were already used by prior shifts
-      const priorRegularUsed = Math.min(priorDailyHours, 8)
-      const regularAllowedThisShift = Math.max(0, 8 - priorRegularUsed)
-
-      if (regularHours > regularAllowedThisShift) {
-        const excessRegular = regularHours - regularAllowedThisShift
-        regularHours = regularAllowedThisShift
-        overtimeHours = overtimeHours + excessRegular
-      }
-
-      // Also check if cumulative > 12 for double-time
-      if (totalDailyHours > 12) {
-        const priorOtUsed = Math.max(0, Math.min(priorDailyHours - 8, 4))
-        const otAllowedThisShift = Math.max(0, 4 - priorOtUsed)
-
-        if (overtimeHours > otAllowedThisShift) {
-          const excessOt = overtimeHours - otAllowedThisShift
-          overtimeHours = otAllowedThisShift
-          doubletimeHours = doubletimeHours + excessOt
-        }
-      }
-    }
-  }
-
-  // Weekly OT check (CA law: hours over 40/week at 1.5×)
-  const weekEntries = weekResult.data
-
-  const priorWeeklyHours = (weekEntries ?? []).reduce(
+  const priorWeeklyHours = (weekResult.data ?? []).reduce(
     (sum, e) => sum + (Number(e.total_hours) || 0), 0
   )
-
-  const totalWeeklyHours = priorWeeklyHours + workingHours
-
-  // If total weekly hours > 40, any hours counted as "regular" above the 40hr threshold
-  // should be upgraded to OT (1.5×)
-  if (totalWeeklyHours > 40 && regularHours > 0 && payType !== 'day_rate') {
-    const weeklyOtHours = Math.min(regularHours, totalWeeklyHours - 40)
-    if (weeklyOtHours > 0) {
-      regularHours = Math.max(0, regularHours - weeklyOtHours)
-      overtimeHours = overtimeHours + weeklyOtHours
-    }
-  }
 
   // Anomaly flags (initialize early so 7th-day check can augment them)
   let flagged = entry.flagged as boolean
   let flagReason = entry.flag_reason as string | null
 
   // 7th consecutive day check (CA law)
-  // A "workweek" is Mon-Sun. If the employee has worked all 6 prior days (Mon-Sat)
-  // and this is Sunday (day 7), all hours are at minimum 1.5×
-  // dayOfWeek already declared above from clockOutDate.getDay()
+  let isSeventhConsecutiveDay = false
   if (dayOfWeek === 0 && payType !== 'day_rate') {
-    // Check if they worked all 6 prior days (Mon-Sat)
     const daysWorked = new Set<number>()
     const { data: weekDayEntries } = await supabase
       .from('time_entries')
       .select('clock_in')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('clock_in', weekStart.toISOString())
       .lt('clock_in', clockOut.toISOString())
 
     for (const e of weekDayEntries ?? []) {
       const day = new Date(e.clock_in).getDay()
-      if (day >= 1 && day <= 6) {  // Only count Mon-Sat
-        daysWorked.add(day)
-      }
+      if (day >= 1 && day <= 6) daysWorked.add(day)
     }
 
-    // If they worked Mon(1) through Sat(6) = 6 unique days, Sunday is the 7th consecutive day
     if (daysWorked.size >= 6) {
-      // 7th day: first 8hrs at 1.5×, after 8hrs at 2×
-      // Override the regular/OT split (takes priority over weekly OT calc)
-      regularHours = 0
-      overtimeHours = Math.min(workingHours, 8)    // first 8 at 1.5×
-      doubletimeHours = Math.max(0, workingHours - 8)  // after 8 at 2×
-
+      isSeventhConsecutiveDay = true
       flagged = true
       flagReason = (flagReason ? flagReason + '; ' : '') + '7th consecutive workday — CA premium pay applied'
     }
+  }
+
+  // Calculate CA overtime using extracted function
+  let regularHours: number
+  let overtimeHours: number
+  let doubletimeHours: number
+
+  if (payType !== 'day_rate') {
+    const otResult = calculateCaliforniaOT({
+      sameDayHours,
+      weeklyHoursBeforeToday: priorWeeklyHours,
+      isSeventhConsecutiveDay,
+      workingHours,
+    })
+    regularHours = otResult.regular
+    overtimeHours = otResult.overtime
+    doubletimeHours = otResult.doubletime
+  } else {
+    const base = calcOvertime(workingHours)
+    regularHours = base.regularHours
+    overtimeHours = base.overtimeHours
+    doubletimeHours = base.doubletimeHours
   }
 
   let totalCost: number
@@ -466,12 +498,15 @@ export async function getActiveCrew(): Promise<Array<{
   user: { name: string } | null
   job: { job_number: string; customer_name: string; address: string; city: string; company_id: string } | null
 }>> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
+  // Use inner join to filter time entries by company's jobs in a single query
   const { data } = await supabase
     .from('time_entries')
-    .select('id, user_id, job_id, clock_in, clock_in_lat, clock_in_lng, clock_in_distance_ft, flagged, flag_reason, user:users(name), job:jobs(job_number, customer_name, address, city, company_id)')
+    .select('id, user_id, job_id, clock_in, clock_in_lat, clock_in_lng, clock_in_distance_ft, flagged, flag_reason, user:users(name), job:jobs!inner(job_number, customer_name, address, city, company_id)')
     .is('clock_out', null)
+    .eq('job.company_id', companyId)
 
   return (data ?? []) as any
 }
@@ -479,7 +514,19 @@ export async function getActiveCrew(): Promise<Array<{
 export async function getActiveTimeEntry(userId: string): Promise<
   (TimeEntry & { job?: { job_number: string; customer_name: string; address: string; city: string } }) | null
 > {
+  const { userId: callerId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the requested user belongs to the same company (or is the caller)
+  if (userId !== callerId) {
+    const { data: targetUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .eq('primary_company_id', companyId)
+      .maybeSingle()
+    if (!targetUser) throw new Error('User not found or not in your company')
+  }
 
   const { data, error } = await supabase
     .from('time_entries')
@@ -504,11 +551,13 @@ interface TimeEntryFilters {
 }
 
 export async function getTimeEntries(filters: TimeEntryFilters = {}): Promise<TimeEntry[]> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   let query = supabase
     .from('time_entries')
-    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs(job_number, customer_name, address, city), user:users(id, name, email)')
+    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
+    .eq('job.company_id', companyId)
     .order('clock_in', { ascending: false })
 
   if (filters.userId) query = query.eq('user_id', filters.userId)
@@ -523,6 +572,8 @@ export async function getTimeEntries(filters: TimeEntryFilters = {}): Promise<Ti
     if (filters.endDate) query = query.lte('clock_in', filters.endDate)
   }
 
+  query = query.limit(500)
+
   const { data, error } = await query
   if (error) throw new Error(`Failed to fetch time entries: ${error.message}`)
   return (data ?? []) as unknown as TimeEntry[]
@@ -533,6 +584,8 @@ export async function getJobLaborCost(jobId: string): Promise<{
   totalCost: number
   entries: TimeEntry[]
 }> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -558,7 +611,19 @@ export async function getWeeklyHours(
   userId: string,
   weekStartDate: string
 ): Promise<{ totalHours: number; overtimeWarning: boolean }> {
+  const { userId: callerId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the requested user belongs to the same company (or is the caller)
+  if (userId !== callerId) {
+    const { data: targetUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .eq('primary_company_id', companyId)
+      .maybeSingle()
+    if (!targetUser) throw new Error('User not found or not in your company')
+  }
 
   // Week start (Monday) to end (Sunday)
   const start = new Date(weekStartDate)
@@ -589,18 +654,19 @@ export async function getWeeklyHours(
 // ---------------------------------------------------------------------------
 
 export async function flagEntry(entryId: string, reason: string): Promise<void> {
+  const { companyId, role } = await getUserWithCompany()
+  if (role !== 'manager') throw new Error('Manager access required')
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
-  // Verify manager role
-  const { data: userData } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
+  // Verify the time entry's job belongs to the user's company
+  const { data: entry } = await supabase
+    .from('time_entries')
+    .select('id, job:jobs!inner(company_id)')
+    .eq('id', entryId)
+    .eq('job.company_id', companyId)
     .single()
 
-  if (userData?.role !== 'manager') throw new Error('Manager access required')
+  if (!entry) throw new Error('Time entry not found or access denied')
 
   const { error } = await supabase
     .from('time_entries')
@@ -611,17 +677,19 @@ export async function flagEntry(entryId: string, reason: string): Promise<void> 
 }
 
 export async function unflagEntry(entryId: string): Promise<void> {
+  const { companyId, role } = await getUserWithCompany()
+  if (role !== 'manager') throw new Error('Manager access required')
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
 
-  const { data: userData } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
+  // Verify the time entry's job belongs to the user's company
+  const { data: entry } = await supabase
+    .from('time_entries')
+    .select('id, job:jobs!inner(company_id)')
+    .eq('id', entryId)
+    .eq('job.company_id', companyId)
     .single()
 
-  if (userData?.role !== 'manager') throw new Error('Manager access required')
+  if (!entry) throw new Error('Time entry not found or access denied')
 
   const { error } = await supabase
     .from('time_entries')
@@ -633,6 +701,8 @@ export async function unflagEntry(entryId: string): Promise<void> {
 
 // ---------------------------------------------------------------------------
 // Unclosed clock-in detection (called by daily cron)
+// NOTE: This function should only be called from the cron route handler,
+// which verifies CRON_SECRET. No user context is available in cron jobs.
 // ---------------------------------------------------------------------------
 
 export async function detectUnclosedClockIns(): Promise<{ flagged: number }> {
@@ -653,13 +723,12 @@ export async function detectUnclosedClockIns(): Promise<{ flagged: number }> {
 
   if (!unclosed || unclosed.length === 0) return { flagged: 0 }
 
-  // Flag each entry
-  for (const entry of unclosed) {
-    await supabase.from('time_entries').update({
-      flagged: true,
-      flag_reason: 'Forgot to clock out — entry still open from ' + new Date(entry.clock_in as string).toLocaleDateString(),
-    }).eq('id', entry.id)
-  }
+  // Bulk update all unclosed entries in a single query
+  const unclosedIds = unclosed.map(e => e.id)
+  await supabase.from('time_entries').update({
+    flagged: true,
+    flag_reason: 'Forgot to clock out — entry still open',
+  }).in('id', unclosedIds)
 
   return { flagged: unclosed.length }
 }
@@ -669,17 +738,19 @@ export async function detectUnclosedClockIns(): Promise<{ flagged: number }> {
 // ---------------------------------------------------------------------------
 
 export async function exportTimeEntriesCSV(startDate: string, endDate: string): Promise<string> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('time_entries')
     .select(`
       *,
-      job:jobs(job_number, customer_name),
+      job:jobs!inner(job_number, customer_name, company_id),
       user:users(name)
     `)
     .gte('clock_in', startDate)
     .lte('clock_in', endDate)
+    .eq('job.company_id', companyId)
     .order('clock_in', { ascending: true })
 
   if (error) throw new Error(`Failed to fetch entries for export: ${error.message}`)

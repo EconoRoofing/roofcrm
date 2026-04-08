@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getAutomationRules, toggleAutomationRule, deleteAutomationRule, createAutomationRule, getAutomationHistory } from '@/lib/actions/automations'
+import { getAutomationRules, toggleAutomationRule, deleteAutomationRule, createAutomationRule, updateAutomationRule, getAutomationHistory, getCrewForAutomation } from '@/lib/actions/automations'
+
 interface AutomationRule {
   id: string
   name: string
@@ -22,45 +23,81 @@ interface AutomationHistoryEntry {
   success: boolean
 }
 
+interface CrewMember {
+  id: string
+  name: string
+}
+
 const TRIGGER_TYPES = [
   'status_change', 'job_created', 'estimate_sent', 'payment_received',
   'invoice_created', 'job_completed', 'crew_assigned',
 ]
-const ACTION_TYPES = ['send_sms', 'send_email', 'create_follow_up', 'assign_crew']
+const ACTION_TYPES = ['send_sms', 'send_email', 'create_follow_up', 'assign_crew', 'update_status', 'send_webhook']
+
+const STATUS_OPTIONS = ['new', 'pending', 'sold', 'scheduled', 'in_progress', 'completed', 'cancelled']
+
+const TEMPLATE_VARIABLES_HINT = 'Available variables: {customer_name}, {status}, {phone}, {email}, {job_number}'
+
+const defaultFormData = {
+  name: '',
+  trigger_type: 'status_change' as const,
+  trigger_value: '',
+  action_type: 'send_sms' as const,
+  message_template: '',
+  days_offset: '3',
+  delay_minutes: '',
+  email_subject: '',
+  email_body_template: '',
+  crew_id: '',
+  new_status: '',
+  webhook_url: '',
+}
 
 export default function AutomationsPage() {
   const [rules, setRules] = useState<AutomationRule[]>([])
-  const [companyId, setCompanyId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [operatingId, setOperatingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState<AutomationHistoryEntry[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    name: '',
-    trigger_type: 'status_change' as const,
-    trigger_value: '',
-    action_type: 'send_sms' as const,
-    message_template: '',
-    days_offset: '3',
-    delay_minutes: '',
-  })
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const [editingRule, setEditingRule] = useState<AutomationRule | null>(null)
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
+  const [formData, setFormData] = useState({ ...defaultFormData })
 
   useEffect(() => {
-    loadRules()
+    let mounted = true
+
+    const load = async () => {
+      try {
+        setLoading(true)
+        const [rulesData, crewData] = await Promise.all([
+          getAutomationRules(),
+          getCrewForAutomation(),
+        ])
+        if (mounted) {
+          setRules(rulesData)
+          setCrewMembers(crewData)
+        }
+      } catch (err) {
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to load rules')
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+
+    load()
+    return () => { mounted = false }
   }, [])
 
   const loadRules = async () => {
     try {
       setLoading(true)
-      // No company_id needed — server action resolves it from the authenticated user
       const data = await getAutomationRules()
       setRules(data)
-      // Cache company_id for use when creating new rules
-      if (data.length > 0 && (data[0] as any).company_id) {
-        setCompanyId((data[0] as any).company_id)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load rules')
     } finally {
@@ -82,66 +119,173 @@ export default function AutomationsPage() {
 
   const handleToggle = async (rule_id: string, current_state: boolean) => {
     try {
+      setError(null)
+      setOperatingId(rule_id)
       await toggleAutomationRule(rule_id, !current_state)
       setRules(rules.map((r) => (r.id === rule_id ? { ...r, is_active: !current_state } : r)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle rule')
+    } finally {
+      setOperatingId(null)
     }
   }
 
   const handleDelete = async (rule_id: string) => {
     if (!confirm('Delete this automation rule?')) return
     try {
+      setError(null)
+      setOperatingId(rule_id)
       await deleteAutomationRule(rule_id)
       setRules(rules.filter((r) => r.id !== rule_id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete rule')
+    } finally {
+      setOperatingId(null)
     }
+  }
+
+  const handleEdit = (rule: AutomationRule) => {
+    setEditingRule(rule)
+    const config = rule.action_config || {}
+    setFormData({
+      name: rule.name,
+      trigger_type: rule.trigger_type as typeof defaultFormData.trigger_type,
+      trigger_value: rule.trigger_value || '',
+      action_type: rule.action_type as typeof defaultFormData.action_type,
+      message_template: (config.message_template as string) || '',
+      days_offset: String((config.days_offset as number) || 3),
+      delay_minutes: config.delay_minutes ? String(config.delay_minutes) : '',
+      email_subject: (config.subject as string) || '',
+      email_body_template: (config.email_body as string) || '',
+      crew_id: (config.crew_id as string) || '',
+      new_status: (config.new_status as string) || '',
+      webhook_url: (config.webhook_url as string) || '',
+    })
+    setShowForm(true)
+    setValidationError(null)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingRule(null)
+    setFormData({ ...defaultFormData })
+    setShowForm(false)
+    setValidationError(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    try {
-      if (!companyId) {
-        setError('Company not found — please refresh the page')
+    setValidationError(null)
+    setError(null)
+
+    // Validation
+    const trimmedName = formData.name.trim()
+    if (!trimmedName) {
+      setValidationError('Rule name is required')
+      return
+    }
+    const actionType = formData.action_type as string
+    if (actionType === 'send_sms' && !formData.message_template.trim()) {
+      setValidationError('SMS message template is required')
+      return
+    }
+    if (actionType === 'send_email' && !formData.email_body_template.trim()) {
+      setValidationError('Email body template is required')
+      return
+    }
+    if (actionType === 'assign_crew' && !formData.crew_id.trim()) {
+      setValidationError('Crew member is required')
+      return
+    }
+    if (actionType === 'update_status' && !formData.new_status) {
+      setValidationError('Target status is required')
+      return
+    }
+    if (actionType === 'send_webhook') {
+      const url = formData.webhook_url.trim()
+      if (!url) {
+        setValidationError('Webhook URL is required')
         return
       }
+      if (!url.startsWith('https://')) {
+        setValidationError('Webhook URL must start with https://')
+        return
+      }
+    }
+
+    try {
+      setSubmitting(true)
 
       const actionConfig: Record<string, unknown> = {}
-      const actionType = formData.action_type as string
       if (actionType === 'send_sms') {
         actionConfig.message_template = formData.message_template
       }
+      if (actionType === 'send_email') {
+        actionConfig.subject = formData.email_subject
+        actionConfig.email_body = formData.email_body_template
+      }
+      if (actionType === 'assign_crew') {
+        actionConfig.crew_id = formData.crew_id.trim()
+      }
       if (actionType === 'create_follow_up') {
-        actionConfig.days_offset = parseInt(formData.days_offset)
+        const parsed = parseInt(formData.days_offset)
+        actionConfig.days_offset = isNaN(parsed) || parsed <= 0 ? 3 : parsed
+      }
+      if (actionType === 'update_status') {
+        actionConfig.new_status = formData.new_status
+      }
+      if (actionType === 'send_webhook') {
+        actionConfig.webhook_url = formData.webhook_url.trim()
       }
       if (formData.delay_minutes && parseInt(formData.delay_minutes) > 0) {
         actionConfig.delay_minutes = parseInt(formData.delay_minutes)
       }
 
-      await createAutomationRule({
-        company_id: companyId,
-        name: formData.name,
-        trigger_type: formData.trigger_type,
-        trigger_value: formData.trigger_value,
-        action_type: formData.action_type,
-        action_config: actionConfig,
-      })
+      if (editingRule) {
+        await updateAutomationRule(editingRule.id, {
+          name: trimmedName,
+          trigger_type: formData.trigger_type,
+          trigger_value: formData.trigger_value,
+          action_type: formData.action_type,
+          action_config: actionConfig,
+        })
+      } else {
+        await createAutomationRule({
+          name: trimmedName,
+          trigger_type: formData.trigger_type,
+          trigger_value: formData.trigger_value,
+          action_type: formData.action_type,
+          action_config: actionConfig,
+        })
+      }
 
-      setFormData({
-        name: '',
-        trigger_type: 'status_change',
-        trigger_value: '',
-        action_type: 'send_sms',
-        message_template: '',
-        days_offset: '3',
-        delay_minutes: '',
-      })
+      setEditingRule(null)
+      setFormData({ ...defaultFormData })
       setShowForm(false)
       await loadRules()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create rule')
+      setError(err instanceof Error ? err.message : editingRule ? 'Failed to update rule' : 'Failed to create rule')
+    } finally {
+      setSubmitting(false)
     }
+  }
+
+  const hintStyle: React.CSSProperties = {
+    fontSize: '11px',
+    color: 'var(--text-secondary)',
+    marginTop: '4px',
+    fontFamily: 'monospace',
+    opacity: 0.8,
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    borderRadius: '6px',
+    border: '1px solid var(--border)',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text)',
+    fontSize: '14px',
+    boxSizing: 'border-box' as const,
   }
 
   return (
@@ -165,7 +309,14 @@ export default function AutomationsPage() {
             History
           </button>
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              if (showForm && !editingRule) {
+                setShowForm(false)
+              } else {
+                handleCancelEdit()
+                setShowForm(true)
+              }
+            }}
             style={{
               padding: '8px 16px',
               borderRadius: '6px',
@@ -180,7 +331,7 @@ export default function AutomationsPage() {
             onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
-            {showForm ? 'Cancel' : 'Add Rule'}
+            {showForm && !editingRule ? 'Cancel' : 'Add Rule'}
           </button>
         </div>
       </div>
@@ -211,6 +362,44 @@ export default function AutomationsPage() {
             border: '1px solid var(--border)',
           }}
         >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>
+              {editingRule ? 'Edit Rule' : 'Create Rule'}
+            </h2>
+            {editingRule && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel Edit
+              </button>
+            )}
+          </div>
+
+          {validationError && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                color: '#ef4444',
+                marginBottom: '12px',
+                fontSize: '13px',
+              }}
+            >
+              {validationError}
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
             <div>
               <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
@@ -222,16 +411,7 @@ export default function AutomationsPage() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
                 placeholder="e.g., SMS when job sold"
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
+                style={inputStyle}
               />
             </div>
 
@@ -241,21 +421,12 @@ export default function AutomationsPage() {
               </label>
               <select
                 value={formData.trigger_type}
-                onChange={(e) => setFormData({ ...formData, trigger_type: e.target.value as any })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
+                onChange={(e) => setFormData({ ...formData, trigger_type: e.target.value as any, trigger_value: '' })}
+                style={inputStyle}
               >
                 {TRIGGER_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type.replace('_', ' ')}
+                    {type.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>
@@ -265,22 +436,28 @@ export default function AutomationsPage() {
               <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
                 Trigger Value (optional)
               </label>
-              <input
-                type="text"
-                value={formData.trigger_value}
-                onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })}
-                placeholder="e.g., sold (for status_change trigger)"
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
-              />
+              {formData.trigger_type === 'status_change' ? (
+                <select
+                  value={formData.trigger_value}
+                  onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })}
+                  style={inputStyle}
+                >
+                  <option value="">Any status change</option>
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.trigger_value}
+                  onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })}
+                  placeholder="e.g., specific trigger condition"
+                  style={inputStyle}
+                />
+              )}
             </div>
 
             <div>
@@ -290,20 +467,11 @@ export default function AutomationsPage() {
               <select
                 value={formData.action_type}
                 onChange={(e) => setFormData({ ...formData, action_type: e.target.value as any })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
+                style={inputStyle}
               >
                 {ACTION_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type.replace('_', ' ')}
+                    {type.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>
@@ -320,18 +488,65 @@ export default function AutomationsPage() {
                 onChange={(e) => setFormData({ ...formData, message_template: e.target.value })}
                 placeholder="Use {customer_name} and {status} as placeholders"
                 style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
+                  ...inputStyle,
                   fontFamily: 'monospace',
-                  boxSizing: 'border-box',
                   minHeight: '60px',
                 }}
               />
+              <div style={hintStyle}>{TEMPLATE_VARIABLES_HINT}</div>
+            </div>
+          )}
+
+          {(formData.action_type as string) === 'send_email' && (
+            <div style={{ marginBottom: '16px', display: 'grid', gap: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+                  Email Subject
+                </label>
+                <input
+                  type="text"
+                  value={formData.email_subject}
+                  onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
+                  placeholder="e.g., Update on your roofing project"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+                  Email Body Template
+                </label>
+                <textarea
+                  value={formData.email_body_template}
+                  onChange={(e) => setFormData({ ...formData, email_body_template: e.target.value })}
+                  placeholder="Use {customer_name} and {status} as placeholders"
+                  style={{
+                    ...inputStyle,
+                    fontFamily: 'monospace',
+                    minHeight: '80px',
+                  }}
+                />
+                <div style={hintStyle}>{TEMPLATE_VARIABLES_HINT}</div>
+              </div>
+            </div>
+          )}
+
+          {(formData.action_type as string) === 'assign_crew' && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+                Crew Member
+              </label>
+              <select
+                value={formData.crew_id}
+                onChange={(e) => setFormData({ ...formData, crew_id: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="">Select crew member</option>
+                {crewMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -346,17 +561,44 @@ export default function AutomationsPage() {
                 onChange={(e) => setFormData({ ...formData, days_offset: e.target.value })}
                 min="1"
                 max="30"
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
+                style={inputStyle}
               />
+            </div>
+          )}
+
+          {(formData.action_type as string) === 'update_status' && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+                New Status
+              </label>
+              <select
+                value={formData.new_status}
+                onChange={(e) => setFormData({ ...formData, new_status: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="">Select status</option>
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {status.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {(formData.action_type as string) === 'send_webhook' && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
+                Webhook URL
+              </label>
+              <input
+                type="url"
+                value={formData.webhook_url}
+                onChange={(e) => setFormData({ ...formData, webhook_url: e.target.value })}
+                placeholder="https://hooks.example.com/..."
+                style={inputStyle}
+              />
+              <div style={hintStyle}>Must start with https://. Receives POST with job data as JSON.</div>
             </div>
           )}
 
@@ -370,21 +612,13 @@ export default function AutomationsPage() {
               onChange={(e) => setFormData({ ...formData, delay_minutes: e.target.value })}
               min="0"
               placeholder="0 = immediate"
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-              }}
+              style={inputStyle}
             />
           </div>
 
           <button
             type="submit"
+            disabled={submitting}
             style={{
               padding: '8px 16px',
               borderRadius: '6px',
@@ -393,13 +627,17 @@ export default function AutomationsPage() {
               color: '#fff',
               fontSize: '14px',
               fontWeight: 500,
-              cursor: 'pointer',
+              cursor: submitting ? 'not-allowed' : 'pointer',
               transition: 'opacity 0.15s',
+              opacity: submitting ? 0.6 : 1,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+            onMouseEnter={(e) => { if (!submitting) e.currentTarget.style.opacity = '0.9' }}
+            onMouseLeave={(e) => { if (!submitting) e.currentTarget.style.opacity = '1' }}
           >
-            Create Rule
+            {submitting
+              ? (editingRule ? 'Updating...' : 'Creating...')
+              : (editingRule ? 'Update Rule' : 'Create Rule')
+            }
           </button>
         </form>
       )}
@@ -430,12 +668,12 @@ export default function AutomationsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((entry, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                  {history.map((entry) => (
+                    <tr key={`${entry.executed_at}-${entry.job_number}-${entry.rule_name}`} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '6px 8px' }}>{entry.rule_name}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.job_number}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.customer_name}</td>
-                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.action_type.replace('_', ' ')}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{entry.action_type.replace(/_/g, ' ')}</td>
                       <td style={{ padding: '6px 8px' }}>
                         <span style={{
                           padding: '2px 6px',
@@ -467,14 +705,36 @@ export default function AutomationsPage() {
           No automation rules yet. Create one to get started.
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: '12px' }}>
-          {rules.map((rule) => (
+        <div style={{ display: 'grid', gap: '16px' }}>
+          {/* Group rules by trigger type + value as "workflows" */}
+          {Object.entries(
+            rules.reduce<Record<string, AutomationRule[]>>((groups, rule) => {
+              const key = `${rule.trigger_type}::${rule.trigger_value || '*'}`
+              if (!groups[key]) groups[key] = []
+              groups[key].push(rule)
+              return groups
+            }, {})
+          ).map(([groupKey, groupRules]) => {
+            const [triggerType, triggerVal] = groupKey.split('::')
+            const isWorkflow = groupRules.length > 1
+            return (
+              <div key={groupKey} style={{ borderRadius: '8px', border: isWorkflow ? '1px solid var(--border)' : 'none', overflow: 'hidden' }}>
+                {isWorkflow && (
+                  <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
+                      Workflow: {triggerType.replace(/_/g, ' ')}{triggerVal !== '*' ? ` (${triggerVal})` : ''} — {groupRules.length} actions
+                    </span>
+                  </div>
+                )}
+                {groupRules.map((rule) => (
             <div
               key={rule.id}
               style={{
                 padding: '16px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
+                borderRadius: isWorkflow ? '0' : '8px',
+                border: isWorkflow ? 'none' : '1px solid var(--border)',
+                borderBottom: isWorkflow ? '1px solid var(--border-subtle, var(--border))' : undefined,
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
@@ -483,23 +743,45 @@ export default function AutomationsPage() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>{rule.name}</div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  {rule.trigger_type.replace('_', ' ')} → {rule.action_type.replace('_', ' ')}
+                  {isWorkflow ? '' : `${rule.trigger_type.replace(/_/g, ' ')}${rule.trigger_value ? ` (${rule.trigger_value})` : ''} → `}{rule.action_type.replace(/_/g, ' ')}
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: operatingId === rule.id ? 'not-allowed' : 'pointer', opacity: operatingId === rule.id ? 0.5 : 1 }}>
                   <input
                     type="checkbox"
                     checked={rule.is_active}
                     onChange={() => handleToggle(rule.id, rule.is_active)}
-                    style={{ cursor: 'pointer' }}
+                    disabled={operatingId !== null}
+                    style={{ cursor: operatingId !== null ? 'not-allowed' : 'pointer' }}
                   />
                   <span style={{ fontSize: '13px' }}>{rule.is_active ? 'Active' : 'Inactive'}</span>
                 </label>
 
                 <button
+                  onClick={() => handleEdit(rule)}
+                  disabled={operatingId !== null}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-secondary)',
+                    fontSize: '12px',
+                    cursor: operatingId !== null ? 'not-allowed' : 'pointer',
+                    transition: 'background-color 0.15s',
+                    opacity: operatingId !== null ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => { if (!operatingId) e.currentTarget.style.backgroundColor = 'var(--surface-hover)' }}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Edit
+                </button>
+
+                <button
                   onClick={() => handleDelete(rule.id)}
+                  disabled={operatingId !== null}
                   style={{
                     padding: '4px 8px',
                     borderRadius: '4px',
@@ -507,17 +789,21 @@ export default function AutomationsPage() {
                     backgroundColor: 'transparent',
                     color: '#ef4444',
                     fontSize: '12px',
-                    cursor: 'pointer',
+                    cursor: operatingId !== null ? 'not-allowed' : 'pointer',
                     transition: 'background-color 0.15s',
+                    opacity: operatingId !== null ? 0.5 : 1,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)')}
+                  onMouseEnter={(e) => { if (!operatingId) e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)' }}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   Delete
                 </button>
               </div>
             </div>
-          ))}
+                ))}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

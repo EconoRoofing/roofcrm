@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership, localDateString } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import {
   createCalendarEvent,
@@ -89,7 +89,10 @@ interface JobFilters {
 
 export async function createJob(data: CreateJobData) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { userId, companyId } = await getUserWithCompany()
+
+  // Override client-supplied company_id with authenticated user's company
+  data.company_id = companyId
 
   // Generate job number via RPC
   const { data: jobNumber, error: rpcError } = await supabase.rpc('generate_job_number')
@@ -107,7 +110,7 @@ export async function createJob(data: CreateJobData) {
 
   if (error) throw new Error(`Failed to create job: ${error.message}`)
 
-  await logActivity(job.id, user?.id ?? null, 'job_created')
+  await logActivity(job.id, userId, 'job_created')
 
   // Geocode + CompanyCam auto-link in parallel — both are best-effort
   await Promise.all([
@@ -134,7 +137,9 @@ export async function createJob(data: CreateJobData) {
           }).eq('id', job.id)
         }
         // If 0 or multiple matches, leave unlinked (user links manually)
-      } catch {}
+      } catch (err) {
+        console.warn('[jobs] CompanyCam auto-link failed:', err)
+      }
     })(),
   ])
 
@@ -143,21 +148,16 @@ export async function createJob(data: CreateJobData) {
 
 export async function updateJob(id: string, data: UpdateJobData) {
   const supabase = await createClient()
-  const user = await getUser()
+  const { userId, companyId } = await getUserWithCompany()
 
-  // Fetch current job to compare fields for activity logging
-  const { data: currentJob, error: fetchError } = await supabase
-    .from('jobs')
-    .select()
-    .eq('id', id)
-    .single()
-
-  if (fetchError || !currentJob) throw new Error('Job not found')
+  // Verify job belongs to user's company — also returns the full job row
+  const currentJob = await verifyJobOwnership(id, companyId)
 
   const { data: job, error } = await supabase
     .from('jobs')
     .update(data)
     .eq('id', id)
+    .eq('company_id', companyId)
     .select()
     .single()
 
@@ -174,7 +174,9 @@ export async function updateJob(id: string, data: UpdateJobData) {
       if (coords) {
         await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', id)
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[jobs] re-geocode on address change failed:', err)
+    }
   }
 
   // Batch-insert all changed-field activity log entries in a single query — avoids N+1
@@ -194,7 +196,7 @@ export async function updateJob(id: string, data: UpdateJobData) {
     if (oldStr !== newStr) {
       activityEntries.push({
         job_id: id,
-        user_id: user?.id ?? null,
+        user_id: userId,
         action: 'field_updated',
         old_value: oldStr,
         new_value: newStr,
@@ -209,74 +211,26 @@ export async function updateJob(id: string, data: UpdateJobData) {
   return job
 }
 
-export async function updateJobStatus(id: string, newStatus: JobStatus) {
-  const supabase = await createClient()
-  const user = await getUser()
-
-  const { data: currentJob, error: fetchError } = await supabase
-    .from('jobs')
-    .select('id, status, job_number, customer_name, address, city, job_type, scheduled_date, notes, calendar_event_id, rep_id, total_amount, warranty_manufacturer_years, company_id')
-    .eq('id', id)
-    .single()
-
-  if (fetchError || !currentJob) throw new Error('Job not found')
-
-  const oldStatus = currentJob.status as JobStatus
-
-  // Skip if status is the same (dropped on same column)
-  if (oldStatus === newStatus) return currentJob
-
-  // Get user role — managers can move to any status
-  const { data: userData } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user?.id ?? '')
-    .single()
-
-  const isManager = userData?.role === 'manager'
-
-  if (!isManager) {
-    const validNextStatuses = VALID_TRANSITIONS[oldStatus]
-    if (!validNextStatuses.includes(newStatus)) {
-      throw new Error(
-        `Invalid status transition: cannot move from '${oldStatus}' to '${newStatus}'. ` +
-          `Valid transitions from '${oldStatus}': ${validNextStatuses.length > 0 ? validNextStatuses.join(', ') : 'none'}`
-      )
-    }
-  }
-
-  const updatePayload: Record<string, unknown> = { status: newStatus }
-  if (newStatus === 'completed') {
-    updatePayload.completed_date = new Date().toISOString()
-
-    // Auto-calculate warranty expiration
-    if (currentJob.warranty_manufacturer_years) {
-      const expiryDate = new Date()
-      expiryDate.setFullYear(expiryDate.getFullYear() + currentJob.warranty_manufacturer_years)
-      updatePayload.warranty_expiration = expiryDate.toISOString().split('T')[0]
-    }
-  }
-
-  const { data: job, error } = await supabase
-    .from('jobs')
-    .update(updatePayload)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) throw new Error(`Failed to update job status: ${error.message}`)
-
-  await logActivity(id, user?.id ?? null, 'status_change', oldStatus, newStatus)
-
-  // Cancel any unpaid invoices when a job is cancelled — prevents collecting on a dead job
+async function executePostStatusEffects(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  jobId: string,
+  oldStatus: string,
+  newStatus: string,
+  currentJob: any,
+  userId: string,
+  companyId: string
+): Promise<void> {
+  // Cancel any unpaid invoices when a job is cancelled
   if (newStatus === 'cancelled') {
     try {
       await supabase
         .from('invoices')
         .update({ status: 'cancelled' })
-        .eq('job_id', id)
+        .eq('job_id', jobId)
         .in('status', ['draft', 'sent'])
-    } catch {}
+    } catch (err) {
+      console.warn('[jobs] invoice cancellation on job cancel failed:', err)
+    }
   }
 
   // Log claim cancellation if this is an insurance job
@@ -285,52 +239,54 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
       const { data: jobCheck } = await supabase
         .from('jobs')
         .select('insurance_claim')
-        .eq('id', id)
+        .eq('id', jobId)
         .single()
 
       if (jobCheck?.insurance_claim) {
-        await logActivity(id, user?.id ?? null, 'claim_cancelled', currentJob.status, 'cancelled')
+        await logActivity(jobId, userId, 'claim_cancelled', currentJob.status, 'cancelled')
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[jobs] claim cancellation logging failed:', err)
+    }
   }
 
-  // Auto-close any open time entries when a job is cancelled — prevents orphaned clock-ins
+  // Auto-close any open time entries when a job is cancelled
   if (newStatus === 'cancelled') {
     const { data: openEntries } = await supabase
       .from('time_entries')
-      .select('id, clock_in')
-      .eq('job_id', id)
+      .select('id')
+      .eq('job_id', jobId)
       .is('clock_out', null)
 
     if (openEntries && openEntries.length > 0) {
       const now = new Date().toISOString()
-      for (const entry of openEntries) {
-        await supabase.from('time_entries').update({
-          clock_out: now,
-          flagged: true,
-          flag_reason: 'Job cancelled while clocked in — auto clock-out',
-          notes: 'Automatically clocked out due to job cancellation',
-        }).eq('id', entry.id)
-      }
+      await supabase.from('time_entries').update({
+        clock_out: now,
+        flagged: true,
+        flag_reason: 'Job cancelled while clocked in — auto clock-out',
+        notes: 'Automatically clocked out due to job cancellation',
+      }).in('id', openEntries.map(e => e.id))
     }
   }
 
-  // Auto-create follow-up task when estimate is given (status -> pending) — best-effort
+  // Auto-create follow-up task when estimate is given (status -> pending)
   if (newStatus === 'pending' && currentJob.rep_id) {
     try {
       const { createFollowUp } = await import('./follow-up-tasks')
       const dueDate = new Date()
       dueDate.setDate(dueDate.getDate() + 3)
       await createFollowUp(
-        id,
+        jobId,
         currentJob.rep_id,
         dueDate.toISOString().split('T')[0],
         `Follow up on estimate — ${currentJob.customer_name}`,
       )
-    } catch {}
+    } catch (err) {
+      console.warn('[jobs] follow-up creation on pending failed:', err)
+    }
   }
 
-  // Auto-calculate commission when job is sold — best-effort
+  // Auto-calculate commission when job is sold
   if (newStatus === 'sold') {
     try {
       const { data: repData } = await supabase
@@ -344,89 +300,133 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
         await supabase.from('jobs').update({
           commission_rate: repData.commission_rate,
           commission_amount: commissionAmount,
-        }).eq('id', id)
+        }).eq('id', jobId)
       }
     } catch (commErr) {
       console.error('Commission calculation error:', commErr)
     }
 
-    // Auto-generate portal token for customer — best-effort
+    // Auto-generate portal token for customer
     try {
       const { generatePortalToken } = await import('./portal')
-      await generatePortalToken(id)
+      await generatePortalToken(jobId)
     } catch (portalErr) {
       console.error('Portal token generation error:', portalErr)
     }
   }
 
-  // Calendar sync — best-effort, never blocks the status change
-  if (user?.id) {
-    try {
-      // Fetch the company's calendar_id so update/delete hit the right calendar
-      const { data: companyData } = await supabase
-        .from('companies')
-        .select('calendar_id')
-        .eq('id', currentJob.company_id)
-        .single()
-      const calendarId = companyData?.calendar_id ?? 'primary'
+  // Calendar sync
+  try {
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('calendar_id')
+      .eq('id', currentJob.company_id)
+      .single()
+    const calendarId = companyData?.calendar_id ?? 'primary'
 
-      if (newStatus === 'estimate_scheduled') {
-        // Create an estimate calendar event
-        const eventId = await createCalendarEvent(user.id, currentJob, 'estimate')
-        if (eventId) {
-          await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', id)
-        }
-      } else if (newStatus === 'sold' || newStatus === 'scheduled') {
-        // Create or update a job calendar event
-        if (currentJob.calendar_event_id) {
-          await updateCalendarEvent(user.id, currentJob.calendar_event_id, {
-            summary: `Job: ${currentJob.job_number} — ${currentJob.customer_name} (${currentJob.job_type})`,
-          }, calendarId)
-        } else {
-          const eventId = await createCalendarEvent(user.id, currentJob, 'job')
-          if (eventId) {
-            await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', id)
-          }
-        }
-      } else if (newStatus === 'completed' && currentJob.calendar_event_id) {
-        // Mark event as completed
-        await updateCalendarEvent(user.id, currentJob.calendar_event_id, {
-          summary: `[Done] ${currentJob.job_number} — ${currentJob.customer_name}`,
-        }, calendarId)
-      } else if (newStatus === 'cancelled' && currentJob.calendar_event_id) {
-        // Delete the calendar event
-        await deleteCalendarEvent(user.id, currentJob.calendar_event_id, calendarId)
-        await supabase.from('jobs').update({ calendar_event_id: null }).eq('id', id)
+    if (newStatus === 'estimate_scheduled') {
+      const eventId = await createCalendarEvent(userId, currentJob, 'estimate')
+      if (eventId) {
+        await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', jobId)
       }
-    } catch (calError) {
-      // Calendar sync is best-effort — don't fail the status change
-      console.error('Calendar sync error:', calError)
+    } else if (newStatus === 'sold' || newStatus === 'scheduled') {
+      if (currentJob.calendar_event_id) {
+        await updateCalendarEvent(userId, currentJob.calendar_event_id, {
+          summary: `Job: ${currentJob.job_number} — ${currentJob.customer_name} (${currentJob.job_type})`,
+        }, calendarId)
+      } else {
+        const eventId = await createCalendarEvent(userId, currentJob, 'job')
+        if (eventId) {
+          await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', jobId)
+        }
+      }
+    } else if (newStatus === 'completed' && currentJob.calendar_event_id) {
+      await updateCalendarEvent(userId, currentJob.calendar_event_id, {
+        summary: `[Done] ${currentJob.job_number} — ${currentJob.customer_name}`,
+      }, calendarId)
+    } else if (newStatus === 'cancelled' && currentJob.calendar_event_id) {
+      await deleteCalendarEvent(userId, currentJob.calendar_event_id, calendarId)
+      await supabase.from('jobs').update({ calendar_event_id: null }).eq('id', jobId)
     }
+  } catch (calError) {
+    console.error('Calendar sync error:', calError)
   }
 
-  // SMS auto-notification — best-effort
+  // SMS auto-notification
   try {
-    await sendStatusUpdateSMS(id, newStatus)
+    await sendStatusUpdateSMS(jobId, newStatus)
   } catch (smsError) {
     console.error('SMS notification error:', smsError)
   }
 
-  // Process automation rules — best-effort
+  // Process automation rules
   try {
-    const { processAutomationRules } = await import('./automations')
-    await processAutomationRules('status_change', id, newStatus)
+    const { processAutomationRules } = await import('./automations-internal')
+    await processAutomationRules('status_change', jobId, newStatus)
     if (newStatus === 'completed') {
-      await processAutomationRules('job_completed', id)
+      await processAutomationRules('job_completed', jobId)
     }
   } catch (autoError) {
     console.error('Automation engine error:', autoError)
   }
+}
+
+export async function updateJobStatus(id: string, newStatus: JobStatus) {
+  const supabase = await createClient()
+  const { userId, companyId, role } = await getUserWithCompany()
+
+  // Verify job belongs to user's company and get the full row in one query
+  const currentJob = await verifyJobOwnership(id, companyId)
+
+  const oldStatus = currentJob.status as JobStatus
+
+  // Skip if status is the same (dropped on same column)
+  if (oldStatus === newStatus) return currentJob
+
+  const isManager = role === 'manager'
+
+  if (!isManager) {
+    const validNextStatuses = VALID_TRANSITIONS[oldStatus]
+    if (!validNextStatuses.includes(newStatus)) {
+      throw new Error(
+        `Invalid status transition: cannot move from '${oldStatus}' to '${newStatus}'. ` +
+          `Valid transitions from '${oldStatus}': ${validNextStatuses.length > 0 ? validNextStatuses.join(', ') : 'none'}`
+      )
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = { status: newStatus }
+  if (newStatus === 'completed') {
+    updatePayload.completed_date = localDateString()
+
+    if (currentJob.warranty_manufacturer_years) {
+      const expiryDate = new Date()
+      expiryDate.setFullYear(expiryDate.getFullYear() + currentJob.warranty_manufacturer_years)
+      updatePayload.warranty_expiration = localDateString(expiryDate)
+    }
+  }
+
+  const { data: job, error } = await supabase
+    .from('jobs')
+    .update(updatePayload)
+    .eq('id', id)
+    .eq('company_id', companyId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update job status: ${error.message}`)
+
+  await logActivity(id, userId, 'status_change', oldStatus, newStatus)
+
+  // Execute all post-status-change side effects (best-effort, never blocks the return)
+  await executePostStatusEffects(supabase, id, oldStatus, newStatus, currentJob, userId, companyId)
 
   return job
 }
 
 export async function getJob(id: string) {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
   const { data, error } = await supabase
     .from('jobs')
@@ -436,6 +436,7 @@ export async function getJob(id: string) {
       rep:users!jobs_rep_id_fkey(id, name, email, role)
     `)
     .eq('id', id)
+    .eq('company_id', companyId)
     .single()
 
   if (error || !data) return null
@@ -445,17 +446,17 @@ export async function getJob(id: string) {
 
 export async function getJobs(filters?: JobFilters) {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
   let query = supabase
     .from('jobs')
     .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
+    .limit(500)
 
   if (filters?.status) {
     query = query.eq('status', filters.status)
-  }
-  if (filters?.company_id) {
-    query = query.eq('company_id', filters.company_id)
   }
   if (filters?.rep_id) {
     query = query.eq('rep_id', filters.rep_id)
@@ -470,16 +471,16 @@ export async function getJobs(filters?: JobFilters) {
 
 export async function getJobsForPipeline(filters?: { company_id?: string }) {
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
-  let query = supabase
+  // Always use authenticated user's companyId — ignore client-supplied value
+  const query = supabase
     .from('jobs')
     .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .eq('company_id', companyId)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
-
-  if (filters?.company_id) {
-    query = query.eq('company_id', filters.company_id)
-  }
+    .limit(500)
 
   const { data, error } = await query
   if (error) throw new Error(`Failed to fetch pipeline jobs: ${error.message}`)
@@ -487,24 +488,26 @@ export async function getJobsForPipeline(filters?: { company_id?: string }) {
 }
 
 export async function getJobsByDate(date: string, userId: string, role: UserRole) {
+  // Validate date format to prevent PostgREST filter injection (YYYY-MM-DD only)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date format')
+
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
   let query = supabase
     .from('jobs')
     .select('id, job_number, customer_name, company_id, status, job_type, address, city, phone, scheduled_date, site_notes, material, material_color, squares, layers, felt_type, notes, estimate_pdf_url, assigned_crew_id, companycam_project_id, company:companies(id, name, color)')
+    .eq('company_id', companyId)
     .order('scheduled_date', { ascending: true })
 
   if (role === 'crew') {
-    // Crew sees only jobs assigned to them on the given date
     query = query.eq('assigned_crew_id', userId).eq('scheduled_date', date)
   } else if (role === 'sales_crew') {
-    // sales_crew sees their assigned crew jobs AND their sales jobs on the date
     query = query.or(
       `and(assigned_crew_id.eq.${userId},scheduled_date.eq.${date}),` +
         `and(rep_id.eq.${userId},scheduled_date.eq.${date})`
     )
   } else if (role === 'sales') {
-    // Sales sees their own jobs on the date (scheduled) or estimate_scheduled on that date
     query = query
       .eq('rep_id', userId)
       .or(
@@ -512,7 +515,6 @@ export async function getJobsByDate(date: string, userId: string, role: UserRole
           `and(status.eq.estimate_scheduled,scheduled_date.eq.${date})`
       )
   } else {
-    // manager or other — default: all jobs on that date
     query = query.eq('scheduled_date', date)
   }
 
@@ -528,7 +530,17 @@ export async function getSalesStats(repId: string): Promise<{
   monthlyRevenue: number
   staleJobs: Array<{ id: string; job_number: string; customer_name: string; job_type: string; created_at: string; company: { name: string; color: string } | null }>
 }> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
+
+  // Verify the repId belongs to the caller's company
+  const { data: rep } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', repId)
+    .eq('primary_company_id', companyId)
+    .maybeSingle()
+  if (!rep) throw new Error('Rep not found or not in your company')
 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
@@ -537,11 +549,11 @@ export async function getSalesStats(repId: string): Promise<{
 
   const [pendingResult, revenueResult, staleResult] = await Promise.all([
     // Count pending/lead/estimate_scheduled (lightweight count-only query)
-    supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('rep_id', repId).in('status', ['pending', 'lead', 'estimate_scheduled']),
+    supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead', 'estimate_scheduled']),
     // Monthly revenue from sold jobs
-    supabase.from('jobs').select('total_amount').eq('rep_id', repId).eq('status', 'sold').gte('created_at', monthStart),
+    supabase.from('jobs').select('total_amount').eq('rep_id', repId).eq('company_id', companyId).eq('status', 'sold').gte('created_at', monthStart),
     // Stale leads: pending/lead, older than 14 days
-    supabase.from('jobs').select('id, job_number, customer_name, job_type, created_at, company:companies(name, color)').eq('rep_id', repId).in('status', ['pending', 'lead']).lt('created_at', fourteenDaysAgo.toISOString()).order('created_at', { ascending: true }),
+    supabase.from('jobs').select('id, job_number, customer_name, job_type, created_at, company:companies(name, color)').eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead']).lt('created_at', fourteenDaysAgo.toISOString()).order('created_at', { ascending: true }),
   ])
 
   const pendingCount = pendingResult.count ?? 0

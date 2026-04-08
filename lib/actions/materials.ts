@@ -2,21 +2,27 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { calculateMaterials, type MaterialCalcInput } from '@/lib/material-calculator'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 import type { MaterialList } from '@/lib/types/database'
 
 export async function generateMaterialList(jobId: string): Promise<MaterialList> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
   // Fetch job data
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select('id, squares, material, felt_type, layers, job_type, estimate_specs, gutters_length')
+    .select('id, squares, material, felt_type, layers, job_type, estimate_specs, gutters_length, pitch')
     .eq('id', jobId)
     .single()
 
   if (jobError || !job) throw new Error('Job not found')
 
   // Build calc input from job fields
+  // Pitch: prefer direct job field, fall back to estimate_specs
+  const pitch = (job as any).pitch ?? job.estimate_specs?.pitch ?? undefined
+
   const input: MaterialCalcInput = {
     squares: job.squares ?? 0,
     job_type: job.job_type,
@@ -25,6 +31,7 @@ export async function generateMaterialList(jobId: string): Promise<MaterialList>
     layers: job.layers ?? undefined,
     gutter_length_ft: job.gutters_length ?? undefined,
     ridge_vent_ft: job.estimate_specs?.ridge_vent_ft ?? undefined,
+    pitch,
   }
 
   const items = calculateMaterials(input)
@@ -68,6 +75,8 @@ export async function generateMaterialList(jobId: string): Promise<MaterialList>
 }
 
 export async function getMaterialList(jobId: string): Promise<MaterialList | null> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -82,6 +91,7 @@ export async function getMaterialList(jobId: string): Promise<MaterialList | nul
 }
 
 export async function exportMaterialListCSV(jobId: string): Promise<string> {
+  // Auth is handled by getMaterialList -> verifyJobOwnership
   const list = await getMaterialList(jobId)
 
   if (!list || !list.items || list.items.length === 0) {

@@ -16,6 +16,7 @@ export function FollowUpWidget({ jobId, currentUserId }: FollowUpWidgetProps) {
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [completingId, setCompletingId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const tomorrow = new Date()
@@ -56,11 +57,15 @@ export function FollowUpWidget({ jobId, currentUserId }: FollowUpWidgetProps) {
   }
 
   const handleComplete = async (id: string) => {
+    if (completingId) return
+    setCompletingId(id)
     try {
       await completeFollowUp(id)
       load()
     } catch {
       // ignore
+    } finally {
+      setCompletingId(null)
     }
   }
 
@@ -269,6 +274,7 @@ export function FollowUpWidget({ jobId, currentUserId }: FollowUpWidgetProps) {
                 <button
                   type="button"
                   onClick={() => handleComplete(f.id)}
+                  disabled={completingId === f.id}
                   style={{
                     padding: '4px 10px',
                     backgroundColor: 'var(--bg-surface)',
@@ -278,12 +284,13 @@ export function FollowUpWidget({ jobId, currentUserId }: FollowUpWidgetProps) {
                     fontFamily: 'var(--font-mono)',
                     fontSize: '10px',
                     fontWeight: 600,
-                    cursor: 'pointer',
+                    cursor: completingId === f.id ? 'not-allowed' : 'pointer',
+                    opacity: completingId === f.id ? 0.6 : 1,
                     whiteSpace: 'nowrap',
                     flexShrink: 0,
                   }}
                 >
-                  Mark Done
+                  {completingId === f.id ? 'Completing...' : 'Mark Done'}
                 </button>
               </div>
             )

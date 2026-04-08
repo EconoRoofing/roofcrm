@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 export interface SearchResult {
   id: string
@@ -15,17 +16,20 @@ export interface SearchResult {
 export async function searchJobs(query: string): Promise<SearchResult[]> {
   if (!query || query.trim().length < 2) return []
 
-  const sanitized = query.replace(/[^a-zA-Z0-9\s\-']/g, '').trim()
+  // Strip everything except alphanumeric, spaces, and hyphens (no apostrophes — they break PostgREST filters)
+  const sanitized = query.replace(/[^a-zA-Z0-9\s\-]/g, '').trim()
   if (!sanitized) return []
 
   const supabase = await createClient()
+  const { companyId } = await getUserWithCompany()
 
+  // Use individual .ilike() filters chained with .or() to avoid string interpolation in filter syntax
+  const pattern = `%${sanitized}%`
   const { data } = await supabase
     .from('jobs')
     .select('id, job_number, customer_name, address, city, status, company:companies(name, color)')
-    .or(
-      `customer_name.ilike.%${sanitized}%,address.ilike.%${sanitized}%,job_number.ilike.%${sanitized}%,city.ilike.%${sanitized}%`
-    )
+    .eq('company_id', companyId)
+    .or(`customer_name.ilike.${pattern},address.ilike.${pattern},job_number.ilike.${pattern},city.ilike.${pattern}`)
     .order('created_at', { ascending: false })
     .limit(10)
 

@@ -67,6 +67,14 @@ export async function GET(request: Request) {
     console.error('Cron: overdue equipment check failed', error)
   }
 
+  // 7. Invoice payment reminders
+  try {
+    const { processInvoiceReminders } = await import('@/lib/actions/invoicing')
+    results.invoiceReminders = await processInvoiceReminders()
+  } catch (error) {
+    console.error('Cron: invoice reminders failed', error)
+  }
+
   // 6. Update expired certifications
   try {
     const { createClient } = await import('@/lib/supabase/server')

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import { generatePDF } from '@/lib/pdf/generate-pdf'
 import { sendEstimateEmail } from '@/lib/email'
@@ -33,6 +34,10 @@ export async function signEstimate(
     ip: clientIp,
   }
 
+  // Verify job belongs to user's company
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
+
   // 1. Fetch job + company data
   const { data: jobRow, error: jobError } = await supabase
     .from('jobs')
@@ -41,6 +46,7 @@ export async function signEstimate(
       company:companies(*)
     `)
     .eq('id', jobId)
+    .eq('company_id', companyId)
     .single()
 
   if (jobError || !jobRow) {

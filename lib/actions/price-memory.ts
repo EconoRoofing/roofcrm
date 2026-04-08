@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 /**
  * Returns the per-square price from the last completed job with the given material.
@@ -9,11 +10,13 @@ import { createClient } from '@/lib/supabase/server'
 export async function getLastUsedPrices(
   material: string
 ): Promise<{ roofAmount?: number; total?: number } | null> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const { data } = await supabase
     .from('jobs')
     .select('roof_amount, total_amount, squares')
+    .eq('company_id', companyId)
     .eq('material', material)
     .not('total_amount', 'is', null)
     .gt('total_amount', 0)
@@ -36,6 +39,7 @@ export async function getLastUsedPrices(
 export async function getPreviousJobAtAddress(
   address: string
 ): Promise<{ specs: unknown; pricing: unknown } | null> {
+  const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   const escaped = address.replace(/%/g, '\\%').replace(/_/g, '\\_')
@@ -45,6 +49,7 @@ export async function getPreviousJobAtAddress(
     .select(
       'material, material_color, felt_type, squares, layers, ridge_type, ventilation, roof_amount, gutters_amount, options_amount, total_amount, estimate_specs, warranty_manufacturer_years, warranty_workmanship_years'
     )
+    .eq('company_id', companyId)
     .ilike('address', `%${escaped}%`)
     .not('total_amount', 'is', null)
     .gt('total_amount', 0)

@@ -8,9 +8,48 @@ import {
   unassignJobFromCrew,
   markCrewUnavailable,
   clearCrewUnavailable,
+  getDailyDispatchSummary,
 } from '@/lib/actions/scheduling'
+import {
+  checkWeatherAndAlert,
+  autoRescheduleRainyJobs,
+  sendWeatherAlertToCrews,
+  rescheduleSingleJob,
+} from '@/lib/actions/weather-alerts'
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+interface CrewMember {
+  id: string
+  name: string
+  email: string
+}
+
+interface JobAssignment {
+  jobId: string
+  jobNumber: string
+  customerName: string
+  crewId: string
+  crewName: string
+  date: string
+  durationDays: number
+}
+
+interface UnassignedJob {
+  id: string
+  job_number: string
+  customer_name: string
+  status: string
+}
+
+interface CrewAvailabilityData {
+  crew: CrewMember[]
+  assignments: Record<string, JobAssignment[]>
+  unassignedJobs: UnassignedJob[]
+  unavailability: Record<string, string[]>
+  weekStart: string
+  weekEnd: string
+}
 
 interface WeatherData {
   temp: number
@@ -51,7 +90,7 @@ function WeatherBadge({ weather }: { weather: WeatherData | null | undefined }) 
 }
 
 export function CrewScheduler() {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<CrewAvailabilityData | null>(null)
   const [loading, setLoading] = useState(true)
   const [weekStart, setWeekStart] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
@@ -67,12 +106,49 @@ export function CrewScheduler() {
   // Weather: map of date string -> weather
   const [weatherMap, setWeatherMap] = useState<Record<string, WeatherData>>({})
 
+  // Weather alert state
+  const [weatherAlerts, setWeatherAlerts] = useState<{
+    atRisk: Array<{
+      jobId: string
+      jobNumber: string
+      customerName: string
+      crewName: string
+      city: string
+      address: string
+      weather: { rain: number; wind: number; description: string }
+    }>
+    safe: Array<any>
+    totalJobs: number
+  } | null>(null)
+  const [weatherAlertExpanded, setWeatherAlertExpanded] = useState(false)
+  const [weatherAlertLoading, setWeatherAlertLoading] = useState(false)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduling, setRescheduling] = useState(false)
+  const [alertingSMS, setAlertingSMS] = useState(false)
+  const [weatherActionMsg, setWeatherActionMsg] = useState<string | null>(null)
+  const [perJobRescheduleId, setPerJobRescheduleId] = useState<string | null>(null)
+  const [perJobDate, setPerJobDate] = useState('')
+
+  // Daily dispatch summary
+  const [dispatch, setDispatch] = useState<{
+    crews: Array<{
+      crewId: string
+      crewName: string
+      jobs: Array<{ jobId: string; jobNumber: string; customerName: string; address: string; city: string; scheduledDate: string }>
+      totalJobs: number
+      isUnavailable: boolean
+    }>
+    unassignedJobs: number
+    date: string
+  } | null>(null)
+
   // Initialize with current week start (Monday)
   useEffect(() => {
-    const today = new Date()
-    const day = today.getDay() || 7
-    const diff = today.getDate() - day + 1
-    const monday = new Date(today.setDate(diff))
+    const now = new Date()
+    const day = now.getDay() || 7
+    const diff = now.getDate() - day + 1
+    const monday = new Date(now)
+    monday.setDate(diff)
     setWeekStart(monday.toISOString().split('T')[0])
   }, [])
 
@@ -101,26 +177,99 @@ export function CrewScheduler() {
 
     async function fetchWeather() {
       const newMap: Record<string, WeatherData> = {}
-      // Use one city for the whole week (simplified; could extend to per-job city)
+
       try {
-        const res = await fetch('/api/weather')
-        if (res.ok) {
-          const w: WeatherData = await res.json()
-          // Apply same weather to all days (current weather API returns current conditions)
-          for (let i = 0; i < 7; i++) {
-            const d = new Date(weekStart)
-            d.setDate(d.getDate() + i)
-            newMap[d.toISOString().split('T')[0]] = w
+        // Try forecast endpoint first (returns array of daily forecasts)
+        const forecastRes = await fetch(`/api/weather?forecast=true&cnt=7`)
+        if (forecastRes.ok) {
+          const body = await forecastRes.json()
+
+          if (Array.isArray(body)) {
+            // Forecast API returned an array of daily weather
+            body.forEach((w: WeatherData, i: number) => {
+              const d = new Date(weekStart)
+              d.setDate(d.getDate() + i)
+              newMap[d.toISOString().split('T')[0]] = w
+            })
+          } else {
+            // Fallback: API returned a single weather object — only apply to today
+            const today = new Date().toISOString().split('T')[0]
+            newMap[today] = body as WeatherData
           }
         }
       } catch {
         // Weather is non-critical
       }
+
       setWeatherMap(newMap)
     }
 
     fetchWeather()
   }, [weekStart])
+
+  // Check weather alerts for the current week
+  useEffect(() => {
+    if (!weekStart || !data) return
+    setWeatherAlertLoading(true)
+    async function checkAlerts() {
+      try {
+        const allAtRisk: Array<{
+          jobId: string; jobNumber: string; customerName: string; crewName: string;
+          city: string; address: string; weather: { rain: number; wind: number; description: string }
+        }> = []
+        // Check each day of the week
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(weekStart)
+          d.setDate(d.getDate() + i)
+          const dateStr = d.toISOString().split('T')[0]
+          const result = await checkWeatherAndAlert(dateStr)
+          allAtRisk.push(...result.atRisk)
+        }
+        // Deduplicate by jobId
+        const seen = new Set<string>()
+        const unique = allAtRisk.filter((j) => {
+          if (seen.has(j.jobId)) return false
+          seen.add(j.jobId)
+          return true
+        })
+        setWeatherAlerts(unique.length > 0 ? { atRisk: unique, safe: [], totalJobs: unique.length } : null)
+      } catch {
+        // Weather alerts are non-critical
+        setWeatherAlerts(null)
+      } finally {
+        setWeatherAlertLoading(false)
+      }
+    }
+    checkAlerts()
+  }, [weekStart, data])
+
+  // Fetch today's dispatch summary whenever data reloads
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0]
+    getDailyDispatchSummary(today)
+      .then(setDispatch)
+      .catch(() => setDispatch(null))
+  }, [data]) // re-fetch when schedule data changes
+
+  const handleExportDispatch = () => {
+    if (!dispatch) return
+    const active = dispatch.crews.filter((c) => c.totalJobs > 0 && !c.isUnavailable)
+    const totalJobs = active.reduce((sum, c) => sum + c.totalJobs, 0)
+    const exportData = {
+      date: dispatch.date,
+      summary: `${active.length} crews active, ${totalJobs} jobs scheduled, ${dispatch.unassignedJobs} unassigned`,
+      crews: active.map((c) => ({
+        crew: c.crewName,
+        jobs: c.jobs.map((j) => ({
+          jobNumber: j.jobNumber,
+          customer: j.customerName,
+          address: `${j.address}${j.city ? ', ' + j.city : ''}`,
+        })),
+      })),
+    }
+    console.log('[RoofCRM] Daily Dispatch Export:', JSON.stringify(exportData, null, 2))
+    alert('Dispatch exported to console. PDF/email export coming soon.')
+  }
 
   const getDateForDay = (dayOffset: number): string => {
     const dateObj = new Date(weekStart)
@@ -131,8 +280,8 @@ export function CrewScheduler() {
   // Returns jobs that span this cell (start date + duration covers this day)
   const getJobsForCrewDay = (crewId: string, dayOffset: number) => {
     const date = getDateForDay(dayOffset)
-    const assignments: any[] = data?.assignments?.[crewId] || []
-    return assignments.filter((a: any) => {
+    const assignments: JobAssignment[] = data?.assignments?.[crewId] || []
+    return assignments.filter((a) => {
       if (a.date === date) return true
       // Multi-day: check if this day falls within the job's range
       const duration = a.durationDays || 1
@@ -146,8 +295,8 @@ export function CrewScheduler() {
 
   const isMultiDaySpanCell = (crewId: string, dayOffset: number) => {
     const date = getDateForDay(dayOffset)
-    const assignments: any[] = data?.assignments?.[crewId] || []
-    return assignments.some((a: any) => {
+    const assignments: JobAssignment[] = data?.assignments?.[crewId] || []
+    return assignments.some((a) => {
       const duration = a.durationDays || 1
       if (duration <= 1) return false
       const startMs = new Date(a.date).getTime()
@@ -280,12 +429,12 @@ export function CrewScheduler() {
                   {assignDuration}
                 </span>
                 <button
-                  onClick={() => setAssignDuration(Math.min(7, assignDuration + 1))}
+                  onClick={() => setAssignDuration(Math.min(14, assignDuration + 1))}
                   style={{ width: '32px', height: '32px', borderRadius: '4px', border: '1px solid var(--border-subtle)', backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '16px' }}
                 >
                   +
                 </button>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>max 7</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>max 14</span>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -344,14 +493,482 @@ export function CrewScheduler() {
         </div>
       )}
 
+      {/* Weather Alert Banner */}
+      {weatherAlerts && weatherAlerts.atRisk.length > 0 && (
+        <div
+          style={{
+            marginBottom: '16px',
+            border: '1px solid rgba(245,158,11,0.4)',
+            borderRadius: '8px',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Collapsed banner */}
+          <button
+            onClick={() => setWeatherAlertExpanded(!weatherAlertExpanded)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 16px',
+              backgroundColor: 'rgba(245,158,11,0.08)',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#f59e0b', flex: 1 }}>
+              {weatherAlerts.atRisk.length} job{weatherAlerts.atRisk.length !== 1 ? 's' : ''} at weather risk this week
+            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                transform: weatherAlertExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s',
+              }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          {/* Expanded detail panel */}
+          {weatherAlertExpanded && (
+            <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface)' }}>
+              {/* Action message */}
+              {weatherActionMsg && (
+                <div
+                  style={{
+                    marginBottom: '12px',
+                    padding: '8px 12px',
+                    backgroundColor: 'rgba(34,197,94,0.1)',
+                    border: '1px solid rgba(34,197,94,0.3)',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#22c55e',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  {weatherActionMsg}
+                  <button
+                    onClick={() => setWeatherActionMsg(null)}
+                    style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer', fontWeight: 700, fontSize: '14px' }}
+                  >
+                    x
+                  </button>
+                </div>
+              )}
+
+              {/* Bulk action buttons */}
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {/* Reschedule All */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="date"
+                    value={rescheduleDate}
+                    onChange={(e) => setRescheduleDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <button
+                    disabled={!rescheduleDate || rescheduling}
+                    onClick={async () => {
+                      if (!rescheduleDate) return
+                      setRescheduling(true)
+                      try {
+                        // Reschedule at-risk jobs for each day of the week
+                        let totalRescheduled = 0
+                        for (let i = 0; i < 7; i++) {
+                          const d = new Date(weekStart)
+                          d.setDate(d.getDate() + i)
+                          const dateStr = d.toISOString().split('T')[0]
+                          try {
+                            const result = await autoRescheduleRainyJobs(dateStr, rescheduleDate)
+                            totalRescheduled += result.rescheduled
+                          } catch {
+                            // Some days may have no at-risk jobs
+                          }
+                        }
+                        setWeatherActionMsg(`${totalRescheduled} job${totalRescheduled !== 1 ? 's' : ''} rescheduled to ${new Date(rescheduleDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`)
+                        setRescheduleDate('')
+                        await loadData(weekStart)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Reschedule failed')
+                      } finally {
+                        setRescheduling(false)
+                      }
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: rescheduleDate ? '#f59e0b' : 'var(--bg-secondary)',
+                      color: rescheduleDate ? '#000' : 'var(--text-muted)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: rescheduleDate && !rescheduling ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      opacity: rescheduling ? 0.6 : 1,
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                    {rescheduling ? 'Rescheduling...' : 'Reschedule All'}
+                  </button>
+                </div>
+
+                {/* Alert Crews */}
+                <button
+                  disabled={alertingSMS}
+                  onClick={async () => {
+                    setAlertingSMS(true)
+                    try {
+                      let totalSent = 0
+                      let totalSkipped = 0
+                      for (let i = 0; i < 7; i++) {
+                        const d = new Date(weekStart)
+                        d.setDate(d.getDate() + i)
+                        const dateStr = d.toISOString().split('T')[0]
+                        try {
+                          const result = await sendWeatherAlertToCrews(dateStr)
+                          totalSent += result.sent
+                          totalSkipped += result.skipped
+                        } catch {
+                          // Skip days with no at-risk jobs
+                        }
+                      }
+                      setWeatherActionMsg(`SMS sent to ${totalSent} crew member${totalSent !== 1 ? 's' : ''}${totalSkipped > 0 ? ` (${totalSkipped} skipped)` : ''}`)
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Failed to send alerts')
+                    } finally {
+                      setAlertingSMS(false)
+                    }
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-subtle)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-secondary)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: alertingSMS ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    opacity: alertingSMS ? 0.6 : 1,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+                  </svg>
+                  {alertingSMS ? 'Sending...' : 'Alert Crews via SMS'}
+                </button>
+              </div>
+
+              {/* Per-job list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {weatherAlerts.atRisk.map((job) => (
+                  <div
+                    key={job.jobId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '8px 12px',
+                      backgroundColor: 'var(--bg-secondary)',
+                      borderRadius: '6px',
+                      borderLeft: '3px solid #f59e0b',
+                    }}
+                  >
+                    {/* Job info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {job.jobNumber} - {job.customerName}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {job.crewName} | {job.city}
+                      </div>
+                    </div>
+
+                    {/* Weather info */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                      {job.weather.rain > 50 && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            color: '#ef4444',
+                            backgroundColor: 'rgba(239,68,68,0.12)',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                          }}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-1px', marginRight: '3px' }}>
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+                          </svg>
+                          {job.weather.rain}% rain
+                        </span>
+                      )}
+                      {job.weather.wind > 25 && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            color: '#ef4444',
+                            backgroundColor: 'rgba(239,68,68,0.12)',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                          }}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-1px', marginRight: '3px' }}>
+                            <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
+                          </svg>
+                          {job.weather.wind}mph
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Per-job reschedule */}
+                    {perJobRescheduleId === job.jobId ? (
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                        <input
+                          type="date"
+                          value={perJobDate}
+                          onChange={(e) => setPerJobDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            fontSize: '11px',
+                            width: '130px',
+                          }}
+                        />
+                        <button
+                          disabled={!perJobDate}
+                          onClick={async () => {
+                            if (!perJobDate) return
+                            try {
+                              const result = await rescheduleSingleJob(job.jobId, perJobDate)
+                              setWeatherActionMsg(`${result.jobNumber} rescheduled`)
+                              setPerJobRescheduleId(null)
+                              setPerJobDate('')
+                              await loadData(weekStart)
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : 'Reschedule failed')
+                            }
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: perJobDate ? '#f59e0b' : 'var(--bg-secondary)',
+                            color: perJobDate ? '#000' : 'var(--text-muted)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: perJobDate ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          Move
+                        </button>
+                        <button
+                          onClick={() => { setPerJobRescheduleId(null); setPerJobDate('') }}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'transparent',
+                            color: 'var(--text-muted)',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setPerJobRescheduleId(job.jobId); setPerJobDate('') }}
+                        title="Reschedule this job"
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'transparent',
+                          color: 'var(--text-secondary)',
+                          fontSize: '11px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        Reschedule
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Today's Dispatch Panel */}
+      {dispatch && (() => {
+        const activeCrews = dispatch.crews.filter((c) => c.totalJobs > 0 && !c.isUnavailable)
+        const unavailableCrews = dispatch.crews.filter((c) => c.isUnavailable)
+        const totalJobs = activeCrews.reduce((sum, c) => sum + c.totalJobs, 0)
+
+        return (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '12px 16px',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Summary text */}
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: '6px' }}>
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+              Today:
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600, marginLeft: '6px' }}>
+                {activeCrews.length} crew{activeCrews.length !== 1 ? 's' : ''} active
+              </span>
+              <span style={{ margin: '0 6px', color: 'var(--border-subtle)' }}>|</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                {totalJobs} job{totalJobs !== 1 ? 's' : ''} scheduled
+              </span>
+              {dispatch.unassignedJobs > 0 && (
+                <>
+                  <span style={{ margin: '0 6px', color: 'var(--border-subtle)' }}>|</span>
+                  <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                    {dispatch.unassignedJobs} unassigned
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Crew badges */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
+              {activeCrews.map((crew) => (
+                <div
+                  key={crew.crewId}
+                  title={crew.jobs.map((j) => `${j.jobNumber} - ${j.customerName}`).join('\n')}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: 'var(--accent-dim)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {crew.crewName}
+                  <span style={{ marginLeft: '4px', opacity: 0.7 }}>{crew.totalJobs}</span>
+                </div>
+              ))}
+              {unavailableCrews.map((crew) => (
+                <div
+                  key={crew.crewId}
+                  title={`${crew.crewName} — unavailable today`}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(239,68,68,0.1)',
+                    border: '1px solid rgba(239,68,68,0.25)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#ef4444',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {crew.crewName}
+                  <span style={{ marginLeft: '4px', opacity: 0.7 }}>OFF</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Export button */}
+            <button
+              onClick={handleExportDispatch}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-subtle)',
+                backgroundColor: 'transparent',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export Dispatch
+            </button>
+          </div>
+        )
+      })()}
+
       {/* Unassigned jobs — draggable */}
-      {data?.unassignedJobs.length > 0 && (
+      {(data?.unassignedJobs?.length ?? 0) > 0 && (
         <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
           <h3 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '12px' }}>
-            UNASSIGNED JOBS ({data.unassignedJobs.length}) — drag to schedule
+            UNASSIGNED JOBS ({data!.unassignedJobs.length}) — drag to schedule
           </h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {data.unassignedJobs.map((job: any) => (
+            {data!.unassignedJobs.map((job: UnassignedJob) => (
               <div
                 key={job.id}
                 draggable
@@ -420,7 +1037,7 @@ export function CrewScheduler() {
             </tr>
           </thead>
           <tbody>
-            {data?.crew.map((member: any) => (
+            {data?.crew.map((member: CrewMember) => (
               <tr key={member.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 {/* Crew name */}
                 <td style={{ padding: '12px', fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', borderRight: '1px solid var(--border-subtle)', maxWidth: '120px', wordBreak: 'break-word' }}>
@@ -488,13 +1105,13 @@ export function CrewScheduler() {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {jobs.map((job: any) => {
+                          {jobs.map((job: JobAssignment) => {
                             const isStartDay = job.date === date
                             const isMultiDay = (job.durationDays || 1) > 1
                             return (
                               <div
                                 key={job.jobId + date}
-                                onDoubleClick={() => isStartDay ? handleUnassignJob(job.jobId) : undefined}
+                                onDoubleClick={() => isStartDay && window.confirm('Remove crew assignment?') ? handleUnassignJob(job.jobId) : undefined}
                                 style={{
                                   padding: '5px 6px',
                                   backgroundColor: isMultiDay && !isStartDay ? 'rgba(var(--accent-rgb,59,130,246),0.15)' : 'var(--accent-dim)',
@@ -549,6 +1166,7 @@ export function CrewScheduler() {
         <div><span style={{ color: 'var(--text-muted)' }}>Time off:</span> Click "Mark OFF" or click OFF to clear</div>
         <div><span style={{ color: '#f59e0b' }}>Amber header</span> = weather advisory</div>
         <div><span style={{ color: '#ef4444' }}>Red header</span> = high rain / wind warning</div>
+        <div><span style={{ color: '#f59e0b' }}>Amber banner</span> = jobs at weather risk (click to expand)</div>
       </div>
     </div>
   )

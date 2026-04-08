@@ -123,7 +123,6 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
     setExporting(true)
     try {
       const csv = await exportJobsCSV({
-        companyId: selectedCompany ?? undefined,
         status: activeTab !== 'all' ? activeTab : undefined,
       })
       if (!csv) return

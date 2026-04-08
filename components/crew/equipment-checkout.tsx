@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { checkOutEquipment, returnEquipment } from '@/lib/actions/equipment'
 import type { Equipment } from '@/lib/actions/equipment'
 
@@ -20,6 +20,9 @@ export function EquipmentCheckout({
   const [available, setAvailable] = useState<Equipment[]>(allAvailableEquipment)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  useEffect(() => { setCheckedOut(jobEquipment) }, [jobEquipment])
+  useEffect(() => { setAvailable(allAvailableEquipment) }, [allAvailableEquipment])
 
   function handleCheckOut(equipment: Equipment) {
     setError(null)

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import {
   getJobInvoices,
   createInvoice,
@@ -79,7 +80,8 @@ const btnSecondary: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-export default function JobInvoicesPage({ params }: { params: { id: string } }) {
+export default function JobInvoicesPage() {
+  const { id } = useParams<{ id: string }>()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -109,12 +111,12 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
 
   useEffect(() => {
     loadInvoices()
-  }, [params.id])
+  }, [id])
 
   const loadInvoices = async () => {
     try {
       setLoading(true)
-      const data = await getJobInvoices(params.id)
+      const data = await getJobInvoices(id)
       setInvoices(data as Invoice[])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load invoices')
@@ -132,7 +134,7 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
         return
       }
       await createInvoice({
-        job_id: params.id,
+        job_id: id,
         type: formData.type,
         amount: parseFloat(formData.amount),
         total_amount: parseFloat(formData.amount),
@@ -191,7 +193,7 @@ export default function JobInvoicesPage({ params }: { params: { id: string } }) 
     try {
       setGeneratingPdfId(invoice.id)
       setError(null)
-      const res = await fetch(`/api/jobs/${params.id}/invoice-pdf`, {
+      const res = await fetch(`/api/jobs/${id}/invoice-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceId: invoice.id }),

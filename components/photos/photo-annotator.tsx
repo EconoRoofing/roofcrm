@@ -1,10 +1,7 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
-
-export type PhotoCategory = 'Before' | 'During' | 'After' | 'Damage' | 'General'
-
-const PHOTO_CATEGORIES: PhotoCategory[] = ['Before', 'During', 'After', 'Damage', 'General']
+import { useRef, useEffect, useState, useCallback } from 'react'
+import { type PhotoCategory, PHOTO_CATEGORIES } from '@/lib/types/photos'
 
 interface AnnotationData {
   type: 'circle' | 'arrow' | 'text'
@@ -39,6 +36,16 @@ export function PhotoAnnotator({
   const [scale, setScale] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [category, setCategory] = useState<PhotoCategory>(initialCategory)
+  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null)
+  const [annotationColor, setAnnotationColor] = useState('#ff4444')
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const COLOR_PALETTE = ['#ff4444', '#ffffff', '#ffaa00', '#44ff44', '#4488ff', '#ff44ff']
+
+  // Sync local annotations when the parent provides new initialAnnotations
+  useEffect(() => {
+    setAnnotations(initialAnnotations)
+  }, [initialAnnotations])
 
   const MAX_CANVAS = 2000
   const MAX_ANNOTATIONS = 50
@@ -83,6 +90,22 @@ export function PhotoAnnotator({
     img.src = imageUrl
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl])
+
+  // Recalculate scale when the canvas container resizes
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
+    const observer = new ResizeObserver(() => {
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width > 0 && canvas.width > 0) {
+        setScale(canvas.width / rect.width)
+      }
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const redrawAnnotations = (anns: AnnotationData[]) => {
     const canvas = canvasRef.current
@@ -138,85 +161,139 @@ export function PhotoAnnotator({
     }
   }
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+  // Convert a pointer position (client coords) to canvas-space coords
+  const canvasCoords = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current
+      if (!canvas) return { x: 0, y: 0 }
+      const rect = canvas.getBoundingClientRect()
+      return {
+        x: (clientX - rect.left) * scale,
+        y: (clientY - rect.top) * scale,
+      }
+    },
+    [scale]
+  )
 
-    const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) * scale
-    const y = (e.clientY - rect.top) * scale
-
-    if (tool === 'text') {
-      if (annotations.length >= MAX_ANNOTATIONS) return
-      const text = prompt('Enter annotation text:')
-      if (text) {
-        const newAnn: AnnotationData = { type: 'text', x, y, text }
+  // Commit inline text input as an annotation
+  const commitTextInput = useCallback(
+    (value: string) => {
+      if (!textInput) return
+      if (value.trim() && annotations.length < MAX_ANNOTATIONS) {
+        const newAnn: AnnotationData = { type: 'text', x: textInput.x, y: textInput.y, text: value.trim(), color: annotationColor }
         const updated = [...annotations, newAnn]
         setAnnotations(updated)
         redrawAnnotations(updated)
       }
-    } else {
-      setDrawing(true)
-      setStartPos({ x, y })
-    }
-  }
+      setTextInput(null)
+    },
+    [textInput, annotations, annotationColor]
+  )
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!drawing || !startPos) return
+  const handlePointerDown = useCallback(
+    (clientX: number, clientY: number) => {
+      const { x, y } = canvasCoords(clientX, clientY)
 
-    const canvas = canvasRef.current
-    const img = imageRef.current
-    const ctx = canvas?.getContext('2d')
+      if (tool === 'text') {
+        if (annotations.length >= MAX_ANNOTATIONS) return
+        // Show inline input instead of blocking prompt()
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const rect = canvas.getBoundingClientRect()
+        setTextInput({
+          x,
+          y,
+          value: '',
+        })
+      } else {
+        setDrawing(true)
+        setStartPos({ x, y })
+      }
+    },
+    [tool, annotations, canvasCoords]
+  )
 
-    if (!canvas || !ctx || !img) return
+  const handlePointerMove = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!drawing || !startPos) return
 
-    const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) * scale
-    const y = (e.clientY - rect.top) * scale
+      const canvas = canvasRef.current
+      const img = imageRef.current
+      const ctx = canvas?.getContext('2d')
+      if (!canvas || !ctx || !img) return
 
-    // Redraw with preview (pass current annotations array to avoid stale state)
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-    annotations.forEach((ann) => drawAnnotation(ctx, ann))
+      const { x, y } = canvasCoords(clientX, clientY)
 
-    const preview: AnnotationData = {
-      type: tool,
-      x: startPos.x,
-      y: startPos.y,
-      x2: x,
-      y2: y,
-    }
-    drawAnnotation(ctx, preview)
-  }
+      // Redraw with preview (pass current annotations array to avoid stale state)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      annotations.forEach((ann) => drawAnnotation(ctx, ann))
 
-  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!drawing || !startPos) return
+      const preview: AnnotationData = {
+        type: tool,
+        x: startPos.x,
+        y: startPos.y,
+        x2: x,
+        y2: y,
+        color: annotationColor,
+      }
+      drawAnnotation(ctx, preview)
+    },
+    [drawing, startPos, tool, annotations, canvasCoords]
+  )
 
-    const canvas = canvasRef.current
-    if (!canvas) return
+  const handlePointerUp = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!drawing || !startPos) return
 
-    const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left) * scale
-    const y = (e.clientY - rect.top) * scale
+      const canvas = canvasRef.current
+      if (!canvas) return
 
-    if (annotations.length >= MAX_ANNOTATIONS) {
+      const { x, y } = canvasCoords(clientX, clientY)
+
+      if (annotations.length >= MAX_ANNOTATIONS) {
+        setDrawing(false)
+        setStartPos(null)
+        return
+      }
+
+      const newAnn: AnnotationData = {
+        type: tool,
+        x: startPos.x,
+        y: startPos.y,
+        x2: x,
+        y2: y,
+        color: annotationColor,
+      }
+
+      const updated = [...annotations, newAnn]
+      setAnnotations(updated)
       setDrawing(false)
       setStartPos(null)
-      return
-    }
+      redrawAnnotations(updated)
+    },
+    [drawing, startPos, tool, annotations, canvasCoords]
+  )
 
-    const newAnn: AnnotationData = {
-      type: tool,
-      x: startPos.x,
-      y: startPos.y,
-      x2: x,
-      y2: y,
-    }
+  // Mouse event handlers
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => handlePointerDown(e.clientX, e.clientY)
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => handlePointerMove(e.clientX, e.clientY)
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => handlePointerUp(e.clientX, e.clientY)
 
-    const updated = [...annotations, newAnn]
-    setAnnotations(updated)
-    setDrawing(false)
-    setStartPos(null)
-    redrawAnnotations(updated)
+  // Touch event handlers — convert first touch to same coordinate system as mouse
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    const touch = e.touches[0]
+    if (touch) handlePointerDown(touch.clientX, touch.clientY)
+  }
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    const touch = e.touches[0]
+    if (touch) handlePointerMove(touch.clientX, touch.clientY)
+  }
+  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    const touch = e.changedTouches[0]
+    if (touch) handlePointerUp(touch.clientX, touch.clientY)
   }
 
   const handleSave = () => {
@@ -313,6 +390,28 @@ export function PhotoAnnotator({
           ))}
         </div>
 
+        {/* Color picker */}
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginLeft: '4px' }}>
+          {COLOR_PALETTE.map((c) => (
+            <button
+              key={c}
+              onClick={() => setAnnotationColor(c)}
+              title={c}
+              style={{
+                width: '20px',
+                height: '20px',
+                borderRadius: '50%',
+                border: annotationColor === c ? '2px solid var(--accent, #60a5fa)' : '2px solid var(--border-subtle)',
+                backgroundColor: c,
+                cursor: 'pointer',
+                padding: 0,
+                outline: annotationColor === c ? '1px solid var(--accent, #60a5fa)' : 'none',
+                outlineOffset: '1px',
+              }}
+            />
+          ))}
+        </div>
+
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
           <button
             onClick={handleUndo}
@@ -368,6 +467,7 @@ export function PhotoAnnotator({
 
       {/* Canvas */}
       <div
+        ref={containerRef}
         style={{
           padding: '16px',
           display: 'flex',
@@ -375,6 +475,7 @@ export function PhotoAnnotator({
           backgroundColor: 'var(--bg-deep)',
           maxHeight: '600px',
           overflowY: 'auto',
+          position: 'relative',
         }}
       >
         <canvas
@@ -383,14 +484,49 @@ export function PhotoAnnotator({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => setDrawing(false)}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           style={{
             border: '1px solid var(--border-subtle)',
             borderRadius: '4px',
             cursor: 'crosshair',
             maxWidth: '100%',
             height: 'auto',
+            touchAction: 'none',
           }}
         />
+
+        {/* Inline text input — replaces blocking prompt() */}
+        {textInput && (
+          <input
+            autoFocus
+            type="text"
+            value={textInput.value}
+            onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTextInput(textInput.value)
+              if (e.key === 'Escape') setTextInput(null)
+            }}
+            onBlur={() => commitTextInput(textInput.value)}
+            placeholder="Type annotation..."
+            style={{
+              position: 'absolute',
+              left: `${(textInput.x / scale) + 16}px`,
+              top: `${(textInput.y / scale) + 16}px`,
+              width: '160px',
+              padding: '4px 8px',
+              fontSize: '13px',
+              fontWeight: 500,
+              border: '2px solid var(--accent, #60a5fa)',
+              borderRadius: '4px',
+              backgroundColor: 'var(--bg-card, #1a1a1a)',
+              color: 'var(--text-primary, #fff)',
+              outline: 'none',
+              zIndex: 10,
+            }}
+          />
+        )}
       </div>
 
       {/* Status */}

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
+import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 
 // Auto-text templates by status
 const STATUS_TEMPLATES: Record<string, (vars: TemplateVars) => string> = {
@@ -48,7 +49,12 @@ export interface Message {
   created_at: string
 }
 
+// Called from updateJobStatus which already has auth — but also exported,
+// so add auth as defense-in-depth against direct client calls
 export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Promise<boolean> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
+
   const template = STATUS_TEMPLATES[newStatus]
   if (!template) return false
 
@@ -140,15 +146,20 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
 }
 
 export async function sendCustomMessage(jobId: string, body: string): Promise<boolean> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
   const { data: job, error } = await supabase
     .from('jobs')
-    .select('phone')
+    .select('phone, do_not_text')
     .eq('id', jobId)
     .single()
 
   if (error || !job?.phone) return false
+
+  // Respect do-not-text flag (same check as sendStatusUpdateSMS)
+  if ((job as { do_not_text?: boolean }).do_not_text) return false
 
   const result = await sendSMS(job.phone, body)
 
@@ -166,6 +177,8 @@ export async function sendCustomMessage(jobId: string, body: string): Promise<bo
 }
 
 export async function getJobMessages(jobId: string): Promise<Message[]> {
+  const { companyId } = await getUserWithCompany()
+  await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
   const { data, error } = await supabase
