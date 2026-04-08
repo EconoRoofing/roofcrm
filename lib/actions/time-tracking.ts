@@ -224,7 +224,7 @@ export async function clockOut(
   // Fetch all breaks for this entry
   const { data: breaks } = await supabase
     .from('breaks')
-    .select('duration_minutes, end_time')
+    .select('duration_minutes, end_time, type')
     .eq('time_entry_id', entry.id)
 
   // Only count completed breaks
@@ -244,6 +244,54 @@ export async function clockOut(
   const payType = entry.pay_type as string
   const hourlyRate = Number(entry.hourly_rate ?? 0)
   const dayRate = Number(entry.day_rate ?? 0)
+
+  // Split shift aggregation: check for other completed entries today (CA law)
+  // If cumulative daily hours exceed 8, upgrade the excess from regular to OT
+  if (payType !== 'day_rate') {
+    const clockInDate = new Date(entry.clock_in as string)
+    const dayStart = new Date(clockInDate)
+    dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date(clockInDate)
+    dayEnd.setHours(23, 59, 59, 999)
+
+    const { data: sameDayEntries } = await supabase
+      .from('time_entries')
+      .select('total_hours')
+      .eq('user_id', user.id)
+      .not('id', 'eq', entry.id)
+      .not('clock_out', 'is', null)
+      .gte('clock_in', dayStart.toISOString())
+      .lte('clock_in', dayEnd.toISOString())
+
+    const priorDailyHours = (sameDayEntries ?? []).reduce(
+      (sum, e) => sum + (Number(e.total_hours) || 0), 0
+    )
+
+    const totalDailyHours = priorDailyHours + workingHours
+    if (totalDailyHours > 8 && regularHours > 0) {
+      // How many of the 8 regular hours were already used by prior shifts
+      const priorRegularUsed = Math.min(priorDailyHours, 8)
+      const regularAllowedThisShift = Math.max(0, 8 - priorRegularUsed)
+
+      if (regularHours > regularAllowedThisShift) {
+        const excessRegular = regularHours - regularAllowedThisShift
+        regularHours = regularAllowedThisShift
+        overtimeHours = overtimeHours + excessRegular
+      }
+
+      // Also check if cumulative > 12 for double-time
+      if (totalDailyHours > 12) {
+        const priorOtUsed = Math.max(0, Math.min(priorDailyHours - 8, 4))
+        const otAllowedThisShift = Math.max(0, 4 - priorOtUsed)
+
+        if (overtimeHours > otAllowedThisShift) {
+          const excessOt = overtimeHours - otAllowedThisShift
+          overtimeHours = otAllowedThisShift
+          doubletimeHours = doubletimeHours + excessOt
+        }
+      }
+    }
+  }
 
   // Weekly OT check (CA law: hours over 40/week at 1.5×)
   // Fetch all completed entries for this user in the current work week (Mon–Sun)
@@ -344,6 +392,46 @@ export async function clockOut(
     }
   }
 
+  // California break premium pay (Labor Code 226.7)
+  // 1 hour premium for each missed required meal period and each missed required rest period
+  let breakPremiumHours = 0
+  let breakPremiumReason = ''
+
+  if (payType !== 'day_rate') {
+    const completedBreaks = (breaks ?? []).filter(b => b.end_time !== null)
+    const mealBreaks = completedBreaks.filter(b => b.type === 'meal')
+    const restBreaks = completedBreaks.filter(b => b.type === 'rest')
+
+    // Meal period: required if shift > 5 hours. Second meal required if shift > 10 hours.
+    const mealsRequired = workingHours > 10 ? 2 : workingHours > 5 ? 1 : 0
+    const mealsMissed = Math.max(0, mealsRequired - mealBreaks.length)
+
+    // Rest period: required for every 4 hours worked (or major fraction thereof)
+    // "Major fraction" = more than 2 hours. So: 0-3.5hrs=0, 3.5-7.5hrs=1, 7.5-11.5hrs=2, etc.
+    const restsRequired = workingHours > 3.5 ? Math.ceil((workingHours - 1.5) / 4) : 0
+    const restsMissed = Math.max(0, restsRequired - restBreaks.length)
+
+    breakPremiumHours = mealsMissed + restsMissed
+
+    if (breakPremiumHours > 0) {
+      const premiumPay = breakPremiumHours * hourlyRate
+      totalCost = totalCost + premiumPay
+
+      const reasons = []
+      if (mealsMissed > 0) reasons.push(`${mealsMissed} missed meal period(s)`)
+      if (restsMissed > 0) reasons.push(`${restsMissed} missed rest period(s)`)
+      breakPremiumReason = `Break premium: ${reasons.join(', ')} — ${breakPremiumHours}hr at $${hourlyRate}/hr = $${premiumPay.toFixed(2)}`
+
+      flagged = true
+      flagReason = (flagReason ? flagReason + '; ' : '') + breakPremiumReason
+    }
+  }
+
+  // Build notes with break premium info if applicable
+  const updatedNotes = breakPremiumReason
+    ? ((entry.notes as string | null) ? (entry.notes as string) + '\n' : '') + breakPremiumReason
+    : (entry.notes as string | null) ?? undefined
+
   const { data: updated, error: updateError } = await supabase
     .from('time_entries')
     .update({
@@ -358,6 +446,7 @@ export async function clockOut(
       total_cost: parseFloat(totalCost.toFixed(2)),
       flagged,
       flag_reason: flagReason,
+      ...(updatedNotes !== undefined ? { notes: updatedNotes } : {}),
     })
     .eq('id', entry.id)
     .select()
