@@ -181,7 +181,7 @@ export async function processAutomationRules(
     // Fetch job with company info
     const { data: job, error: jobError } = await supabase
       .from('jobs')
-      .select('id, company_id, customer_name, phone, email, status, rep_id')
+      .select('id, company_id, customer_name, phone, email, status, rep_id, do_not_text')
       .eq('id', jobId)
       .single()
 
@@ -222,6 +222,7 @@ async function executeAutomationAction(
     email: string | null
     status: string
     rep_id?: string | null
+    do_not_text?: boolean
   },
   triggerValue?: string
 ) {
@@ -230,7 +231,7 @@ async function executeAutomationAction(
 
   switch (rule.action_type) {
     case 'send_sms': {
-      if (!job.phone) return
+      if (!job.phone || job.do_not_text) return
       const message = (config.message_template as string)?.replace(
         /\{customer_name\}|\{status\}/g,
         (match) => {

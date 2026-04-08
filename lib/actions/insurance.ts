@@ -72,8 +72,10 @@ export async function updateClaimStatus(
   if (new_status === 'approved') jobStatus = 'sold'
   if (new_status === 'done') jobStatus = 'completed'
 
-  // Update job status based on claim progression (do NOT touch notes)
-  const updatePayload: Record<string, unknown> = {}
+  // Update claim_status + conditionally update job status (do NOT touch notes)
+  const updatePayload: Record<string, unknown> = {
+    claim_status: new_status,  // Always persist the new claim status
+  }
   if (new_status === 'approved') updatePayload.status = 'sold'
   if (new_status === 'done') updatePayload.status = 'completed'
 
