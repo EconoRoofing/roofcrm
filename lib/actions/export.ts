@@ -73,6 +73,48 @@ export async function exportPayrollCSV(filters?: {
   return [headers.join(','), ...rows].join('\n')
 }
 
+export async function exportInvoicesQBFormat(dateRange: { start: string; end: string }): Promise<string> {
+  const supabase = await createClient()
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select(`
+      id, invoice_number, type, amount, total_amount, status,
+      due_date, paid_date, paid_amount, payment_method, created_at,
+      jobs(job_number, customer_name, address, city, state),
+      companies(name)
+    `)
+    .gte('created_at', dateRange.start)
+    .lte('created_at', dateRange.end + 'T23:59:59')
+    .order('created_at', { ascending: true })
+
+  if (!invoices || invoices.length === 0) return ''
+
+  // QuickBooks IIF format
+  // Header line defines column types; each TRNS row is a transaction
+  const lines: string[] = [
+    '!TRNS\tTRNSID\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tMEMO\tCLEAR\tTOPRINT',
+    '!SPL\tSPLID\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tDOCNUM\tMEMO\tQNTY\tPRICE',
+    '!ENDTRNS',
+  ]
+
+  for (const inv of invoices) {
+    const job = (inv as any).jobs as { job_number: string; customer_name: string; address?: string; city?: string; state?: string } | null
+    const company = (inv as any).companies as { name: string } | null
+    const customerName = job?.customer_name ?? 'Unknown Customer'
+    const docNum = inv.invoice_number
+    const dateStr = new Date(inv.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const amount = Number(inv.total_amount).toFixed(2)
+    const memo = `Job #${job?.job_number ?? ''} - ${company?.name ?? ''}`
+
+    lines.push(`TRNS\t\tINVOICE\t${dateStr}\tAccounts Receivable\t${customerName}\t${amount}\t${docNum}\t${memo}\tN\tY`)
+    lines.push(`SPL\t\tINVOICE\t${dateStr}\tRoofing Services Income\t${customerName}\t-${amount}\t${docNum}\t${memo}\t1\t${amount}`)
+    lines.push('ENDTRNS')
+  }
+
+  return lines.join('\n')
+}
+
 export async function exportJobsCSV(filters?: { companyId?: string; status?: string }): Promise<string> {
   const supabase = await createClient()
 

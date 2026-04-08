@@ -16,6 +16,7 @@ interface JobAssignment {
   crewId: string
   crewName: string
   date: string
+  durationDays: number
 }
 
 interface UnassignedJob {
@@ -23,6 +24,26 @@ interface UnassignedJob {
   job_number: string
   customer_name: string
   status: string
+}
+
+// Internal helper: no auth check, called from getCrewAvailability which already verified
+async function getCrewUnavailabilityInternal(
+  supabase: ReturnType<typeof import('@/lib/supabase/server').createClient> extends Promise<infer T> ? T : never,
+  weekStart: string,
+  weekEnd: string
+): Promise<Record<string, string[]>> {
+  const { data } = await (supabase as any)
+    .from('crew_unavailability')
+    .select('user_id, date')
+    .gte('date', weekStart)
+    .lt('date', weekEnd)
+
+  const result: Record<string, string[]> = {}
+  for (const row of data ?? []) {
+    if (!result[row.user_id]) result[row.user_id] = []
+    result[row.user_id].push(row.date)
+  }
+  return result
 }
 
 export async function getCrewAvailability(weekStart: string) {
@@ -45,7 +66,7 @@ export async function getCrewAvailability(weekStart: string) {
 
   const { data: assignments, error: assignError } = await supabase
     .from('jobs')
-    .select('id, job_number, customer_name, assigned_crew_id, scheduled_date')
+    .select('id, job_number, customer_name, assigned_crew_id, scheduled_date, schedule_duration_days')
     .eq('status', 'scheduled')
     .gte('scheduled_date', weekStart)
     .lt('scheduled_date', weekEnd.toISOString().split('T')[0])
@@ -80,15 +101,20 @@ export async function getCrewAvailability(weekStart: string) {
           crewId: job.assigned_crew_id,
           crewName: crewMember.name,
           date: job.scheduled_date || '',
+          durationDays: (job as any).schedule_duration_days || 1,
         })
       }
     }
   })
 
+  // Fetch unavailability for the week
+  const unavailability = await getCrewUnavailabilityInternal(supabase, weekStart, weekEnd.toISOString().split('T')[0])
+
   return {
     crew: crew || [],
     assignments: crewAssignments,
     unassignedJobs: unassigned || [],
+    unavailability,
     weekStart,
     weekEnd: weekEnd.toISOString().split('T')[0],
   }
@@ -148,6 +174,49 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
   return true
 }
 
+export async function assignJobToCrewMultiDay(
+  jobId: string,
+  crewId: string,
+  startDate: string,
+  durationDays: number
+) {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Clamp duration
+  const duration = Math.max(1, Math.min(durationDays, 14))
+
+  // Validate crew
+  const { data: crewMember } = await supabase
+    .from('users')
+    .select('id, role, is_active')
+    .eq('id', crewId)
+    .single()
+
+  if (!crewMember) throw new Error('Crew member not found')
+  if (!crewMember.is_active) throw new Error('Crew member is deactivated')
+  if (!['crew', 'sales_crew'].includes(crewMember.role)) throw new Error('User is not a crew member')
+
+  const { data: updatedJob, error } = await supabase
+    .from('jobs')
+    .update({
+      assigned_crew_id: crewId,
+      scheduled_date: startDate,
+      schedule_duration_days: duration,
+    })
+    .eq('id', jobId)
+    .select()
+    .single()
+
+  if (error || !updatedJob) {
+    console.error('Multi-day assignment error:', error)
+    throw new Error('Failed to assign job to crew')
+  }
+
+  return true
+}
+
 export async function unassignJobFromCrew(jobId: string) {
   const supabase = await createClient()
   const user = await getUser()
@@ -166,4 +235,55 @@ export async function unassignJobFromCrew(jobId: string) {
   }
 
   return true
+}
+
+// ─── Crew Availability ────────────────────────────────────────────────────────
+
+export async function getCrewUnavailability(weekStart: string): Promise<Record<string, string[]>> {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 7)
+
+  const { data } = await supabase
+    .from('crew_unavailability')
+    .select('user_id, date, reason')
+    .gte('date', weekStart)
+    .lt('date', weekEnd.toISOString().split('T')[0])
+
+  // Returns: { userId: ['2024-01-15', '2024-01-16'] }
+  const result: Record<string, string[]> = {}
+  for (const row of data ?? []) {
+    if (!result[row.user_id]) result[row.user_id] = []
+    result[row.user_id].push(row.date)
+  }
+  return result
+}
+
+export async function markCrewUnavailable(userId: string, date: string, reason?: string) {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('crew_unavailability')
+    .upsert({ user_id: userId, date, reason, created_by: user.id }, { onConflict: 'user_id,date' })
+
+  if (error) throw new Error(`Failed to mark unavailable: ${error.message}`)
+}
+
+export async function clearCrewUnavailable(userId: string, date: string) {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('crew_unavailability')
+    .delete()
+    .eq('user_id', userId)
+    .eq('date', date)
+
+  if (error) throw new Error(`Failed to clear unavailability: ${error.message}`)
 }
