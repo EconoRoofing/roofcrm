@@ -238,7 +238,7 @@ export async function sendInvoiceEmail(invoice_id: string) {
           <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount Due</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 18px;">${formatCurrency(invoice.total_amount)}</td></tr>
           <tr><td style="padding: 8px; color: #666;">Due Date</td><td style="padding: 8px;">${dueDate}</td></tr>
         </table>
-        ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${invoice.notes}</p>` : ''}
+        ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${String(invoice.notes).replace(/[&<>"']/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c))}</p>` : ''}
         <p style="color: #666; font-size: 14px; margin-top: 24px;">
           Please contact us if you have any questions about this invoice.
         </p>

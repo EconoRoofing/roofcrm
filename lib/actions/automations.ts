@@ -36,6 +36,10 @@ export async function createAutomationRule(data: CreateAutomationData) {
 
   if (!user) throw new Error('Not authenticated')
 
+  // Only managers can create automation rules (prevents privilege escalation)
+  const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (userData?.role !== 'manager') throw new Error('Only managers can create automation rules')
+
   const { data: rule, error } = await supabase
     .from('automation_rules')
     .insert({
@@ -113,6 +117,21 @@ export async function deleteAutomationRule(rule_id: string) {
   const user = await getUser()
 
   if (!user) throw new Error('Not authenticated')
+
+  // Only managers can delete automation rules
+  const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (userData?.role !== 'manager') throw new Error('Only managers can delete automation rules')
+
+  // Log deletion for audit trail (best-effort)
+  try {
+    await supabase.from('activity_log').insert({
+      job_id: rule_id,
+      user_id: user.id,
+      action: 'automation_rule_deleted',
+      old_value: rule_id,
+      new_value: null,
+    })
+  } catch {}
 
   const { error } = await supabase
     .from('automation_rules')

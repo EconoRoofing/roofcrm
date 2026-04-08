@@ -169,6 +169,8 @@ export async function updateSupplementAmount(job_id: string, amount: number) {
   const user = await getUser()
 
   if (!user) throw new Error('Not authenticated')
+  if (amount < 0) throw new Error('Supplement amount cannot be negative')
+  if (amount > 500000) throw new Error('Supplement amount exceeds maximum ($500,000)')
 
   const { data: job, error } = await supabase
     .from('jobs')

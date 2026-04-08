@@ -2,6 +2,7 @@
 
 import { timingSafeEqual } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
+import { getUser } from '@/lib/auth'
 import { cookies } from 'next/headers'
 
 // Get all companies (for primary company assignment)
@@ -44,6 +45,36 @@ export async function setPin(userId: string, pin: string) {
   const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 
   await supabase.from('users').update({ pin_hash: pinHash }).eq('id', userId)
+
+  // Audit trail for PIN changes
+  const caller = await getUser()
+  if (caller) {
+    try {
+      await supabase.from('activity_log').insert({
+        job_id: userId,
+        user_id: caller.id,
+        action: 'pin_changed',
+        old_value: null,
+        new_value: 'PIN updated',
+      })
+    } catch {}
+  }
+}
+
+// Unlock a locked account (manager only — resets failed attempts)
+export async function unlockAccount(userId: string) {
+  const supabase = await createClient()
+  const user = await getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Verify caller is a manager
+  const { data: callerData } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (callerData?.role !== 'manager') throw new Error('Only managers can unlock accounts')
+
+  await supabase.from('users').update({
+    pin_failed_attempts: 0,
+    pin_locked_until: null,
+  }).eq('id', userId)
 }
 
 // Verify a PIN
