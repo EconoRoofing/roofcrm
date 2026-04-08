@@ -10,6 +10,7 @@ import { CompanyCamLinker } from '@/components/companycam-linker'
 import { JobMessages } from '@/components/job-messages'
 import { getJobMessages } from '@/lib/actions/messages'
 import { JobAssignment } from '@/components/job-assignment'
+import { ClaimWorkflow } from '@/components/insurance/claim-workflow'
 import { NavigateIcon, ClipboardListIcon, ChevronRightIcon, AlertTriangleIcon, DocumentIcon, PencilIcon, ExternalLinkIcon } from '@/components/icons'
 import { createClient } from '@/lib/supabase/server'
 import { ReviewReceivedToggle } from '@/components/review-received-toggle'
@@ -608,41 +609,26 @@ export async function JobDetail({ job, role }: JobDetailProps) {
 
       {/* Insurance Section */}
       {job.insurance_claim && (
-        <div style={styles.sectionCard}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h2 style={styles.sectionHeading}>
-              Insurance Claim
-            </h2>
-            {job.claim_status && (
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: '700',
-                  fontFamily: 'var(--font-sans)',
-                  padding: '3px 10px',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(0,230,118,0.1)',
-                  border: '1px solid rgba(0,230,118,0.2)',
-                  color: 'var(--accent)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                }}
-              >
-                {job.claim_status}
-              </span>
-            )}
+        <>
+          <ClaimWorkflow
+            jobId={job.id}
+            claimNumber={job.claim_number}
+            currentStatus={'filed'}
+            adjusterName={job.adjuster_name}
+            adjusterPhone={job.adjuster_phone}
+            adjusterEmail={job.adjuster_email}
+            supplementAmount={job.supplement_amount}
+          />
+          <div style={styles.sectionCard}>
+            <h2 style={styles.sectionHeading}>Claim Details</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <DetailRow label="Insurance Carrier" value={job.insurance_company} />
+              <DetailRow label="Date of Loss" value={job.date_of_loss ? <MonoValue>{job.date_of_loss}</MonoValue> : null} />
+              <DetailRow label="Deductible" value={job.deductible != null ? <MonoValue>{fmt(job.deductible)}</MonoValue> : null} />
+              <DetailRow label="Insurance Payout" value={job.insurance_payout != null ? <MonoValue>{fmt(job.insurance_payout)}</MonoValue> : null} />
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <DetailRow label="Insurance Carrier" value={job.insurance_company} />
-            <DetailRow label="Claim Number" value={job.claim_number ? <MonoValue>{job.claim_number}</MonoValue> : null} />
-            <DetailRow label="Adjuster" value={job.adjuster_name} />
-            <DetailRow label="Adjuster Phone" value={job.adjuster_phone ? <a href={`tel:${job.adjuster_phone}`} style={styles.phoneLink}>{job.adjuster_phone}</a> : null} />
-            <DetailRow label="Date of Loss" value={job.date_of_loss ? <MonoValue>{job.date_of_loss}</MonoValue> : null} />
-            <DetailRow label="Deductible" value={job.deductible != null ? <MonoValue>{fmt(job.deductible)}</MonoValue> : null} />
-            <DetailRow label="Insurance Payout" value={job.insurance_payout != null ? <MonoValue>{fmt(job.insurance_payout)}</MonoValue> : null} />
-            <DetailRow label="Supplement" value={job.supplement_amount != null ? <MonoValue>{fmt(job.supplement_amount)}</MonoValue> : null} />
-          </div>
-        </div>
+        </>
       )}
 
       {/* Site Notes */}
@@ -739,6 +725,29 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           )}
         </div>
       )}
+
+      {/* Invoices section */}
+      <Link
+        href={`/jobs/${job.id}/invoices`}
+        style={{
+          ...styles.sectionCard,
+          textDecoration: 'none',
+          color: 'inherit',
+          transition: 'all 0.15s',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--surface-hover)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--bg-card)'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ ...styles.sectionHeading, margin: 0 }}>Invoices</h2>
+          <ChevronRightIcon size={16} style={{ color: 'var(--text-secondary)' }} />
+        </div>
+      </Link>
 
       {/* Review section — completed jobs */}
       {job.status === 'completed' && job.company && (

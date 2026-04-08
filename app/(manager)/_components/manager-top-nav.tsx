@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { href: '/time-tracking', label: 'Time' },
   { href: '/safety', label: 'Safety' },
   { href: '/equipment', label: 'Equipment' },
+  { href: '/automations', label: 'Automations' },
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/team', label: 'Team' },
 ]

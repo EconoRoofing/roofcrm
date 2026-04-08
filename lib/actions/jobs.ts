@@ -377,6 +377,14 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
     console.error('SMS notification error:', smsError)
   }
 
+  // Process automation rules — best-effort
+  try {
+    const { processAutomationRules } = await import('./automations')
+    await processAutomationRules('status_change', id, newStatus)
+  } catch (autoError) {
+    console.error('Automation engine error:', autoError)
+  }
+
   return job
 }
 
