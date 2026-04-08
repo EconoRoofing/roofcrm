@@ -6,6 +6,10 @@
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
+// In-memory token cache with 55-minute TTL (Google tokens valid for 60 min)
+// Resets on serverless cold starts — acceptable, as cache is perf-only, not correctness
+const tokenCache = new Map<string, { token: string; expiresAt: number }>()
+
 // Color IDs mapped to job types
 const JOB_TYPE_COLOR: Record<string, string> = {
   reroof: '9',        // blue
@@ -24,6 +28,12 @@ const JOB_TYPE_COLOR: Record<string, string> = {
  * Returns null if the user has no refresh token (Calendar not connected).
  */
 async function getGoogleAccessToken(userId: string): Promise<string | null> {
+  // Check in-memory cache first — avoids a DB query + token exchange on every calendar op
+  const cached = tokenCache.get(userId)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.token
+  }
+
   const { createClient } = await import('@/lib/supabase/server')
   const supabase = await createClient()
 
@@ -74,7 +84,17 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
   }
 
   const json = await res.json()
-  return json.access_token ?? null
+  const accessToken: string | null = json.access_token ?? null
+
+  // Cache the new token with a 55-minute TTL
+  if (accessToken) {
+    tokenCache.set(userId, {
+      token: accessToken,
+      expiresAt: Date.now() + 55 * 60 * 1000,
+    })
+  }
+
+  return accessToken
 }
 
 interface JobForCalendar {

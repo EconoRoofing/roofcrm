@@ -229,23 +229,44 @@ export async function clockOut(
   const hourlyRate = Number(entry.hourly_rate ?? 0)
   const dayRate = Number(entry.day_rate ?? 0)
 
+  // Pre-compute day/week boundary variables needed for parallel queries
+  const clockInDate = new Date(entry.clock_in as string)
+  const dayStart = new Date(clockInDate)
+  dayStart.setHours(0, 0, 0, 0)
+  const dayEnd = new Date(clockInDate)
+  dayEnd.setHours(23, 59, 59, 999)
+
+  const clockOutDate = new Date()
+  const dayOfWeek = clockOutDate.getDay() // 0=Sun, 1=Mon…
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const weekStart = new Date(clockOutDate)
+  weekStart.setDate(clockOutDate.getDate() + mondayOffset)
+  weekStart.setHours(0, 0, 0, 0)
+
+  // Run same-day and weekly queries in parallel — both independent of each other
+  const [sameDayResult, weekResult] = await Promise.all([
+    payType !== 'day_rate'
+      ? supabase
+          .from('time_entries')
+          .select('total_hours')
+          .eq('user_id', user.id)
+          .not('id', 'eq', entry.id)
+          .not('clock_out', 'is', null)
+          .gte('clock_in', dayStart.toISOString())
+          .lte('clock_in', dayEnd.toISOString())
+      : Promise.resolve({ data: [] as { total_hours: unknown }[] | null }),
+    supabase
+      .from('time_entries')
+      .select('total_hours, regular_hours, overtime_hours, doubletime_hours')
+      .eq('user_id', user.id)
+      .gte('clock_in', weekStart.toISOString())
+      .not('id', 'eq', entry.id),
+  ])
+
   // Split shift aggregation: check for other completed entries today (CA law)
   // If cumulative daily hours exceed 8, upgrade the excess from regular to OT
   if (payType !== 'day_rate') {
-    const clockInDate = new Date(entry.clock_in as string)
-    const dayStart = new Date(clockInDate)
-    dayStart.setHours(0, 0, 0, 0)
-    const dayEnd = new Date(clockInDate)
-    dayEnd.setHours(23, 59, 59, 999)
-
-    const { data: sameDayEntries } = await supabase
-      .from('time_entries')
-      .select('total_hours')
-      .eq('user_id', user.id)
-      .not('id', 'eq', entry.id)
-      .not('clock_out', 'is', null)
-      .gte('clock_in', dayStart.toISOString())
-      .lte('clock_in', dayEnd.toISOString())
+    const sameDayEntries = sameDayResult.data
 
     const priorDailyHours = (sameDayEntries ?? []).reduce(
       (sum, e) => sum + (Number(e.total_hours) || 0), 0
@@ -278,20 +299,7 @@ export async function clockOut(
   }
 
   // Weekly OT check (CA law: hours over 40/week at 1.5×)
-  // Fetch all completed entries for this user in the current work week (Mon–Sun)
-  const clockOutDate = new Date()
-  const dayOfWeek = clockOutDate.getDay() // 0=Sun, 1=Mon…
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const weekStart = new Date(clockOutDate)
-  weekStart.setDate(clockOutDate.getDate() + mondayOffset)
-  weekStart.setHours(0, 0, 0, 0)
-
-  const { data: weekEntries } = await supabase
-    .from('time_entries')
-    .select('total_hours, regular_hours, overtime_hours, doubletime_hours')
-    .eq('user_id', user.id)
-    .gte('clock_in', weekStart.toISOString())
-    .not('id', 'eq', entry.id)  // exclude current entry
+  const weekEntries = weekResult.data
 
   const priorWeeklyHours = (weekEntries ?? []).reduce(
     (sum, e) => sum + (Number(e.total_hours) || 0), 0
@@ -533,7 +541,7 @@ export async function getJobLaborCost(jobId: string): Promise<{
 
   const { data, error } = await supabase
     .from('time_entries')
-    .select('*')
+    .select('id, total_hours, total_cost')
     .eq('job_id', jobId)
     .order('clock_in', { ascending: true })
 

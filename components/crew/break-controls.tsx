@@ -5,6 +5,70 @@ import { startBreak, endBreak, getBreaksDue, getActiveBreak } from '@/lib/action
 import type { Break, BreakType } from '@/lib/types/time-tracking'
 import { formatMinutes } from '@/lib/utils'
 
+// Module-level style constants — extracted to avoid object allocation on every render
+const breakStyles = {
+  breakButton: {
+    flex: 1,
+    padding: '10px',
+    borderRadius: '8px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '11px',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    border: 'none',
+  } as React.CSSProperties,
+  mealButton: {
+    backgroundColor: 'var(--accent-amber-dim)',
+    border: '1px solid rgba(255,171,0,0.25)',
+    color: 'var(--accent-amber)',
+  } as React.CSSProperties,
+  restButton: {
+    backgroundColor: 'var(--accent-blue-dim)',
+    border: '1px solid rgba(68,138,255,0.25)',
+    color: 'var(--accent-blue)',
+  } as React.CSSProperties,
+  endBreakButton: {
+    padding: '8px 14px',
+    backgroundColor: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  timerExceeded: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '14px',
+    color: 'var(--accent-red)',
+    fontWeight: 700,
+  } as React.CSSProperties,
+  timerRemaining: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '18px',
+    fontWeight: 700,
+  } as React.CSSProperties,
+  breakLabel: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    marginBottom: '2px',
+  } as React.CSSProperties,
+  errorBanner: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    color: 'var(--accent-red)',
+    padding: '6px 10px',
+    backgroundColor: 'var(--accent-red-dim)',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,82,82,0.2)',
+  } as React.CSSProperties,
+} as const
+
 interface BreakControlsProps {
   timeEntryId: string
   clockInTime: string
@@ -131,34 +195,18 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
           }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: '12px',
-                color: 'var(--text-secondary)',
-                marginBottom: '2px',
-              }}
-            >
+            <div style={breakStyles.breakLabel}>
               {activeBreak.type === 'meal' ? 'Meal Break' : 'Rest Break'}
             </div>
             {breakExceeded ? (
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '14px',
-                  color: 'var(--accent-red)',
-                  fontWeight: 700,
-                }}
-              >
+              <div style={breakStyles.timerExceeded}>
                 Break exceeded — tap to end
               </div>
             ) : (
               <div
                 style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '18px',
+                  ...breakStyles.timerRemaining,
                   color: activeBreak.type === 'meal' ? 'var(--accent-amber)' : 'var(--accent-blue)',
-                  fontWeight: 700,
                 }}
               >
                 {formatMinutes(breakRemainingMs)} remaining
@@ -170,19 +218,9 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
             onClick={handleEndBreak}
             disabled={isPending}
             style={{
-              padding: '8px 14px',
-              backgroundColor: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
+              ...breakStyles.endBreakButton,
               cursor: isPending ? 'not-allowed' : 'pointer',
               opacity: isPending ? 0.6 : 1,
-              flexShrink: 0,
             }}
           >
             End Break
@@ -196,17 +234,8 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
             onClick={() => handleStartBreak('meal')}
             disabled={isPending}
             style={{
-              flex: 1,
-              padding: '10px',
-              backgroundColor: 'var(--accent-amber-dim)',
-              border: '1px solid rgba(255,171,0,0.25)',
-              borderRadius: '8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--accent-amber)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
+              ...breakStyles.breakButton,
+              ...breakStyles.mealButton,
               cursor: isPending ? 'not-allowed' : 'pointer',
               opacity: isPending ? 0.6 : 1,
             }}
@@ -218,17 +247,8 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
             onClick={() => handleStartBreak('rest')}
             disabled={isPending}
             style={{
-              flex: 1,
-              padding: '10px',
-              backgroundColor: 'var(--accent-blue-dim)',
-              border: '1px solid rgba(68,138,255,0.25)',
-              borderRadius: '8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--accent-blue)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
+              ...breakStyles.breakButton,
+              ...breakStyles.restButton,
               cursor: isPending ? 'not-allowed' : 'pointer',
               opacity: isPending ? 0.6 : 1,
             }}
@@ -240,17 +260,7 @@ export function BreakControls({ timeEntryId, clockInTime }: BreakControlsProps) 
 
       {/* Error */}
       {error && (
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '12px',
-            color: 'var(--accent-red)',
-            padding: '6px 10px',
-            backgroundColor: 'var(--accent-red-dim)',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,82,82,0.2)',
-          }}
-        >
+        <div style={breakStyles.errorBanner}>
           {error}
         </div>
       )}

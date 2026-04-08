@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import { updateJobStatus } from '@/lib/actions/jobs'
@@ -45,32 +45,40 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
   const [localJobs, setLocalJobs] = useState<KanbanJob[]>(serverJobs)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
 
-  // Sync when server data changes
-  if (serverJobs !== localJobs && pendingMoves.size === 0) {
-    setLocalJobs(serverJobs)
-  }
+  // Sync when server data changes (moved to useEffect to avoid render-time setState)
+  useEffect(() => {
+    if (pendingMoves.size === 0) {
+      setLocalJobs(serverJobs)
+    }
+  }, [serverJobs, pendingMoves.size])
 
   // Client-side filter by company
-  const filteredJobs = selectedCompanyId
-    ? localJobs.filter((job) => job.company_id === selectedCompanyId)
-    : localJobs
+  const filteredJobs = useMemo(() => {
+    return selectedCompanyId
+      ? localJobs.filter((job) => job.company_id === selectedCompanyId)
+      : localJobs
+  }, [localJobs, selectedCompanyId])
 
   // Group by status (exclude cancelled)
-  const grouped = Object.fromEntries(
-    COLUMN_ORDER.map((status) => [status, [] as KanbanJob[]])
-  ) as Record<JobStatus, KanbanJob[]>
+  const grouped = useMemo(() => {
+    const g = Object.fromEntries(
+      COLUMN_ORDER.map((status) => [status, [] as KanbanJob[]])
+    ) as Record<JobStatus, KanbanJob[]>
 
-  for (const job of filteredJobs) {
-    const s = job.status as JobStatus
-    if (s !== 'cancelled' && grouped[s]) {
-      grouped[s].push(job)
+    for (const job of filteredJobs) {
+      const s = job.status as JobStatus
+      if (s !== 'cancelled' && g[s]) {
+        g[s].push(job)
+      }
     }
-  }
 
-  // Sort each column by created_at ascending (oldest/most urgent first)
-  for (const status of COLUMN_ORDER) {
-    grouped[status].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-  }
+    // Sort each column by created_at ascending (oldest/most urgent first)
+    for (const status of COLUMN_ORDER) {
+      g[status].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    }
+
+    return g
+  }, [filteredJobs])
 
   // Optimistic move handler — updates UI instantly, syncs in background
   const handleMoveJob = useCallback(async (jobId: string, newStatus: JobStatus) => {
@@ -99,13 +107,14 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
   }, [serverJobs, router])
 
   // Revenue totals
-  const pendingRevenue = filteredJobs
-    .filter((j) => j.status === 'pending' && j.total_amount != null && j.total_amount > 0)
-    .reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
-
-  const soldRevenue = filteredJobs
-    .filter((j) => j.status === 'sold' && j.total_amount != null && j.total_amount > 0)
-    .reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
+  const { pendingRevenue, soldRevenue } = useMemo(() => ({
+    pendingRevenue: filteredJobs
+      .filter((j) => j.status === 'pending' && j.total_amount != null && j.total_amount > 0)
+      .reduce((sum, j) => sum + (j.total_amount ?? 0), 0),
+    soldRevenue: filteredJobs
+      .filter((j) => j.status === 'sold' && j.total_amount != null && j.total_amount > 0)
+      .reduce((sum, j) => sum + (j.total_amount ?? 0), 0),
+  }), [filteredJobs])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

@@ -109,28 +109,34 @@ export async function createJob(data: CreateJobData) {
 
   await logActivity(job.id, user?.id ?? null, 'job_created')
 
-  // Geocode the address to store lat/lng for geofencing — best-effort
-  try {
-    const coords = await geocodeAddress(data.address, data.city, data.state ?? 'CA')
-    if (coords) {
-      await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', job.id)
-    }
-  } catch (geoError) {
-    console.error('Geocoding failed:', geoError)
-  }
-
-  // Auto-link CompanyCam project by address
-  try {
-    const { searchProjectsByAddress } = await import('@/lib/companycam')
-    const projects = await searchProjectsByAddress(data.address)
-    if (projects.length === 1) {
-      // Exact match — auto-link
-      await supabase.from('jobs').update({
-        companycam_project_id: projects[0].id,
-      }).eq('id', job.id)
-    }
-    // If 0 or multiple matches, leave unlinked (user links manually)
-  } catch {}
+  // Geocode + CompanyCam auto-link in parallel — both are best-effort
+  await Promise.all([
+    // Geocode the address to store lat/lng for geofencing
+    (async () => {
+      try {
+        const coords = await geocodeAddress(data.address, data.city, data.state ?? 'CA')
+        if (coords) {
+          await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', job.id)
+        }
+      } catch (geoError) {
+        console.error('Geocoding failed:', geoError)
+      }
+    })(),
+    // Auto-link CompanyCam project by address
+    (async () => {
+      try {
+        const { searchProjectsByAddress } = await import('@/lib/companycam')
+        const projects = await searchProjectsByAddress(data.address)
+        if (projects.length === 1) {
+          // Exact match — auto-link
+          await supabase.from('jobs').update({
+            companycam_project_id: projects[0].id,
+          }).eq('id', job.id)
+        }
+        // If 0 or multiple matches, leave unlinked (user links manually)
+      } catch {}
+    })(),
+  ])
 
   return job
 }

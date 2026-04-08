@@ -4,6 +4,32 @@ import type { Job } from '@/lib/types/database'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 import { JobCardCrew } from './job-card-crew'
 
+// Module-level style constants — extracted to avoid object allocation on every render
+const timelineStyles = {
+  dot: {
+    width: '14px',
+    height: '14px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  dotActive: {
+    animation: 'pulse-dot 2s ease-in-out infinite',
+    boxShadow: '0 0 12px var(--accent-glow)',
+  } as React.CSSProperties,
+  dotInactive: {
+    animation: 'none',
+    boxShadow: 'none',
+  } as React.CSSProperties,
+  timeLabel: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '10px',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.1em',
+    marginBottom: '6px',
+  } as React.CSSProperties,
+} as const
+
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
 }
@@ -116,13 +142,9 @@ export function DayTimeline({ jobs, activeTimeEntry, userId }: DayTimelineProps)
               >
                 <div
                   style={{
-                    width: '14px',
-                    height: '14px',
-                    borderRadius: '50%',
+                    ...timelineStyles.dot,
+                    ...(isActive ? timelineStyles.dotActive : timelineStyles.dotInactive),
                     backgroundColor: dotColor,
-                    flexShrink: 0,
-                    animation: isActive ? 'pulse-dot 2s ease-in-out infinite' : 'none',
-                    boxShadow: isActive ? '0 0 12px var(--accent-glow)' : 'none',
                   }}
                 />
               </div>
@@ -132,13 +154,8 @@ export function DayTimeline({ jobs, activeTimeEntry, userId }: DayTimelineProps)
                 {/* Time label */}
                 <div
                   style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '10px',
-                    fontWeight: 700,
+                    ...timelineStyles.timeLabel,
                     color: timeLabelColor,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    marginBottom: '6px',
                   }}
                 >
                   {timeLabelText}
@@ -158,12 +175,6 @@ export function DayTimeline({ jobs, activeTimeEntry, userId }: DayTimelineProps)
         })}
       </div>
 
-      <style>{`
-        @keyframes pulse-dot {
-          0%, 100% { box-shadow: 0 0 12px var(--accent-glow); }
-          50% { box-shadow: 0 0 20px var(--accent-glow); }
-        }
-      `}</style>
     </div>
   )
 }
