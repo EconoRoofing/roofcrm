@@ -157,32 +157,47 @@ export async function updateJob(id: string, data: UpdateJobData) {
 
   if (error) throw new Error(`Failed to update job: ${error.message}`)
 
-  // Re-geocode if address or city changed — best-effort
+  // Re-geocode if address or city changed — use data from the initial fetch (no extra query)
   if (data.address || data.city) {
     try {
-      const jobData = await supabase.from('jobs').select('address, city, state').eq('id', id).single()
-      if (jobData.data) {
-        const coords = await geocodeAddress(
-          data.address ?? jobData.data.address,
-          data.city ?? jobData.data.city,
-          data.state ?? jobData.data.state ?? 'CA'
-        )
-        if (coords) {
-          await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', id)
-        }
+      const coords = await geocodeAddress(
+        data.address ?? currentJob.address,
+        data.city ?? currentJob.city,
+        data.state ?? currentJob.state ?? 'CA'
+      )
+      if (coords) {
+        await supabase.from('jobs').update({ lat: coords.lat, lng: coords.lng }).eq('id', id)
       }
     } catch {}
   }
 
-  // Log activity for each changed field
+  // Batch-insert all changed-field activity log entries in a single query — avoids N+1
+  const activityEntries: Array<{
+    job_id: string
+    user_id: string | null
+    action: string
+    old_value: string | null
+    new_value: string | null
+  }> = []
+
   for (const key of Object.keys(data) as (keyof UpdateJobData)[]) {
     const oldVal = currentJob[key]
     const newVal = data[key]
     const oldStr = oldVal != null ? String(oldVal) : null
     const newStr = newVal != null ? String(newVal) : null
     if (oldStr !== newStr) {
-      await logActivity(id, user?.id ?? null, 'field_updated', oldStr, newStr)
+      activityEntries.push({
+        job_id: id,
+        user_id: user?.id ?? null,
+        action: 'field_updated',
+        old_value: oldStr,
+        new_value: newStr,
+      })
     }
+  }
+
+  if (activityEntries.length > 0) {
+    await supabase.from('activity_log').insert(activityEntries)
   }
 
   return job

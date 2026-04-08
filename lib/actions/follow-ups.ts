@@ -29,6 +29,21 @@ export async function processFollowUps(): Promise<{ sent: number; skipped: numbe
 
   if (!jobs) return { sent: 0, skipped: 0 }
 
+  // Batch-fetch all auto-generated messages for these jobs in ONE query — avoids N+1
+  const jobIds = jobs.map(j => j.id)
+  const { data: allMessages } = await supabase
+    .from('messages')
+    .select('job_id, id')
+    .in('job_id', jobIds)
+    .eq('auto_generated', true)
+    .eq('direction', 'outbound')
+
+  // Group message counts by job_id for O(1) lookup in the loop
+  const messageCountByJob = new Map<string, number>()
+  for (const msg of allMessages ?? []) {
+    messageCountByJob.set(msg.job_id, (messageCountByJob.get(msg.job_id) ?? 0) + 1)
+  }
+
   for (const job of jobs) {
     if (!job.phone || job.do_not_text) { skipped++; continue }
 
@@ -38,15 +53,8 @@ export async function processFollowUps(): Promise<{ sent: number; skipped: numbe
 
     const companyName = (job.company as unknown as { name: string })?.name ?? 'your roofer'
 
-    // Check how many auto-generated outbound follow-ups we've already sent
-    const { data: existingMessages } = await supabase
-      .from('messages')
-      .select('id')
-      .eq('job_id', job.id)
-      .eq('auto_generated', true)
-      .eq('direction', 'outbound')
-
-    const followUpCount = existingMessages?.length ?? 0
+    // Look up pre-fetched count — no per-job DB query
+    const followUpCount = messageCountByJob.get(job.id) ?? 0
 
     let template: string | null = null
     if (daysSinceCreated >= 14 && followUpCount < 3) {

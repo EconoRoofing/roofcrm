@@ -29,18 +29,21 @@ function calcOvertime(workingHours: number): {
 }
 
 /**
- * Fetch weather for a city via the internal API route.
+ * Fetch weather for a city directly from OpenWeatherMap API.
+ * Avoids a self-referential HTTP call through the app's own route.
  */
-async function fetchWeather(city: string): Promise<string> {
+async function fetchWeatherDirect(city: string): Promise<string> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+    const apiKey = process.env.OPENWEATHERMAP_API_KEY
+    if (!apiKey) return 'Unknown'
+
     const res = await fetch(
-      `${baseUrl}/api/weather?city=${encodeURIComponent(city)}`,
-      { cache: 'no-store', signal: AbortSignal.timeout(3000) }
+      `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)},CA,US&appid=${apiKey}&units=imperial`,
+      { next: { revalidate: 900 }, signal: AbortSignal.timeout(3000) }
     )
     if (!res.ok) return 'Unknown'
     const data = await res.json()
-    return `${data.description}, ${data.temp}°F, wind ${data.windSpeed} mph`
+    return `${data.weather?.[0]?.description ?? 'Unknown'}, ${Math.round(data.main?.temp ?? 0)}°F, wind ${Math.round(data.wind?.speed ?? 0)} mph`
   } catch {
     return 'Unknown'
   }
@@ -62,24 +65,19 @@ export async function clockIn(
   const user = await getUser()
   if (!user) throw new Error('Not authenticated')
 
-  // Guard: user must not already be clocked in
-  const { data: existing } = await supabase
-    .from('time_entries')
-    .select('id')
-    .eq('user_id', user.id)
-    .is('clock_out', null)
-    .maybeSingle()
+  // Run dup-check, job fetch, and user pay data in parallel — all independent
+  const [existingResult, jobResult, userDataResult] = await Promise.all([
+    supabase.from('time_entries').select('id').eq('user_id', user.id).is('clock_out', null).maybeSingle(),
+    supabase.from('jobs').select('lat, lng, city, status, job_type').eq('id', jobId).single(),
+    supabase.from('users').select('pay_type, hourly_rate, day_rate').eq('id', user.id).single(),
+  ])
 
-  if (existing) throw new Error('Already clocked in. Clock out first.')
+  if (existingResult.data) throw new Error('Already clocked in. Clock out first.')
+  if (jobResult.error || !jobResult.data) throw new Error('Job not found')
+  if (userDataResult.error || !userDataResult.data) throw new Error('User pay data not found')
 
-  // Fetch job for geofence + city
-  const { data: job, error: jobError } = await supabase
-    .from('jobs')
-    .select('lat, lng, city, status')
-    .eq('id', jobId)
-    .single()
-
-  if (jobError || !job) throw new Error('Job not found')
+  const job = jobResult.data
+  const userData = userDataResult.data
 
   // Geofence check
   let geofence: GeofenceResult | null = null
@@ -90,17 +88,8 @@ export async function clockIn(
     distanceFt = geofence.distanceFt
   }
 
-  // Fetch user pay info
-  const { data: userData, error: userError } = await supabase
-    .from('users')
-    .select('pay_type, hourly_rate, day_rate')
-    .eq('id', user.id)
-    .single()
-
-  if (userError || !userData) throw new Error('User pay data not found')
-
-  // Weather
-  const weatherConditions = await fetchWeather(job.city ?? 'Fresno')
+  // Weather — direct API call, no self-referential HTTP hop
+  const weatherConditions = await fetchWeatherDirect(job.city ?? 'Fresno')
 
   // Anomaly check: clock-in before 5 AM or after 8 PM
   const clockInTime = new Date()
@@ -164,14 +153,9 @@ export async function clockIn(
         .eq('id', entry.id)
     } else {
       // Flag if this is a high-risk job type with no pre-work inspection
-      const { data: jobDetail } = await supabase
-        .from('jobs')
-        .select('job_type')
-        .eq('id', jobId)
-        .single()
-
+      // job.job_type already fetched in the parallel query above — no extra DB call needed
       const highRiskTypes = ['reroof', 'new_construction']
-      if (jobDetail && highRiskTypes.includes(jobDetail.job_type)) {
+      if (highRiskTypes.includes(job.job_type)) {
         const existingReason = entry.flag_reason as string | null
         const noInspectionFlag = 'No pre-work safety inspection completed'
         await supabase
@@ -461,6 +445,29 @@ export async function clockOut(
 // Query actions
 // ---------------------------------------------------------------------------
 
+export async function getActiveCrew(): Promise<Array<{
+  id: string
+  user_id: string
+  job_id: string
+  clock_in: string
+  clock_in_lat: number | null
+  clock_in_lng: number | null
+  clock_in_distance_ft: number | null
+  flagged: boolean
+  flag_reason: string | null
+  user: { name: string } | null
+  job: { job_number: string; customer_name: string; address: string; city: string; company_id: string } | null
+}>> {
+  const supabase = await createClient()
+
+  const { data } = await supabase
+    .from('time_entries')
+    .select('id, user_id, job_id, clock_in, clock_in_lat, clock_in_lng, clock_in_distance_ft, flagged, flag_reason, user:users(name), job:jobs(job_number, customer_name, address, city, company_id)')
+    .is('clock_out', null)
+
+  return (data ?? []) as any
+}
+
 export async function getActiveTimeEntry(userId: string): Promise<
   (TimeEntry & { job?: { job_number: string; customer_name: string; address: string; city: string } }) | null
 > {
@@ -673,11 +680,28 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
 
   if (error) throw new Error(`Failed to fetch entries for export: ${error.message}`)
 
+  const entries = data ?? []
+
+  // Batch-fetch ALL breaks for these entries in a single query — avoids N+1
+  const entryIds = entries.map((e) => (e as any).id)
+  const { data: allBreaks } = await supabase
+    .from('breaks')
+    .select('time_entry_id, type, duration_minutes')
+    .in('time_entry_id', entryIds)
+
+  // Group breaks by time_entry_id for O(1) lookup in the row loop
+  const breaksByEntry = new Map<string, typeof allBreaks>()
+  for (const b of allBreaks ?? []) {
+    const existing = breaksByEntry.get(b.time_entry_id) ?? []
+    existing.push(b)
+    breaksByEntry.set(b.time_entry_id, existing)
+  }
+
   const rows: string[] = [
     'Employee,Date,Job #,Cost Code,Clock In,Clock Out,Regular Hrs,OT Hrs,DT Hrs,Total Pay,Breaks',
   ]
 
-  for (const entry of data ?? []) {
+  for (const entry of entries) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const e = entry as any
     const employee = e.user?.name ?? ''
@@ -691,13 +715,9 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
     const dtHrs = Number(e.doubletime_hours ?? 0).toFixed(2)
     const totalPay = Number(e.total_cost ?? 0).toFixed(2)
 
-    // Fetch breaks for this entry
-    const { data: breaks } = await supabase
-      .from('breaks')
-      .select('type, duration_minutes')
-      .eq('time_entry_id', e.id)
-
-    const breakSummary = (breaks ?? [])
+    // Look up breaks from the pre-fetched Map — no per-entry DB query
+    const entryBreaks = breaksByEntry.get(e.id) ?? []
+    const breakSummary = entryBreaks
       .map((b) => `${b.type} ${b.duration_minutes}min`)
       .join(' | ')
 

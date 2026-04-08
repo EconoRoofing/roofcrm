@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getTimeEntries } from '@/lib/actions/time-tracking'
+import { getActiveCrew } from '@/lib/actions/time-tracking'
 import { GpsIcon, FlagIcon } from '@/components/icons'
 import { formatElapsed } from '@/lib/utils'
 import type { TimeEntry } from '@/lib/types/time-tracking'
@@ -212,10 +212,9 @@ export default function LiveCrewStatus({ initialEntries }: LiveCrewStatusProps) 
 
   const refresh = useCallback(async () => {
     try {
-      const fresh = await getTimeEntries({})
-      // Filter active (no clock_out) entries
-      const active = (fresh as ActiveEntry[]).filter((e) => e.clock_out == null)
-      setEntries(active)
+      // getActiveCrew returns ONLY active (clocked-in) entries with narrow column selects
+      const active = await getActiveCrew()
+      setEntries(active as unknown as ActiveEntry[])
     } catch {
       // silently ignore refresh errors
     }

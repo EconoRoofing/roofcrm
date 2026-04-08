@@ -21,6 +21,23 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
 
   if (!completedJobs) return { sent: 0 }
 
+  // Batch-fetch all auto-generated messages for completed jobs in ONE query — avoids N+1
+  const jobIds = completedJobs.map(j => j.id)
+  const { data: allMessages } = await supabase
+    .from('messages')
+    .select('job_id, body, direction')
+    .in('job_id', jobIds)
+    .eq('auto_generated', true)
+    .eq('direction', 'outbound')
+
+  // Group message bodies by job_id for O(1) lookup in the loop
+  const messagesByJob = new Map<string, string[]>()
+  for (const msg of allMessages ?? []) {
+    const existing = messagesByJob.get(msg.job_id) ?? []
+    existing.push(msg.body)
+    messagesByJob.set(msg.job_id, existing)
+  }
+
   for (const job of completedJobs) {
     if (!job.phone || !job.completed_date) continue
 
@@ -31,15 +48,8 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
     const company = job.company as unknown as { name: string; google_review_link?: string }
     const companyName = company?.name ?? 'your roofer'
 
-    // Check what we've already sent for this job
-    const { data: existingMessages } = await supabase
-      .from('messages')
-      .select('body')
-      .eq('job_id', job.id)
-      .eq('auto_generated', true)
-      .eq('direction', 'outbound')
-
-    const bodies = (existingMessages ?? []).map(m => m.body)
+    // Look up pre-fetched bodies — no per-job DB query
+    const bodies = messagesByJob.get(job.id) ?? []
 
     // Day 3: Review request
     if (daysSinceCompleted >= 3 && !bodies.some(b => b.includes('feedback'))) {
