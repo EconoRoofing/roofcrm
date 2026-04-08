@@ -13,6 +13,13 @@ const cache = new Map<string, { data: MeasurementsResponse; expiresAt: number }>
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours — addresses don't change
 
 export async function GET(request: NextRequest) {
+  // Auth check — prevent unauthenticated API cost abuse
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const address = searchParams.get('address') ?? ''
   const city = searchParams.get('city') ?? ''

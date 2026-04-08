@@ -273,6 +273,10 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       {/* Insurance Claim Toggle */}
       <div style={{ marginBottom: '24px' }}>
         <div
+          role="switch"
+          aria-checked={isInsuranceClaim}
+          aria-label="Insurance Claim"
+          tabIndex={0}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -282,8 +286,10 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
             border: `1px solid ${isInsuranceClaim ? 'rgba(0,230,118,0.3)' : 'var(--border-subtle)'}`,
             background: isInsuranceClaim ? 'rgba(0,230,118,0.05)' : 'var(--bg-elevated)',
             cursor: 'pointer',
+            outline: 'none',
           }}
           onClick={() => setIsInsuranceClaim(v => !v)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsInsuranceClaim(v => !v) } }}
         >
           <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}>
             Insurance Claim?
