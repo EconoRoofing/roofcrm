@@ -22,8 +22,8 @@ export default function ManagerTopNav() {
   const pathname = usePathname()
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
-      <nav style={{ display: 'flex', gap: '4px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+      <nav style={{ display: 'flex', gap: '2px', overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch', flexShrink: 1, minWidth: 0 }}>
         {NAV_LINKS.map(({ href, label }) => {
           const isActive = pathname === href || pathname.startsWith(href + '/')
           return (
@@ -31,11 +31,13 @@ export default function ManagerTopNav() {
               key={href}
               href={href}
               style={{
-                padding: '6px 16px',
-                borderRadius: '8px',
-                fontSize: '13px',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                fontSize: '12px',
                 fontWeight: 500,
                 textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
                 color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
                 backgroundColor: isActive ? 'var(--accent-dim)' : 'transparent',
                 transition: 'color 0.15s, background-color 0.15s',
@@ -48,7 +50,9 @@ export default function ManagerTopNav() {
       </nav>
 
       {/* Global job search */}
-      <JobSearch />
+      <div style={{ flexShrink: 1, minWidth: '120px', maxWidth: '200px' }}>
+        <JobSearch />
+      </div>
     </div>
   )
 }

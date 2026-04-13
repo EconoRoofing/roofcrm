@@ -28,14 +28,14 @@ export default async function ManagerLayout({
       >
         <div
           style={{
-            maxWidth: '1280px',
-            margin: '0 auto',
-            padding: '0 24px',
+            maxWidth: '100%',
+            padding: '0 16px',
             height: '56px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '32px',
+            gap: '12px',
+            overflow: 'hidden',
           }}
         >
           {/* Branding */}
