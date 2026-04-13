@@ -1,9 +1,16 @@
 // HOVER 3D Property Models API
 // Docs: https://developers.hover.to
-// Auth: API key
-// Env: HOVER_API_KEY, HOVER_API_URL
+// Auth: OAuth 2.0 (client credentials)
+// Env: HOVER_API_KEY (client ID), HOVER_API_SECRET (client secret), HOVER_API_URL
 
 const API_URL = process.env.HOVER_API_URL || 'https://api.hover.to'
+
+interface HoverToken {
+  access_token: string
+  expires_at: number
+}
+
+let cachedHoverToken: HoverToken | null = null
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,14 +41,39 @@ export interface HoverMeasurements {
 
 // ─── Fetch Helper ────────────────────────────────────────────────────────────
 
+async function getHoverToken(): Promise<string> {
+  if (cachedHoverToken && cachedHoverToken.expires_at > Date.now() + 300000) {
+    return cachedHoverToken.access_token
+  }
+  const clientId = process.env.HOVER_API_KEY
+  const clientSecret = process.env.HOVER_API_SECRET
+  if (!clientId || !clientSecret) throw new Error('HOVER API not configured')
+
+  const res = await fetch(`${API_URL}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  })
+  if (!res.ok) throw new Error(`HOVER auth failed: ${res.status}`)
+  const data = await res.json()
+  cachedHoverToken = {
+    access_token: data.access_token,
+    expires_at: Date.now() + (data.expires_in * 1000),
+  }
+  return cachedHoverToken.access_token
+}
+
 async function hoverFetch(path: string, options: RequestInit = {}): Promise<any> {
-  const apiKey = process.env.HOVER_API_KEY
-  if (!apiKey) throw new Error('HOVER API not configured')
+  const token = await getHoverToken()
 
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      'X-API-Key': apiKey,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       ...options.headers,
     },
@@ -58,7 +90,7 @@ async function hoverFetch(path: string, options: RequestInit = {}): Promise<any>
 
 /** Check if HOVER API credentials are configured */
 export function isConfigured(): boolean {
-  return !!process.env.HOVER_API_KEY
+  return !!(process.env.HOVER_API_KEY && process.env.HOVER_API_SECRET)
 }
 
 /** Create a HOVER job from an address */
