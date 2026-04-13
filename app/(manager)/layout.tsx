@@ -55,8 +55,8 @@ export default async function ManagerLayout({
           {/* Active-aware nav tabs — client component */}
           <ManagerTopNav />
 
-          {/* User area */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+          {/* User area — hidden on mobile */}
+          <div className="header-user-area" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
             {user?.email && (
               <span
                 style={{
@@ -119,8 +119,14 @@ export default async function ManagerLayout({
         </div>
       </header>
 
-      {/* Page content */}
-      <main style={{ flex: 1 }}>{children}</main>
+      {/* Page content — extra bottom padding on mobile for tab bar */}
+      <main style={{ flex: 1, paddingBottom: '0' }} className="main-content">{children}</main>
+      <style>{`
+        @media (max-width: 768px) {
+          .main-content { padding-bottom: 70px !important; }
+          .header-user-area { display: none !important; }
+        }
+      `}</style>
 
       {/* Quick-add FAB — appears on all manager pages */}
       <QuickAddFab companies={companies} />
