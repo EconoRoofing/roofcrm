@@ -309,6 +309,11 @@ export default function SelectProfilePage() {
       <div style={{ maxWidth: '480px', width: '100%' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <img
+            src="/logo.png"
+            alt="RoofCRM"
+            style={{ height: '48px', width: 'auto', filter: 'invert(1)', marginBottom: '16px' }}
+          />
           <h1 style={{
             fontFamily: 'var(--font-sans)',
             fontSize: '26px',

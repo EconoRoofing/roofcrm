@@ -32,17 +32,12 @@ export default function LoginPage() {
         }}
       >
         {/* Branding */}
-        <div className="flex flex-col gap-1">
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{
-              color: 'var(--text-primary)',
-              fontFamily: 'var(--font-mono)',
-              letterSpacing: '-0.02em',
-            }}
-          >
-            RoofCRM
-          </h1>
+        <div className="flex flex-col gap-3 items-center">
+          <img
+            src="/logo.png"
+            alt="RoofCRM"
+            style={{ height: '64px', width: 'auto', filter: 'invert(1)' }}
+          />
           <p
             className="text-sm"
             style={{ color: 'var(--text-secondary)' }}

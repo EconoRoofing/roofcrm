@@ -39,18 +39,16 @@ export default async function ManagerLayout({
           }}
         >
           {/* Branding */}
-          <span
+          <img
+            src="/logo.png"
+            alt="RoofCRM"
             style={{
-              fontFamily: 'var(--font-jetbrains-mono, monospace)',
-              fontWeight: 700,
-              fontSize: '15px',
-              color: 'var(--accent)',
-              letterSpacing: '-0.02em',
+              height: '32px',
+              width: 'auto',
               flexShrink: 0,
+              filter: 'invert(1)',
             }}
-          >
-            RoofCRM
-          </span>
+          />
 
           {/* Active-aware nav tabs — client component */}
           <ManagerTopNav />
