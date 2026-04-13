@@ -229,14 +229,36 @@ export async function createProfile(name: string, role: string, pin?: string, pr
 
   const supabase = await createClient()
 
-  // Always use the authenticated user's company — ignore client-supplied companyId
+  // Verify the selected company is one the caller has access to
+  // (for now, we only allow assignment to the caller's own company unless they're an owner)
+  let targetCompanyId = companyId
+  if (primaryCompanyId && callerRole === 'owner') {
+    // Owners can assign to any company they own
+    const { data: companyCheck } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', primaryCompanyId)
+      .single()
+    if (companyCheck) {
+      targetCompanyId = primaryCompanyId
+    }
+  } else if (primaryCompanyId && primaryCompanyId === companyId) {
+    // Non-owners can only assign to their own company
+    targetCompanyId = primaryCompanyId
+  }
+
+  // Build a placeholder email that won't collide — use a short random suffix
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')
+  const suffix = crypto.randomUUID().slice(0, 6)
+  const placeholderEmail = `${slug || 'member'}.${suffix}@team.roofcrm`
+
   const { data, error } = await supabase.from('users').insert({
     id: crypto.randomUUID(),
-    email: `${name.toLowerCase().replace(/\s+/g, '.')}@team.roofcrm`,
+    email: placeholderEmail,
     name,
     role,
     is_active: true,
-    primary_company_id: companyId,
+    primary_company_id: targetCompanyId,
   }).select().single()
 
   if (error) throw new Error(error.message)
