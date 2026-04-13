@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap");
+/* Fonts loaded via next/font in layout.tsx — no external @import needed */
 @import "tailwindcss";
 
 /* ─── Time-of-day theme variables (defaults = morning) ─── */
@@ -123,9 +123,43 @@
   box-sizing: border-box;
 }
 
+/* ─── Mobile performance ─── */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* GPU-accelerated scrolling everywhere */
+div, main, section, nav, aside {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Smooth page transitions */
+main {
+  will-change: opacity;
+}
+
+/* Prevent iOS bounce on fixed elements */
+.no-bounce {
+  overscroll-behavior: none;
+}
+
+/* Fast button response — remove 300ms tap delay */
+a, button, input, select, textarea, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Prevent text selection on interactive elements */
+button, [role="button"], nav a {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 html {
   height: 100%;
   overflow-x: hidden;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
