@@ -58,9 +58,22 @@ export async function verifyJobOwnership(jobId: string, companyId: string) {
   return job
 }
 
-/** Require manager or admin role or throw */
+/** Roles with management access (owner > office_manager > manager) */
+const MANAGER_ROLES = ['owner', 'office_manager', 'manager', 'admin']
+
+/** Require management-level role or throw */
 export function requireManager(role: string | null) {
-  if (role !== 'manager' && role !== 'admin') throw new Error('Only managers can perform this action')
+  if (!role || !MANAGER_ROLES.includes(role)) throw new Error('Only managers can perform this action')
+}
+
+/** Require owner role specifically */
+export function requireOwner(role: string | null) {
+  if (role !== 'owner') throw new Error('Only owners can perform this action')
+}
+
+/** Check if a role has management access */
+export function isManagerRole(role: string | null): boolean {
+  return !!role && MANAGER_ROLES.includes(role)
 }
 
 /** Wrap a Supabase error for client display (hides internal details, logs full error server-side) */

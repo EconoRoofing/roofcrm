@@ -107,7 +107,7 @@ export async function proxy(request: NextRequest) {
 
       const url = request.nextUrl.clone()
 
-      if (role === 'manager') {
+      if (role === 'owner' || role === 'manager' || role === 'office_manager') {
         url.pathname = '/home'
         return NextResponse.redirect(url)
       } else if (role === 'sales') {

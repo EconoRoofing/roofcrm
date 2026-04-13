@@ -119,6 +119,8 @@ function SetupForm({ onCreated }: { onCreated: () => void }) {
               boxSizing: 'border-box',
             }}
           >
+            <option value="owner">Owner</option>
+            <option value="office_manager">Office Manager</option>
             <option value="manager">Manager</option>
             <option value="sales">Sales</option>
             <option value="crew">Crew</option>
