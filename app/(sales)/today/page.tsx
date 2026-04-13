@@ -43,28 +43,21 @@ export default async function TodayPage() {
     )
   }
 
-  const role = (await getUserRole(user.id)) as UserRole | null
-
-  // Fetch display name
-  const supabase = await createClient()
-  const { data: userData } = await supabase
-    .from('users')
-    .select('name')
-    .eq('id', user.id)
-    .single()
-
-  const displayName = userData?.name ?? user.email?.split('@')[0] ?? 'Sales'
-  const firstName = displayName.split(' ')[0]
-
   const now = new Date()
   const todayString = now.toISOString().split('T')[0]
 
-  // Fetch today's jobs, sales stats, and due follow-ups in parallel
-  const [todayJobs, salesStats, myFollowUps] = await Promise.all([
-    getJobsByDate(todayString, user.id, role ?? 'sales'),
+  // Fetch everything in parallel after auth
+  const supabase = await createClient()
+  const [, { data: userData }, todayJobs, salesStats, myFollowUps] = await Promise.all([
+    getUserRole(user.id),
+    supabase.from('users').select('name').eq('id', user.id).single(),
+    getJobsByDate(todayString, user.id, 'sales'),
     getSalesStats(user.id),
     getMyFollowUps(user.id),
   ])
+
+  const displayName = userData?.name ?? user.email?.split('@')[0] ?? 'Sales'
+  const firstName = displayName.split(' ')[0]
 
   const { pendingCount, monthlyRevenue, staleJobs } = salesStats
 

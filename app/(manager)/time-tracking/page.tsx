@@ -1,4 +1,4 @@
-import { getTimeEntries } from '@/lib/actions/time-tracking'
+import { getTimeEntries, getClockedInEntries } from '@/lib/actions/time-tracking'
 import { getCompanies } from '@/lib/actions/profiles'
 import LiveCrewStatus from '@/components/manager/live-crew-status'
 import DailyTimeReport from '@/components/manager/daily-time-report'
@@ -8,15 +8,11 @@ export default async function TimeTrackingPage() {
   const today = new Date().toISOString().split('T')[0]
 
   // Fetch active entries (clocked in), today's entries, and companies in parallel
-  const [allEntries, todayEntries, companies] = await Promise.all([
-    getTimeEntries({}),
+  const [activeEntries, todayEntries, companies] = await Promise.all([
+    getClockedInEntries(),
     getTimeEntries({ date: today }),
     getCompanies(),
   ])
-
-  // Filter to only active (no clock_out) for live status
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const activeEntries = (allEntries as any[]).filter((e) => e.clock_out == null)
 
   return (
     <div

@@ -134,11 +134,6 @@ div, main, section, nav, aside {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Smooth page transitions */
-main {
-  will-change: opacity;
-}
-
 /* Prevent iOS bounce on fixed elements */
 .no-bounce {
   overscroll-behavior: none;
@@ -163,23 +158,8 @@ button:active, [role="button"]:active, a:active {
 
 /* Smooth page content fade-in */
 main {
-  animation: fadeIn 0.15s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0.6; }
-  to { opacity: 1; }
-}
-
-/* Smooth scrolling on all containers */
-[style*="overflow"] {
-  scroll-behavior: smooth;
-}
-
-/* Cards and interactive surfaces — lift on tap */
-[style*="borderRadius"][style*="border"]:active {
-  transform: scale(0.98);
-  transition: transform 0.1s ease;
+  opacity: 1;
+  transition: opacity 0.15s ease-out;
 }
 
 html {

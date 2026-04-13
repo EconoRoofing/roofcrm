@@ -46,28 +46,21 @@ export default async function RoutePage() {
     )
   }
 
-  const role = (await getUserRole(user.id)) as UserRole | null
-
-  // Fetch display name from users table
-  const supabase = await createClient()
-  const { data: userData } = await supabase
-    .from('users')
-    .select('name')
-    .eq('id', user.id)
-    .single()
-
-  const displayName = userData?.name ?? user.email?.split('@')[0] ?? 'Crew'
-  const firstName = displayName.split(' ')[0]
-
   // Today's date string
   const now = new Date()
   const todayString = now.toISOString().split('T')[0] // YYYY-MM-DD
 
-  // Fetch today's jobs and active time entry in parallel
-  const [jobs, activeTimeEntry] = await Promise.all([
-    getJobsByDate(todayString, user.id, role ?? 'crew'),
+  // Fetch everything in parallel after auth
+  const supabase = await createClient()
+  const [, { data: userData }, jobs, activeTimeEntry] = await Promise.all([
+    getUserRole(user.id),
+    supabase.from('users').select('name').eq('id', user.id).single(),
+    getJobsByDate(todayString, user.id, 'crew'),
     getActiveTimeEntry(user.id).catch(() => null),
   ])
+
+  const displayName = userData?.name ?? user.email?.split('@')[0] ?? 'Crew'
+  const firstName = displayName.split(' ')[0]
 
   // Calculate stats
   const jobCount = jobs.length
