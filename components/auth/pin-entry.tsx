@@ -13,7 +13,9 @@ interface PinEntryProps {
 }
 
 const ROLE_ROUTES: Record<string, string> = {
-  manager: '/pipeline',
+  owner: '/home',
+  office_manager: '/home',
+  manager: '/home',
   sales: '/today',
   sales_crew: '/today',
   crew: '/route',
