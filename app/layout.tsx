@@ -41,7 +41,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="RoofCRM" />
         <meta name="theme-color" content="#08090d" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2" />
+        <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png?v=2" />
+        <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png?v=2" />
+        <link rel="icon" type="image/png" href="/icons/icon-192.png?v=2" />
       </head>
       <body className="min-h-full flex flex-col font-sans">
         <SwRegister />
