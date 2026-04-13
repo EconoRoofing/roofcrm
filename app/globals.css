@@ -155,6 +155,33 @@ button, [role="button"], nav a {
   -webkit-user-select: none;
 }
 
+/* Tap feedback — subtle scale on press */
+button:active, [role="button"]:active, a:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
+}
+
+/* Smooth page content fade-in */
+main {
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+/* Smooth scrolling on all containers */
+[style*="overflow"] {
+  scroll-behavior: smooth;
+}
+
+/* Cards and interactive surfaces — lift on tap */
+[style*="borderRadius"][style*="border"]:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
 html {
   height: 100%;
   overflow-x: hidden;
