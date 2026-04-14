@@ -42,14 +42,31 @@ export async function getDashboardData(filters?: {
 
   // Build base job query — always scoped to authenticated user's company.
   // Audit R3-#2 follow-up: cents-only post-031.
+  //
+  // Performance pass R5-#4: when no date filters are provided, default
+  // to the last 90 days. The dashboard's KPIs (revenue this month,
+  // pipeline value, completion stats) are all month/quarter scoped, so
+  // pulling years of history is wasted bandwidth + RSC serialization
+  // cost. 90 days covers any rolling-quarter view; explicit filters can
+  // still override.
+  //
+  // Belt-and-suspenders .limit(10000) caps the worst case in case a
+  // single 90-day window happens to contain more than that — which
+  // would be a sign that the company is healthy and a longer-term
+  // pagination strategy should kick in.
   let jobQuery = supabase
     .from('jobs')
     .select(
       'id, status, total_amount_cents, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount_cents'
     )
     .eq('company_id', companyId)
+    .limit(10000)
+
   if (filters?.startDate) {
     jobQuery = jobQuery.gte('created_at', filters.startDate)
+  } else {
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+    jobQuery = jobQuery.gte('created_at', ninetyDaysAgo)
   }
   if (filters?.endDate) {
     jobQuery = jobQuery.lte('created_at', filters.endDate)

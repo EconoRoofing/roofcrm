@@ -99,19 +99,30 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
 
     // Revenue this month (sold/scheduled/in_progress/completed).
     // Audit R3-#2 follow-up: cents-only, 031-safe.
+    // Performance pass R5-#3: explicit limit prevents unbounded
+    // payload growth as Mario's company history accrues. The query is
+    // already date-bounded to the current month, so 5000 is more than
+    // any realistic month would produce. Belt-and-suspenders.
+    // (Long-term fix: move sum() into a Postgres RPC so we transfer
+    // one row instead of N. Deferred — fix value vs. dev cost is poor
+    // at current scale.)
     supabase
       .from('jobs')
       .select('total_amount_cents')
       .eq('company_id', companyId)
       .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
-      .gte('created_at', monthStart),
+      .gte('created_at', monthStart)
+      .limit(5000),
 
-    // Pipeline value
+    // Pipeline value — every active job. Bounded by status filter
+    // (no historical completed/cancelled), so growth is proportional
+    // to current pipeline depth. 5000 is generous.
     supabase
       .from('jobs')
       .select('total_amount_cents')
       .eq('company_id', companyId)
-      .in('status', ['lead', 'estimate_scheduled', 'pending', 'sold', 'scheduled', 'in_progress']),
+      .in('status', ['lead', 'estimate_scheduled', 'pending', 'sold', 'scheduled', 'in_progress'])
+      .limit(5000),
 
     // Yesterday completed
     supabase

@@ -315,10 +315,14 @@ export default function SelectProfilePage() {
       <div style={{ maxWidth: '480px', width: '100%' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          {/* Performance pass R5-#5: explicit dimensions prevent CLS.
+              Logo is 1350×450 (3:1), so 48px tall = 144px wide. */}
           <img
             src="/logo.png"
             alt="RoofCRM"
-            style={{ height: '48px', width: 'auto', filter: 'invert(1)', marginBottom: '16px' }}
+            width={144}
+            height={48}
+            style={{ height: '48px', width: '144px', filter: 'invert(1)', marginBottom: '16px' }}
           />
           <h1 style={{
             fontFamily: 'var(--font-sans)',

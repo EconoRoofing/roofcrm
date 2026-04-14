@@ -1,4 +1,4 @@
-import { getJobs } from '@/lib/actions/jobs'
+import { getJobsForCalendar } from '@/lib/actions/jobs'
 import { CalendarView } from '@/components/manager/calendar-view'
 
 export default async function CalendarPage() {
@@ -9,7 +9,10 @@ export default async function CalendarPage() {
   const toDate = new Date(now.getFullYear(), now.getMonth() + 4, 0)
   const fromStr = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}-${String(fromDate.getDate()).padStart(2, '0')}`
   const toStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`
-  const jobs = await getJobs({ scheduled_from: fromStr, scheduled_to: toStr, limit: 2000 })
+  // Performance pass R5-#7: getJobsForCalendar uses a narrow select
+  // (~9 fields) instead of getJobs (~25 fields). Cuts RSC payload by
+  // ~70% on a 2000-row window. See lib/actions/jobs.ts:getJobsForCalendar.
+  const jobs = await getJobsForCalendar(fromStr, toStr)
 
   return (
     <CalendarView

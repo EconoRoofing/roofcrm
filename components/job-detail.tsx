@@ -304,25 +304,43 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const isManager = role === 'owner' || role === 'office_manager'
   const canManageEstimate = isManager || role === 'sales'
 
-  let laborCost = 0
-  let laborHours = 0
-  if (isManager) {
-    try {
-      const labor = await getJobLaborCost(job.id)
-      laborCost = labor.totalCost
-      laborHours = labor.totalHours
-    } catch {
-      // silently fall back to zeros
-    }
-  }
+  // Performance pass R5-#2: parallelize 4 sequential awaits.
+  // Previously these ran one after the other in a serial chain:
+  //   getJobLaborCost → getJobMessages → users select (crew) → getUser
+  // None depend on each other's results. On a real connection that's
+  // ~80–200ms each → ~300–800ms of avoidable serial latency on the
+  // highest-traffic detail page. Promise.all collapses them into one
+  // round-trip's worth of latency.
+  //
+  // Branches that only run conditionally (`isManager`) are handled by
+  // resolving to identity values when the gate is closed, keeping the
+  // Promise.all shape uniform without wasted DB calls.
+  const supabase = isManager ? await createClient() : null
+  const [laborResult, initialMessagesResult, crewMembersResult, userResult] = await Promise.all([
+    isManager
+      ? getJobLaborCost(job.id).catch(() => ({ totalCost: 0, totalHours: 0 }))
+      : Promise.resolve({ totalCost: 0, totalHours: 0 }),
+    getJobMessages(job.id).catch(() => [] as Awaited<ReturnType<typeof getJobMessages>>),
+    isManager && supabase
+      ? Promise.resolve(
+          supabase
+            .from('users')
+            .select('id, name')
+            .eq('role', 'crew')
+            .eq('is_active', true)
+            .order('name')
+        )
+          .then((res) => (res.data as Array<{ id: string; name: string }> | null) ?? [])
+          .catch(() => [] as Array<{ id: string; name: string }>)
+      : Promise.resolve([] as Array<{ id: string; name: string }>),
+    getUser().catch(() => null),
+  ])
 
-  // Fetch messages server-side to eliminate client-side loading spinner
-  let initialMessages: Awaited<ReturnType<typeof getJobMessages>> = []
-  try {
-    initialMessages = await getJobMessages(job.id)
-  } catch {
-    // best-effort — client will fall back to its own fetch
-  }
+  const laborCost = laborResult.totalCost
+  const laborHours = laborResult.totalHours
+  const initialMessages = initialMessagesResult
+  const crewMembers = crewMembersResult
+  const currentUserId = userResult?.id ?? ''
 
   // Audit R3-#6: twilioConfigured was previously read from process.env in the
   // client component, where TWILIO_ACCOUNT_SID is `undefined` (server-only env
@@ -330,30 +348,6 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   // for everyone unless someone also set NEXT_PUBLIC_TWILIO_CONFIGURED.
   // Compute it here in the server parent and pass as a prop.
   const twilioConfigured = !!process.env.TWILIO_ACCOUNT_SID
-
-  // Fetch crew members for assignment — manager only
-  let crewMembers: Array<{ id: string; name: string }> = []
-  if (isManager) {
-    try {
-      const supabase = await createClient()
-      const { data } = await supabase
-        .from('users')
-        .select('id, name')
-        .eq('role', 'crew')
-        .eq('is_active', true)
-        .order('name')
-      crewMembers = data ?? []
-    } catch {
-      // best-effort
-    }
-  }
-
-  // Get current user id for QuickPhoto upload attribution
-  let currentUserId = ''
-  try {
-    const user = await getUser()
-    currentUserId = user?.id ?? ''
-  } catch {}
 
   const fullAddress = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(fullAddress)}`

@@ -33,10 +33,14 @@ export default function LoginPage() {
       >
         {/* Branding */}
         <div className="flex flex-col gap-3 items-center">
+          {/* Performance pass R5-#5: explicit dimensions prevent CLS.
+              Logo is 1350×450 (3:1), so 64px tall = 192px wide. */}
           <img
             src="/logo.png"
             alt="RoofCRM"
-            style={{ height: '64px', width: 'auto', filter: 'invert(1)' }}
+            width={192}
+            height={64}
+            style={{ height: '64px', width: '192px', filter: 'invert(1)' }}
           />
           <p
             className="text-sm"

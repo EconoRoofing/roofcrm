@@ -38,13 +38,19 @@ export default async function ManagerLayout({
             overflow: 'hidden',
           }}
         >
-          {/* Branding */}
+          {/* Branding.
+              Performance pass R5-#5: explicit width/height attributes prevent
+              CLS. Logo is 1350×450 (3:1 aspect ratio), so 32px height = 96px
+              width. The width attribute reserves layout space immediately on
+              parse; without it, the header jumps when the PNG loads. */}
           <img
             src="/logo.png"
             alt="RoofCRM"
+            width={96}
+            height={32}
             style={{
               height: '32px',
-              width: 'auto',
+              width: '96px',
               flexShrink: 0,
               filter: 'invert(1)',
             }}
