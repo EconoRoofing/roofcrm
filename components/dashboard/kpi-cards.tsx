@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { formatCurrency, formatCompactCurrency } from '@/lib/utils'
+import { formatCents, formatCentsCompact, dollarsToCents } from '@/lib/money'
 import type { Company } from '@/lib/types/database'
 import type { DashboardData } from '@/lib/actions/dashboard'
 
@@ -271,7 +271,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Pipeline Value</span>
               <span style={bigNumberStyle('var(--accent-blue)')}>
-                {formatCompactCurrency(data.pipelineValue)}
+                {formatCentsCompact(dollarsToCents(data.pipelineValue))}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 Active & pending jobs
@@ -293,10 +293,10 @@ export function KPICards({ data, companies }: KPICardsProps) {
             <div style={cardStyle}>
               <span style={labelStyle}>Revenue This Month</span>
               <span style={bigNumberStyle('var(--accent)')}>
-                {formatCompactCurrency(data.revenueThisMonth)}
+                {formatCentsCompact(dollarsToCents(data.revenueThisMonth))}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {formatCurrency(data.revenueThisMonth)} total
+                {formatCents(dollarsToCents(data.revenueThisMonth))} total
               </span>
             </div>
 
@@ -383,7 +383,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                         color: isTop ? 'var(--accent)' : 'var(--text-primary)',
                       }}
                     >
-                      {formatCurrency(rep.revenue)}
+                      {formatCents(dollarsToCents(rep.revenue))}
                     </span>
                     <span
                       style={{
@@ -431,7 +431,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                       color: 'var(--accent)',
                     }}
                   >
-                    {formatCurrency(rep.commission)}
+                    {formatCents(dollarsToCents(rep.commission))}
                   </span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)', width: '52px', textAlign: 'right', flexShrink: 0 }}>
                     {rep.jobCount} job{rep.jobCount !== 1 ? 's' : ''}
@@ -469,7 +469,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
                             color: 'var(--text-primary)',
                           }}
                         >
-                          {formatCurrency(co.revenue)}
+                          {formatCents(dollarsToCents(co.revenue))}
                         </span>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)' }}>
                           {co.jobCount} job{co.jobCount !== 1 ? 's' : ''}
@@ -601,7 +601,7 @@ export function KPICards({ data, companies }: KPICardsProps) {
               <div style={cardStyle}>
                 <span style={labelStyle}>Labor Cost (Month)</span>
                 <span style={bigNumberStyle('var(--text-primary)')}>
-                  {formatCompactCurrency(data.totalLaborCostThisMonth)}
+                  {formatCentsCompact(dollarsToCents(data.totalLaborCostThisMonth))}
                 </span>
               </div>
               <div style={{ ...cardStyle, gridColumn: 'span 2' }}>

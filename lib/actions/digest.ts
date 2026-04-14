@@ -2,7 +2,11 @@
 
 import { createClient as _createClient } from '@/lib/supabase/server'
 import { getDashboardData } from './dashboard'
-import { formatCurrency } from '@/lib/utils'
+import { formatCents, dollarsToCents } from '@/lib/money'
+
+// Local wrapper: digest values come from getDashboardData() which still
+// returns dollar floats. Pipe them through cents at the display boundary.
+const fmt = (dollars: number) => formatCents(dollarsToCents(dollars))
 
 export async function sendDailyDigest(): Promise<boolean> {
   const resendKey = process.env.RESEND_API_KEY
@@ -19,11 +23,11 @@ export async function sendDailyDigest(): Promise<boolean> {
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
         <tr>
           <td style="padding: 12px; background: #151921; border-radius: 8px; text-align: center;">
-            <div style="font-size: 24px; font-weight: bold; color: #00e676;">${formatCurrency(data.pipelineValue)}</div>
+            <div style="font-size: 24px; font-weight: bold; color: #00e676;">${fmt(data.pipelineValue)}</div>
             <div style="font-size: 12px; color: #7a8294;">Pipeline</div>
           </td>
           <td style="padding: 12px; background: #151921; border-radius: 8px; text-align: center;">
-            <div style="font-size: 24px; font-weight: bold;">${formatCurrency(data.revenueThisMonth)}</div>
+            <div style="font-size: 24px; font-weight: bold;">${fmt(data.revenueThisMonth)}</div>
             <div style="font-size: 12px; color: #7a8294;">Revenue This Month</div>
           </td>
           <td style="padding: 12px; background: #151921; border-radius: 8px; text-align: center;">
@@ -37,7 +41,7 @@ export async function sendDailyDigest(): Promise<boolean> {
       ${data.revenueByRep.map((r, i) => `
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e2430;">
           <span>${i + 1}. ${r.repName}</span>
-          <span style="font-weight: bold;">${formatCurrency(r.revenue)} (${r.jobCount} jobs)</span>
+          <span style="font-weight: bold;">${fmt(r.revenue)} (${r.jobCount} jobs)</span>
         </div>
       `).join('')}
 
@@ -55,7 +59,7 @@ export async function sendDailyDigest(): Promise<boolean> {
     await resend.emails.send({
       from: `RoofCRM <${fromEmail}>`,
       to: managerEmail,
-      subject: `RoofCRM Digest: ${formatCurrency(data.pipelineValue)} pipeline, ${data.staleLeadCount} stale leads`,
+      subject: `RoofCRM Digest: ${fmt(data.pipelineValue)} pipeline, ${data.staleLeadCount} stale leads`,
       html,
     })
     return true

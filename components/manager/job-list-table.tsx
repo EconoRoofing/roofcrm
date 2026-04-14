@@ -4,7 +4,8 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
-import { hexToRgba, formatAmount } from '@/lib/utils'
+import { hexToRgba } from '@/lib/utils'
+import { formatCentsOrDash, readMoneyFromRow } from '@/lib/money'
 import { SortAscIcon, SortDescIcon, SortNeutralIcon, DownloadIcon } from '@/components/icons'
 import { exportJobsCSV } from '@/lib/actions/export'
 import type { Job, Company, JobStatus } from '@/lib/types/database'
@@ -92,8 +93,9 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           bv = b.job_type ?? ''
           break
         case 'total_amount':
-          av = a.total_amount ?? -1
-          bv = b.total_amount ?? -1
+          // Sort by cents (authoritative); fall back to legacy float dollars
+          av = readMoneyFromRow((a as { total_amount_cents?: number | null }).total_amount_cents, a.total_amount) || -1
+          bv = readMoneyFromRow((b as { total_amount_cents?: number | null }).total_amount_cents, b.total_amount) || -1
           break
         case 'status':
           av = a.status ?? ''
@@ -484,12 +486,12 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
                         fontFamily: 'var(--font-mono)',
                         fontSize: '12px',
                         fontWeight: 500,
-                        color: job.total_amount ? 'var(--text-primary)' : 'var(--text-muted)',
+                        color: readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount) > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
                         textAlign: 'right',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {formatAmount(job.total_amount)}
+                      {formatCentsOrDash(readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount))}
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                       <StatusBadge status={job.status} />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { CompanyTag } from '@/components/company-tag'
+import { formatCents, readMoneyFromRow } from '@/lib/money'
 
 // Minimal shape — only the fields the Kanban board actually renders.
 // company/rep are typed as arrays to match Supabase's join inference;
@@ -87,11 +88,9 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
     router.push(`/jobs/${job.id}`)
   }
 
-  // Total amount: prefer cents, fall back to legacy float dollars.
-  // Format inline (no formatCurrency import to keep this file fast).
-  const totalCents = job.total_amount_cents ?? (job.total_amount != null ? Math.round(job.total_amount * 100) : 0)
+  // Total amount: prefer cents, fall back to legacy float dollars
+  const totalCents = readMoneyFromRow(job.total_amount_cents, job.total_amount)
   const hasTotal = totalCents > 0
-  const totalDollars = totalCents / 100
 
   return (
     <div
@@ -180,7 +179,7 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
               color: 'var(--accent)',
             }}
           >
-            ${totalDollars.toLocaleString()}
+            {formatCents(totalCents)}
           </span>
         )}
       </div>

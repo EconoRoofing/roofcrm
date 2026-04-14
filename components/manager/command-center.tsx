@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { formatCurrency, formatCompactCurrency, formatDisplayDate } from '@/lib/utils'
+import { formatDisplayDate } from '@/lib/utils'
+import { formatCentsCompact, dollarsToCents } from '@/lib/money'
 import { broadcastToTodayCrew } from '@/lib/actions/broadcast'
 import type { CommandCenterData } from '@/lib/actions/command-center'
 
@@ -104,8 +105,8 @@ function MoneyCards({ data }: { data: CommandCenterData }) {
     : 0
 
   const cards = [
-    { label: 'Revenue This Month', value: formatCompactCurrency(data.revenueThisMonth), accent: 'var(--accent)' },
-    { label: 'Pipeline Value', value: formatCompactCurrency(data.pipelineValue), accent: 'var(--accent-blue)' },
+    { label: 'Revenue This Month', value: formatCentsCompact(dollarsToCents(data.revenueThisMonth)), accent: 'var(--accent)' },
+    { label: 'Pipeline Value', value: formatCentsCompact(dollarsToCents(data.pipelineValue)), accent: 'var(--accent-blue)' },
   ]
 
   return (

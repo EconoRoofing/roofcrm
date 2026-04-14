@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
-import { formatJobType, formatAmount } from '@/lib/utils'
+import { formatJobType } from '@/lib/utils'
+import { formatCentsOrDash, readMoneyFromRow } from '@/lib/money'
 import type { Job, JobStatus } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -218,7 +219,7 @@ export function PipelineList({ jobs }: PipelineListProps) {
                       color: 'var(--text-secondary)',
                     }}
                   >
-                    {formatAmount(job.total_amount)}
+                    {formatCentsOrDash(readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount))}
                   </span>
                   <StatusBadge status={job.status} />
                 </div>

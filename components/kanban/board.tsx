@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/core'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanColumn } from './column'
-import { formatCurrency } from '@/lib/utils'
+import { formatCents, readMoneyFromRow, sumCents } from '@/lib/money'
 import type { KanbanJob } from './card'
 import type { Company, JobStatus } from '@/lib/types/database'
 
@@ -161,15 +161,20 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
     handleMoveJob(jobId, newStatus)
   }, [localJobs, handleMoveJob])
 
-  // Revenue totals
-  const { pendingRevenue, soldRevenue } = useMemo(() => ({
-    pendingRevenue: filteredJobs
-      .filter((j) => j.status === 'pending' && j.total_amount != null && j.total_amount > 0)
-      .reduce((sum, j) => sum + (j.total_amount ?? 0), 0),
-    soldRevenue: filteredJobs
-      .filter((j) => j.status === 'sold' && j.total_amount != null && j.total_amount > 0)
-      .reduce((sum, j) => sum + (j.total_amount ?? 0), 0),
-  }), [filteredJobs])
+  // Revenue totals — sum in integer cents, format once at the boundary.
+  // Reads `*_cents` first, falls back to legacy float dollars for un-migrated rows.
+  const { pendingRevenueCents, soldRevenueCents } = useMemo(() => {
+    const cents = (j: KanbanJob): number =>
+      readMoneyFromRow(j.total_amount_cents, j.total_amount)
+    return {
+      pendingRevenueCents: sumCents(
+        filteredJobs.filter((j) => j.status === 'pending').map(cents)
+      ),
+      soldRevenueCents: sumCents(
+        filteredJobs.filter((j) => j.status === 'sold').map(cents)
+      ),
+    }
+  }, [filteredJobs])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -245,7 +250,7 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              {formatCurrency(pendingRevenue)}
+              {formatCents(pendingRevenueCents)}
             </span>
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -266,7 +271,7 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              {formatCurrency(soldRevenue)}
+              {formatCents(soldRevenueCents)}
             </span>
           </span>
         </div>

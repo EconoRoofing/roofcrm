@@ -13,6 +13,7 @@ import {
   removeLineItem,
 } from '@/lib/actions/invoicing'
 import { exportInvoicesQBFormat } from '@/lib/actions/export'
+import { formatCents, dollarsToCents } from '@/lib/money'
 
 interface Invoice {
   id: string
@@ -285,8 +286,10 @@ export default function JobInvoicesPage() {
     }
   }
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  // Local wrapper: invoice/line-item rows still use legacy float dollars
+  // until a future migration drops them. Format through the cents pipeline
+  // so display is consistent with the rest of the app.
+  const formatCurrency = (n: number) => formatCents(dollarsToCents(n))
 
   const formatDate = (d: string) =>
     new Date(d + (d.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', {

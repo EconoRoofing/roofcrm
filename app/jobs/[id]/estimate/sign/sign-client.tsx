@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { SignaturePad } from '@/components/estimate/signature-pad'
 import { signEstimate } from '@/lib/actions/signature'
 import { ChevronLeftNavIcon, CheckCircleIcon } from '@/components/icons'
-import { formatCurrency } from '@/lib/utils'
+import { formatCents, dollarsToCents } from '@/lib/money'
 
 interface SignClientProps {
   jobId: string
@@ -67,7 +67,7 @@ export function SignClient({
   }
 
   const formatMoney = (n: number | null) =>
-    n == null ? '—' : formatCurrency(n)
+    n == null ? '—' : formatCents(dollarsToCents(n))
 
   // ── Summary bar ──────────────────────────────────────────────────────────────
   const SummaryBar = () => (

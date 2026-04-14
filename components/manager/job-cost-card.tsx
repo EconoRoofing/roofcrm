@@ -1,4 +1,4 @@
-import { formatCurrency } from '@/lib/utils'
+import { formatCents, dollarsToCents, sumCents } from '@/lib/money'
 
 interface JobCostCardProps {
   contractAmount: number | null
@@ -16,10 +16,16 @@ function profitColor(pct: number): string {
 export function JobCostCard({ contractAmount, materialCost, laborCost, laborHours }: JobCostCardProps) {
   const hasLaborData = laborHours > 0
 
-  const contract = contractAmount ?? 0
-  const materials = materialCost ?? 0
-  const profit = contract - materials - laborCost
-  const profitPct = contract > 0 ? (profit / contract) * 100 : 0
+  // Compute everything in integer cents to eliminate float drift on the
+  // profit math. Inputs come in as dollar floats from the parent (server
+  // action), so we convert at the boundary.
+  const contractCents = dollarsToCents(contractAmount)
+  const materialsCents = dollarsToCents(materialCost)
+  const laborCostCents = dollarsToCents(laborCost)
+  const profitCents = contractCents - materialsCents - laborCostCents
+  // sumCents prevents the silly `Number(NaN) || 0` failure mode if inputs are weird
+  void sumCents
+  const profitPct = contractCents > 0 ? (profitCents / contractCents) * 100 : 0
 
   const monoStyle: React.CSSProperties = {
     fontFamily: 'var(--font-jetbrains-mono, monospace)',
@@ -65,7 +71,7 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
         Profitability
       </h2>
 
-      {!hasLaborData && laborCost === 0 && contractAmount == null ? (
+      {!hasLaborData && laborCostCents === 0 && contractAmount == null ? (
         <span
           style={{
             fontSize: '13px',
@@ -81,7 +87,7 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
           <div style={rowStyle}>
             <span style={labelStyle}>Contract</span>
             <span style={{ ...monoStyle, color: 'var(--text-primary)' }}>
-              {formatCurrency(contract)}
+              {formatCents(contractCents)}
             </span>
           </div>
 
@@ -89,7 +95,7 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
           <div style={rowStyle}>
             <span style={labelStyle}>Materials</span>
             <span style={{ ...monoStyle, color: 'var(--text-secondary)' }}>
-              -{formatCurrency(materials)}
+              -{formatCents(materialsCents)}
             </span>
           </div>
 
@@ -111,7 +117,7 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
               )}
             </span>
             <span style={{ ...monoStyle, color: 'var(--text-secondary)' }}>
-              -{formatCurrency(laborCost)}
+              -{formatCents(laborCostCents)}
             </span>
           </div>
 
@@ -145,9 +151,9 @@ export function JobCostCard({ contractAmount, materialCost, laborCost, laborHour
                   color: profitColor(profitPct),
                 }}
               >
-                {formatCurrency(profit)}
+                {formatCents(profitCents)}
               </span>
-              {contract > 0 && (
+              {contractCents > 0 && (
                 <span
                   style={{
                     fontFamily: 'var(--font-jetbrains-mono, monospace)',

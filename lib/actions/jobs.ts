@@ -114,6 +114,10 @@ interface UpdateJobData {
  * new cents fields, produce a normalized write payload that dual-writes BOTH
  * columns so reports on the legacy column keep working during the migration.
  * Authoritative source is always cents; legacy dollars is derived from cents.
+ *
+ * NOTE: dual-write is intentionally still in place during the soak period.
+ * A future session will drop dual-write + readMoneyFromRow fallback +
+ * legacy columns together as one atomic flip (migration 031).
  */
 function normalizeJobMoneyFields(data: UpdateJobData): Record<string, unknown> {
   const out: Record<string, unknown> = { ...data }
@@ -127,7 +131,6 @@ function normalizeJobMoneyFields(data: UpdateJobData): Record<string, unknown> {
     const centsProvided = data[centsKey] !== undefined
     const dollarsProvided = data[dollarsKey] !== undefined
     if (!centsProvided && !dollarsProvided) continue
-    // Prefer cents when supplied; otherwise derive from dollars.
     const cents = centsProvided
       ? (data[centsKey] as number | null)
       : dollarsToCents(data[dollarsKey] as number | null)

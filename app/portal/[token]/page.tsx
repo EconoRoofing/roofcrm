@@ -8,6 +8,7 @@ import {
   sendPortalMessage,
   getPortalPhotos,
 } from '@/lib/actions/portal'
+import { formatCents, dollarsToCents } from '@/lib/money'
 
 const STATUS_STEPS = [
   { key: 'lead', label: 'Lead' },
@@ -112,8 +113,8 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   const allPaid = invoices.length > 0 && invoices.every((inv: any) => inv.status === 'paid')
   const unpaidInvoices = invoices.filter((inv: any) => inv.status !== 'paid' && inv.status !== 'cancelled')
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  // Pipe through cents formatter so display matches the rest of the app
+  const formatCurrency = (n: number) => formatCents(dollarsToCents(n))
 
   const formatDate = (d: string) =>
     new Date(d + (d.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

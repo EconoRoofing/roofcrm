@@ -5,7 +5,8 @@ import { CompanyTag } from '@/components/company-tag'
 import { StaleReminders } from '@/components/sales/stale-reminders'
 import { FollowUpWidget } from '@/components/follow-up-widget'
 import { PhoneIcon, MessageIcon, MapPinIcon } from '@/components/icons'
-import { formatJobType, buildMapsUrl, formatCurrency } from '@/lib/utils'
+import { formatJobType, buildMapsUrl } from '@/lib/utils'
+import { formatCents, dollarsToCents } from '@/lib/money'
 import { completeFollowUp } from '@/lib/actions/follow-up-tasks'
 import { useState } from 'react'
 import type { Job } from '@/lib/types/database'
@@ -23,7 +24,9 @@ interface TodayViewProps {
   stats: {
     appointments: number
     pending: number
+    /** @deprecated use monthlyRevenueCents */
     monthlyRevenue: number
+    monthlyRevenueCents?: number
   }
 }
 
@@ -165,7 +168,7 @@ export function TodayView({ todayJobs, staleJobs, followUps = [], currentUserId 
               lineHeight: 1,
             }}
           >
-            {formatCurrency(stats.monthlyRevenue)}
+            {formatCents(stats.monthlyRevenueCents ?? dollarsToCents(stats.monthlyRevenue))}
           </span>
           <span
             style={{
