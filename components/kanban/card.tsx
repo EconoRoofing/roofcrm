@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -72,9 +72,22 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
 
   // dnd-kit draggable. The sensors set up on the board enforce a press-delay
   // before activation, so a quick tap navigates instead of starting a drag.
+  //
+  // Audit R2-#33: the `data` object passed here was constructed inline on
+  // every render. dnd-kit stashes it in a Map keyed by draggable id and
+  // notifies subscribed contexts when its identity changes — meaning every
+  // re-render of the pipeline (which happens on every status change, every
+  // drag enter, etc.) was bumping every card's data identity, forcing
+  // dnd-kit to re-broadcast and stealing a few milliseconds per render.
+  // useMemo with [job.id, job.status] gives each card a stable data object
+  // that only changes when the job actually moves columns.
+  const draggableData = useMemo(
+    () => ({ jobId: job.id, status: job.status }),
+    [job.id, job.status]
+  )
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: job.id,
-    data: { jobId: job.id, status: job.status },
+    data: draggableData,
   })
 
   const handleClick = (e: React.MouseEvent) => {

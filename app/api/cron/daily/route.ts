@@ -1,5 +1,7 @@
+import { timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { sendDailyDigest } from '@/lib/actions/digest'
+import { reportError, logSpan } from '@/lib/observability'
 import { processFollowUps } from '@/lib/actions/follow-ups'
 import { processPostJobAutomation } from '@/lib/actions/post-job'
 import { processFollowUpTasks } from '@/lib/actions/follow-up-tasks'
@@ -8,11 +10,30 @@ import { renewExpiringCalendarWatches } from '@/lib/calendar-sync'
 
 // Single daily cron that runs all automations sequentially
 // Vercel Hobby plan allows 2 cron jobs — this consolidates 3 into 1
+// Audit R2-#28: replaces a `===` string compare on CRON_SECRET. The previous
+// check returned in the first character that differed, which over many calls
+// from a malicious actor leaks the secret one byte at a time via timing.
+// timingSafeEqual is constant-time. Length-mismatch is handled before the
+// call so the comparison itself sees equal-length buffers.
+function safeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a)
+  const bBuf = Buffer.from(b)
+  if (aBuf.length !== bBuf.length) return false
+  return timingSafeEqual(aBuf, bBuf)
+}
+
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const authHeader = request.headers.get('authorization') ?? ''
+  const expected = `Bearer ${process.env.CRON_SECRET ?? ''}`
+  // Refuse if CRON_SECRET is unset — fail closed, never grant access on empty.
+  if (!process.env.CRON_SECRET || !safeEqual(authHeader, expected)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // Audit R2-#29: timed span for the whole cron run so log search can
+  // surface latency regressions and tie individual step failures back to
+  // a single requestId.
+  const span = logSpan('cron:daily', '/api/cron/daily')
 
   const results: Record<string, unknown> = {
     digest: false,
@@ -28,35 +49,35 @@ export async function GET(request: Request) {
   try {
     results.unclosedClockIns = await detectUnclosedClockIns()
   } catch (error) {
-    console.error('Cron: unclosed clock-in check failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'unclosed-clock-ins' })
   }
 
   // 1. Daily digest email to manager
   try {
     results.digest = await sendDailyDigest()
   } catch (error) {
-    console.error('Cron: digest failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'digest' })
   }
 
   // 2. Follow-up texts for stale leads (3/7/14 day)
   try {
     results.followUps = await processFollowUps()
   } catch (error) {
-    console.error('Cron: follow-ups failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'follow-ups' })
   }
 
   // 3. Post-job automation (review requests, referrals)
   try {
     results.postJob = await processPostJobAutomation()
   } catch (error) {
-    console.error('Cron: post-job failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'post-job' })
   }
 
   // 4. Follow-up task reminders (SMS to assigned reps)
   try {
     results.followUpTasks = await processFollowUpTasks()
   } catch (error) {
-    console.error('Cron: follow-up tasks failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'follow-up-tasks' })
   }
 
   // 5. Check for overdue equipment
@@ -65,7 +86,7 @@ export async function GET(request: Request) {
     const overdue = await getOverdueEquipment()
     results.overdueEquipment = overdue.length
   } catch (error) {
-    console.error('Cron: overdue equipment check failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'overdue-equipment' })
   }
 
   // 7. Invoice payment reminders
@@ -73,7 +94,7 @@ export async function GET(request: Request) {
     const { processInvoiceReminders } = await import('@/lib/actions/invoicing')
     results.invoiceReminders = await processInvoiceReminders()
   } catch (error) {
-    console.error('Cron: invoice reminders failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'invoice-reminders' })
   }
 
   // 8. Renew Google Calendar watch channels before they expire.
@@ -83,7 +104,7 @@ export async function GET(request: Request) {
   try {
     results.calendarWatchesRenewed = await renewExpiringCalendarWatches()
   } catch (error) {
-    console.error('Cron: calendar watch renewal failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'calendar-watch-renewal' })
     results.calendarWatchesRenewed = { renewed: 0, failed: -1 }
   }
 
@@ -112,8 +133,9 @@ export async function GET(request: Request) {
 
     results.certStatusUpdates = true
   } catch (error) {
-    console.error('Cron: cert status update failed', error)
+    reportError(error, { route: '/api/cron/daily', step: 'cert-status' })
   }
 
+  span.done({ steps: Object.keys(results).length })
   return NextResponse.json(results)
 }

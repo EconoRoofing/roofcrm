@@ -73,12 +73,17 @@ export async function createInvoice(data: CreateInvoiceData) {
   if (amountCents <= 0) throw new Error('Invoice amount must be greater than zero')
 
   // Validate due_date (compare against local-today, not UTC-today)
-  const dueDate = new Date(data.due_date)
+  const dueDate = new Date(data.due_date + 'T00:00:00')
   if (isNaN(dueDate.getTime())) {
     throw new Error('Invalid due date format')
   }
+  // Audit R2-#27: previously this was a console.warn that the user never
+  // saw — invoices were happily created with already-past due dates, then
+  // immediately sent down the overdue-reminders pipeline. Throw instead so
+  // the form has to be corrected before the row hits the DB. Past-dated
+  // invoices are almost always a mistake (typo, wrong year, copy-paste).
   if (data.due_date < localDateString()) {
-    console.warn(`[invoicing] Invoice created with past due date: ${data.due_date}`)
+    throw new Error('Due date cannot be in the past')
   }
 
   // Enforce max 20 invoices per job

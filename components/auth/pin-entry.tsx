@@ -71,33 +71,50 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
     }
   }, [profileId, profileRole, router])
 
+  // Audit R2-#30: previously, scheduling a new auto-submit timer overwrote
+  // the ref without clearing the prior one, AND backspace-after-4-digits
+  // didn't clear the pending timer at all — meaning a fast user could:
+  //   1. type 4 digits → schedule auto-submit T1 in 50 ms
+  //   2. tap backspace at ~25 ms → digits = 3, but T1 still fires
+  //   3. handleSubmit runs against the *old* 4-char string from T1's closure
+  // The fix: every code path that mutates `digits` clears the timer first.
+  const clearAutoSubmit = useCallback(() => {
+    if (autoSubmitTimerRef.current) {
+      clearTimeout(autoSubmitTimerRef.current)
+      autoSubmitTimerRef.current = null
+    }
+  }, [])
+
   const pressDigit = useCallback((d: string) => {
     if (submitting) return
     setDigits(prev => {
       if (prev.length >= 4) return prev
       const next = [...prev, d]
       if (next.length === 4) {
+        clearAutoSubmit()
         // Auto-submit after next render
         autoSubmitTimerRef.current = setTimeout(() => handleSubmit(next.join('')), 50)
       }
       return next
     })
-  }, [submitting, handleSubmit])
+  }, [submitting, handleSubmit, clearAutoSubmit])
 
   const pressBackspace = useCallback(() => {
     if (submitting) return
+    clearAutoSubmit()
     setDigits(prev => prev.slice(0, -1))
     setError('')
-  }, [submitting])
+  }, [submitting, clearAutoSubmit])
 
   // Submit all 4 digits at once (used for paste + password-manager autofill)
   const setAllDigits = useCallback((raw: string) => {
     if (submitting) return
     const only = raw.replace(/\D/g, '').slice(0, 4)
     if (only.length !== 4) return
+    clearAutoSubmit()
     setDigits(only.split(''))
     autoSubmitTimerRef.current = setTimeout(() => handleSubmit(only), 50)
-  }, [submitting, handleSubmit])
+  }, [submitting, handleSubmit, clearAutoSubmit])
 
   // Keyboard + paste support — scoped so it doesn't hijack OTHER inputs
   // on the page. Previously, a global window keydown handler would advance

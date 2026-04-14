@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import { DM_Sans, JetBrains_Mono } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import { ThemeProvider } from '@/components/theme-provider'
 import { ToastProvider } from '@/components/ui/toast'
 import { OfflineBanner } from '@/components/ui/offline-banner'
@@ -52,6 +54,12 @@ export default function RootLayout({
         <ToastProvider>
           <ThemeProvider>{children}</ThemeProvider>
         </ToastProvider>
+        {/* Audit R2-#29: zero-config Vercel observability. Privacy-friendly,
+            no cookie banner, no env vars. Speed Insights tracks Core Web
+            Vitals per route which is invaluable for the iPhone-heavy crew
+            users where latency hits matter most. */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )

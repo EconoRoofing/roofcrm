@@ -269,7 +269,11 @@ export function CalendarView({ jobs }: CalendarViewProps) {
                     ? 'var(--bg-elevated)'
                     : 'var(--bg-surface)',
                   padding: '8px',
-                  cursor: dayJobs.length > 0 || true ? 'pointer' : 'default',
+                  // Audit R2-#31: was `dayJobs.length > 0 || true ? 'pointer' : 'default'`
+                  // — the `|| true` made the whole expression always-pointer,
+                  // a leftover from a debugging session. Empty days are still
+                  // clickable (to drop a job into them), so keep pointer.
+                  cursor: 'pointer',
                   border: isToday ? '2px solid var(--accent)' : '2px solid transparent',
                   boxSizing: 'border-box',
                   transition: 'background-color 100ms ease',

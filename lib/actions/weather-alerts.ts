@@ -105,10 +105,12 @@ export async function checkWeatherAndAlert(date: string): Promise<WeatherAlertRe
 
   if (error) throw new Error('Failed to fetch jobs for weather check')
 
-  // Filter to jobs that span the target date (same multi-day logic as scheduling.ts)
-  const targetMs = new Date(date).getTime()
+  // Filter to jobs that span the target date (same multi-day logic as scheduling.ts).
+  // Audit R2-#26: parse YYYY-MM-DD as local midnight so jobs on the boundary
+  // day don't get misclassified as "the day before" in west-of-UTC zones.
+  const targetMs = new Date(date + 'T00:00:00').getTime()
   const jobsOnDate = (jobs ?? []).filter((job) => {
-    const startMs = new Date(job.scheduled_date!).getTime()
+    const startMs = new Date(job.scheduled_date! + 'T00:00:00').getTime()
     const duration = (job as any).schedule_duration_days || 1
     const endMs = startMs + (duration - 1) * 86400000
     return targetMs >= startMs && targetMs <= endMs

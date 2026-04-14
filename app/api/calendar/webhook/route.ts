@@ -19,9 +19,11 @@
  *   X-Goog-Channel-Token — our shared secret, echoed back on every push
  */
 
+import { timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { localDateString } from '@/lib/auth-helpers'
+import { reportError } from '@/lib/observability'
 
 const GOOGLE_CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
@@ -148,7 +150,12 @@ async function fetchChangedEvents(
   }
 
   if (!res.ok) {
-    console.error('[calendar-webhook] events.list failed', res.status, await res.text())
+    reportError(new Error(`events.list ${res.status}`), {
+      route: '/api/calendar/webhook',
+      step: 'fetch-events',
+      status: res.status,
+      body: await res.text().catch(() => ''),
+    })
     return { events: [], newSyncToken: syncToken, expired: false }
   }
 
@@ -189,9 +196,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // SECURITY: verify X-Goog-Channel-Token matches the secret we registered.
   // Google echoes whatever `token` we passed when calling watch(). Without
   // this check, anyone who learns a channelId can POST forged notifications.
-  if (owner.watchToken && channelToken !== owner.watchToken) {
-    console.warn('[calendar-webhook] channel token mismatch', channelId)
-    return NextResponse.json({ error: 'Invalid channel token' }, { status: 401 })
+  // Audit R2-#28: use timingSafeEqual instead of `!==` so a remote attacker
+  // can't recover the watchToken byte-by-byte via timing analysis.
+  if (owner.watchToken) {
+    const presented = Buffer.from(channelToken ?? '')
+    const expected = Buffer.from(owner.watchToken)
+    const ok =
+      presented.length === expected.length && timingSafeEqual(presented, expected)
+    if (!ok) {
+      console.warn('[calendar-webhook] channel token mismatch', channelId)
+      return NextResponse.json({ error: 'Invalid channel token' }, { status: 401 })
+    }
   }
 
   // Get a fresh access token

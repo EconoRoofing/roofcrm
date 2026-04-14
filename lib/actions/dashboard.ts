@@ -94,15 +94,20 @@ export async function getDashboardData(filters?: {
   const closeRate = totalEstimates > 0 ? (soldOrCompleted / totalEstimates) * 100 : 0
 
   const now = new Date()
+  // Audit R2-#25: half-open interval [monthStart, nextMonthStart). The
+  // previous monthEnd built `...23:59:59.000Z` which excludes any record
+  // created in the last 999 ms of the month — a real bug at midnight on
+  // payday batches. Comparing against next month's start with strict `<`
+  // is the canonical fix and avoids the millisecond cliff entirely.
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()
 
   const revenueThisMonthCents = jobs
     .filter(
       (j) =>
         ['sold', 'scheduled', 'in_progress', 'completed'].includes(j.status) &&
         j.created_at >= monthStart &&
-        j.created_at <= monthEnd
+        j.created_at < nextMonthStart
     )
     .reduce((sum, j) => sum + jobTotalCents(j), 0)
   const revenueThisMonth = centsToDollars(revenueThisMonthCents)
@@ -112,7 +117,7 @@ export async function getDashboardData(filters?: {
       j.status === 'completed' &&
       j.completed_date &&
       j.completed_date >= monthStart &&
-      j.completed_date <= monthEnd
+      j.completed_date < nextMonthStart
   ).length
 
   // Avg days from created_at to sold/completed
@@ -245,7 +250,7 @@ export async function getDashboardData(filters?: {
         .in('job_id', companyJobIds)
         .eq('excluded_from_payroll', false)
         .gte('clock_in', monthStart)
-        .lte('clock_in', monthEnd)
+        .lt('clock_in', nextMonthStart)
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')

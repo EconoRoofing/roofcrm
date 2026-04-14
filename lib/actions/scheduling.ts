@@ -181,7 +181,7 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
 
   const typedExisting = (existing ?? []) as JobWithDuration[]
   const conflicts = typedExisting.filter((job) => {
-    const jobStart = new Date(job.scheduled_date!)
+    const jobStart = new Date(job.scheduled_date! + 'T00:00:00')
     const duration = job.schedule_duration_days || 1
     const jobEnd = new Date(jobStart)
     jobEnd.setDate(jobEnd.getDate() + duration - 1)
@@ -259,13 +259,15 @@ export async function assignJobToCrewMultiDay(
     .not('scheduled_date', 'is', null)
     .gte('scheduled_date', localDateString(thirtyDaysAgoMulti))
 
-  const newStart = new Date(startDate)
+  // Audit R2-#26: parse YYYY-MM-DD as LOCAL midnight so getDate() and the
+  // setDate arithmetic operate on the user's calendar day, not UTC.
+  const newStart = new Date(startDate + 'T00:00:00')
   const newEnd = new Date(newStart)
   newEnd.setDate(newEnd.getDate() + duration - 1)
 
   const typedExistingMulti = (existing ?? []) as JobWithDuration[]
   const conflicts = typedExistingMulti.filter((job) => {
-    const jobStart = new Date(job.scheduled_date!)
+    const jobStart = new Date(job.scheduled_date! + 'T00:00:00')
     const jobDuration = job.schedule_duration_days || 1
     const jobEnd = new Date(jobStart)
     jobEnd.setDate(jobEnd.getDate() + jobDuration - 1)
@@ -455,7 +457,7 @@ export async function getDailyDispatchSummary(date: string): Promise<DailyDispat
 
   // Filter to jobs that span the target date
   const jobsOnDate = typedJobs.filter((job) => {
-    const startMs = new Date(job.scheduled_date!).getTime()
+    const startMs = new Date(job.scheduled_date! + 'T00:00:00').getTime()
     const duration = job.schedule_duration_days || 1
     const endMs = startMs + (duration - 1) * 86400000
     return targetMs >= startMs && targetMs <= endMs

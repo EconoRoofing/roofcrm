@@ -86,7 +86,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-deep)', color: 'var(--text-secondary)' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-deep)', color: 'var(--text-secondary)' }}>
         <div>Loading project...</div>
       </div>
     )
@@ -94,7 +94,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
 
   if (error || !job) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-deep)' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-deep)' }}>
         <div style={{ maxWidth: '400px', padding: '32px', backgroundColor: 'var(--bg-surface)', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
           <h1 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Project not found</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
@@ -120,7 +120,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
     new Date(d + (d.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-deep)' }}>
+    <div style={{ minHeight: '100dvh', backgroundColor: 'var(--bg-deep)' }}>
       {/* Lightbox */}
       {lightboxPhoto && (
         <div
@@ -204,7 +204,10 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
               <div>
                 <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>SCHEDULED DATE</label>
                 <p style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>
-                  {new Date(job.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  {/* Audit R2-#26: append T00:00:00 so the YYYY-MM-DD string parses as
+                      LOCAL midnight, not UTC midnight. Without this, Pacific customers
+                      see scheduled dates a day earlier than what the office set. */}
+                  {new Date(job.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                 </p>
               </div>
             )}

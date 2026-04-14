@@ -139,7 +139,7 @@ export function SignClient({
   // ── STEP: Rep signs ──────────────────────────────────────────────────────────
   if (step === 'rep') {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
+      <div style={{ minHeight: '100dvh', background: 'var(--bg-deep)' }}>
         <BackToEstimate />
         <SummaryBar />
         <div style={{ padding: '24px 16px', maxWidth: '640px', margin: '0 auto' }}>
@@ -178,7 +178,7 @@ export function SignClient({
   // ── STEP: Customer signs ─────────────────────────────────────────────────────
   if (step === 'customer') {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
+      <div style={{ minHeight: '100dvh', background: 'var(--bg-deep)' }}>
         <BackToEstimate />
         <SummaryBar />
         <div style={{ padding: '24px 16px', maxWidth: '640px', margin: '0 auto' }}>
@@ -251,7 +251,7 @@ export function SignClient({
     return (
       <div
         style={{
-          minHeight: '100vh',
+          minHeight: '100dvh',
           background: 'var(--bg-deep)',
           display: 'flex',
           alignItems: 'center',
@@ -277,7 +277,7 @@ export function SignClient({
 
   // ── STEP: Done ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--bg-deep)' }}>
       <SummaryBar />
       <div
         style={{

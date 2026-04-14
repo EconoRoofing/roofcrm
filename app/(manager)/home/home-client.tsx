@@ -20,7 +20,7 @@ export function HomeClient() {
 
   if (loading || !data) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-deep)' }}>
+      <div style={{ minHeight: '100dvh', backgroundColor: 'var(--bg-deep)' }}>
         <div style={{ maxWidth: '960px', margin: '0 auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <Skeleton width="200px" height="28px" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px' }}>
