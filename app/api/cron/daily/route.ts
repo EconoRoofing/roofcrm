@@ -31,6 +31,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // `?debug=1` enables the verbose `daysOffSync.debug` block for ad-hoc
+  // troubleshooting. Off by default so the routine Vercel Cron response
+  // doesn't leak internal UUIDs, calendar IDs, or HTTP status internals.
+  // Endpoint is still auth-gated by CRON_SECRET, so this is a belt-and-
+  // suspenders minimization, not a security fix.
+  const debugEnabled = new URL(request.url).searchParams.get('debug') === '1'
+
   // Audit R2-#29: timed span for the whole cron run so log search can
   // surface latency regressions and tie individual step failures back to
   // a single requestId.
@@ -117,7 +124,7 @@ export async function GET(request: Request) {
   // migration 042 for the table shape and lib/actions/days-off-sync.ts
   // for the sync logic (upsert by google_event_id + orphan delete).
   try {
-    results.daysOffSync = await syncDaysOff()
+    results.daysOffSync = await syncDaysOff(debugEnabled)
   } catch (error) {
     reportError(error, { route: '/api/cron/daily', step: 'days-off-sync' })
     results.daysOffSync = { synced: 0, deleted: 0, skipped: true, reason: 'threw' }

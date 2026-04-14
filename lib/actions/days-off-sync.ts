@@ -29,7 +29,7 @@ import { listCalendarEventsDebug } from '@/lib/google-calendar'
  *
  * Returns a summary counting rows synced + rows deleted, for cron logs.
  */
-export async function syncDaysOff(): Promise<{
+export async function syncDaysOff(includeDebug = false): Promise<{
   synced: number
   deleted: number
   skipped: boolean
@@ -196,20 +196,26 @@ export async function syncDaysOff(): Promise<{
     }
   }
 
+  // Only attach the debug block when explicitly requested — by default
+  // the cron JSON response stays minimal (no internal UUIDs, no full
+  // calendar IDs). Callers that want visibility pass `includeDebug=true`;
+  // the cron route gates this on `?debug=1` query param for ad-hoc use.
   return {
     synced: syncedCount,
     deleted: deletedCount,
     skipped: false,
-    debug: {
-      borrowedUserId: calendarUserId,
-      calendarId,
-      windowStart: windowStart.toISOString(),
-      windowEnd: windowEnd.toISOString(),
-      tokenPresent: debugResult.tokenPresent,
-      httpStatus: debugResult.httpStatus,
-      googleError: debugResult.googleError,
-      rawItemCount: debugResult.rawItemCount,
-      filteredItemCount: events.length,
-    },
+    ...(includeDebug && {
+      debug: {
+        borrowedUserId: calendarUserId,
+        calendarId,
+        windowStart: windowStart.toISOString(),
+        windowEnd: windowEnd.toISOString(),
+        tokenPresent: debugResult.tokenPresent,
+        httpStatus: debugResult.httpStatus,
+        googleError: debugResult.googleError,
+        rawItemCount: debugResult.rawItemCount,
+        filteredItemCount: events.length,
+      },
+    }),
   }
 }
