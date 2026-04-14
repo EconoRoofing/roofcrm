@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { listCalendarEvents } from '@/lib/google-calendar'
 
 /**
@@ -18,6 +18,15 @@ import { listCalendarEvents } from '@/lib/google-calendar'
  * Idempotent: re-running the sync in the same window produces no net
  * DB change. Safe to invoke on every cron tick without state drift.
  *
+ * RLS NOTE: Uses the service-role client because the cron route runs
+ * without a user session, and both `system_calendars` and `days_off`
+ * have `auth.uid() IS NOT NULL` read policies (from migration 042).
+ * The anon client would silently return zero rows for both the calendar
+ * lookup and the orphan scan, making the whole sync a no-op. The
+ * service client bypasses RLS entirely, which is the correct pattern
+ * for system tasks with no user context. See lib/supabase/service.ts
+ * for the security rationale.
+ *
  * Returns a summary counting rows synced + rows deleted, for cron logs.
  */
 export async function syncDaysOff(): Promise<{
@@ -26,7 +35,15 @@ export async function syncDaysOff(): Promise<{
   skipped: boolean
   reason?: string
 }> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
+  if (!supabase) {
+    return {
+      synced: 0,
+      deleted: 0,
+      skipped: true,
+      reason: 'SUPABASE_SERVICE_ROLE_KEY not configured in server environment',
+    }
+  }
 
   // 1. Look up the Days Off calendar ID from system_calendars (set in
   //    migration 042). Bail if it's not configured — don't hard-code.
