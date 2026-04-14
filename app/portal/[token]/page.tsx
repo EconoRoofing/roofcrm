@@ -8,7 +8,7 @@ import {
   sendPortalMessage,
   getPortalPhotos,
 } from '@/lib/actions/portal'
-import { formatCents, dollarsToCents } from '@/lib/money'
+import { formatCents, dollarsToCents, readMoneyFromRow } from '@/lib/money'
 
 const STATUS_STEPS = [
   { key: 'lead', label: 'Lead' },
@@ -242,7 +242,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                         {inv.invoice_number} &mdash; {(inv.type || 'standard').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
                       </div>
                       <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {formatCurrency(inv.total_amount)}
+                        {formatCents(readMoneyFromRow(inv.total_amount_cents, inv.total_amount))}
                       </div>
                       {inv.due_date && (
                         <div style={{ fontSize: '12px', color: isOverdue ? '#ef4444' : 'var(--text-secondary)', marginTop: '4px' }}>

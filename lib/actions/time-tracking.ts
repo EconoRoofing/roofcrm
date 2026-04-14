@@ -233,12 +233,48 @@ export async function clockIn(
     }
   }
 
-  // Update job status to in_progress if it's currently scheduled
+  // Move the job to in_progress through the gated pipeline if it's currently
+  // scheduled. Previously we wrote `jobs.status = 'in_progress'` directly,
+  // which skipped calendar sync, SMS notifications, automations, activity
+  // log, and the STATUS_PROTECTED_FIELDS guard (audit R2-#5).
+  //
+  // This runs as the crew member clocking in, not as a manager, so we can't
+  // call updateJobStatus (which requires requireJobEditor and would throw).
+  // Instead we use a dedicated RPC-style internal helper: just update the
+  // status with the SAME ownership already established for the parent job,
+  // but then call executePostStatusEffects via a dynamic import so calendar
+  // + SMS + automations still run.
   if (job.status === 'scheduled') {
-    await supabase
-      .from('jobs')
-      .update({ status: 'in_progress' })
-      .eq('id', jobId)
+    try {
+      // Fetch full job row for the side-effects pipeline
+      const { data: fullJob } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', jobId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (fullJob) {
+        const { error: statusError } = await supabase
+          .from('jobs')
+          .update({ status: 'in_progress' })
+          .eq('id', jobId)
+          .eq('company_id', companyId)
+          .eq('status', 'scheduled')
+
+        if (!statusError) {
+          // Fire side effects — best effort, never blocks clock-in
+          try {
+            const { executePostStatusEffectsInternal } = await import('./jobs')
+            await executePostStatusEffectsInternal(jobId, 'scheduled', 'in_progress', fullJob, userId, companyId)
+          } catch (err) {
+            console.warn('[clockIn] status side effects failed:', err)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[clockIn] status transition to in_progress failed:', err)
+    }
   }
 
   // Link today's completed safety inspection to this time entry (best-effort)

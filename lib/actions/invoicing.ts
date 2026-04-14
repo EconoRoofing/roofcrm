@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { createPaymentLink } from '@/lib/stripe'
-import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName, localDateString } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName, localDateString, requireEstimateEditor, requireManager } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import {
   dollarsToCents,
@@ -59,7 +59,9 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 
 export async function createInvoice(data: CreateInvoiceData) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  // Audit R2-#12: sales + managers may create invoices. Crew is blocked.
+  const { companyId, role } = await getUserWithCompany()
+  requireEstimateEditor(role)
 
   // Normalize to cents. Callers may still pass legacy `amount` dollars during
   // the migration; we convert to cents once and do all validation in integer.
@@ -199,7 +201,16 @@ export async function getJobInvoices(job_id: string) {
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch invoices: ${error.message}`)
-  return invoices || []
+  if (!invoices || invoices.length === 0) return []
+
+  // Re-sign PDF URLs on the fly — stored signed URLs expire after 24h (R2-#8)
+  const { resignEstimatesPdf } = await import('@/lib/storage-urls')
+  return Promise.all(
+    invoices.map(async (inv) => ({
+      ...inv,
+      pdf_url: inv.pdf_url ? await resignEstimatesPdf(supabase, inv.pdf_url) : null,
+    }))
+  )
 }
 
 export async function markInvoicePaid(
@@ -208,7 +219,9 @@ export async function markInvoicePaid(
   payment_method?: string
 ) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  // Manager only — marking invoices paid is a financial action.
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
 
   // Normalize caller-supplied dollars → cents at the boundary
   const paidCents = dollarsToCents(paid_amount)
@@ -257,7 +270,9 @@ export async function updateInvoiceStatus(
   status: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue' | 'cancelled'
 ) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  // Sales + managers can advance invoice status (e.g. draft → sent); crew cannot.
+  const { companyId, role } = await getUserWithCompany()
+  requireEstimateEditor(role)
 
   // Fetch invoice with job join to verify company ownership and current status
   const { data: existing } = await supabase
@@ -299,7 +314,9 @@ export async function updateInvoiceStatus(
 
 export async function deleteInvoice(invoice_id: string) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  // Manager only — deleting invoices removes financial records.
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
 
   // Fetch invoice with job join to verify company ownership and status
   const { data: existing } = await supabase
@@ -361,7 +378,8 @@ export async function addLineItem(
   unitPrice: number
 ) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
+  requireEstimateEditor(role)
 
   if (!description.trim()) throw new Error('Description is required')
   if (quantity <= 0) throw new Error('Quantity must be greater than zero')
@@ -425,7 +443,8 @@ export async function getInvoiceLineItems(invoiceId: string) {
 
 export async function removeLineItem(lineItemId: string) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
+  requireEstimateEditor(role)
 
   // Look up the line item's invoice to verify company ownership
   const { data: lineItem } = await supabase
@@ -452,7 +471,8 @@ export async function updateLineItem(
   unitPrice: number
 ) {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
+  requireEstimateEditor(role)
 
   if (!description.trim()) throw new Error('Description is required')
   if (quantity <= 0) throw new Error('Quantity must be greater than zero')

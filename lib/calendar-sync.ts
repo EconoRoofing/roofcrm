@@ -1,10 +1,15 @@
 /**
  * Calendar watch channel utilities.
  *
- * NOTE: These are placeholder implementations for Phase 1.
- * They will be activated after Vercel deployment, when the webhook URL
- * at /api/calendar/webhook is publicly reachable.
+ * Google Calendar push notifications require registering a watch channel
+ * per (user, calendar) pair. Channels expire after ~7 days; `renewCalendarWatch`
+ * is called by the daily cron to stop the old channel and register a fresh one.
+ *
+ * All state is persisted to `users.calendar_watch_*` so the webhook can
+ * look up the owner + verify the shared-secret token on incoming pushes.
  */
+
+import { randomBytes } from 'crypto'
 
 const GOOGLE_CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? ''
@@ -13,6 +18,7 @@ interface WatchChannelResult {
   channelId: string
   resourceId: string
   expiration: string
+  watchToken: string
 }
 
 async function getAccessToken(userId: string): Promise<string | null> {
@@ -48,9 +54,13 @@ async function getAccessToken(userId: string): Promise<string | null> {
 }
 
 /**
- * Register a Google Calendar push notification watch channel.
- * The webhook URL must be publicly reachable (i.e. deployed to Vercel).
- * Returns null in local dev where APP_URL is localhost.
+ * Register a Google Calendar push notification watch channel AND persist
+ * all fields to users.calendar_watch_*. Returns null in local dev.
+ *
+ * Persistence is the whole point: the webhook at /api/calendar/webhook
+ * looks the channel up via calendar_watch_channel_id, verifies the shared
+ * secret via calendar_watch_token, and queries the per-company calendar
+ * via calendar_watch_calendar_id. Skipping any of these breaks the sync.
  */
 export async function registerCalendarWatch(
   userId: string,
@@ -66,6 +76,10 @@ export async function registerCalendarWatch(
 
   const channelId = `roofcrm-${userId}-${Date.now()}`
   const webhookUrl = `${APP_URL}/api/calendar/webhook`
+  // Shared secret that Google echoes back as X-Goog-Channel-Token on every
+  // push. The webhook verifies it against users.calendar_watch_token to
+  // confirm the notification is actually from Google and not forged.
+  const watchToken = randomBytes(24).toString('hex')
 
   const res = await fetch(
     `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/watch`,
@@ -79,6 +93,7 @@ export async function registerCalendarWatch(
         id: channelId,
         type: 'web_hook',
         address: webhookUrl,
+        token: watchToken,
       }),
     }
   )
@@ -90,11 +105,36 @@ export async function registerCalendarWatch(
   }
 
   const json = await res.json()
-  return {
+  const result: WatchChannelResult = {
     channelId: json.id,
     resourceId: json.resourceId,
-    expiration: json.expiration,
+    expiration: json.expiration, // Google returns an ms epoch string
+    watchToken,
   }
+
+  // Persist everything so the webhook + renewal cron can find it
+  const { createClient } = await import('@/lib/supabase/server')
+  const supabase = await createClient()
+  const expirationIso = result.expiration
+    ? new Date(Number(result.expiration)).toISOString()
+    : null
+  const { error } = await supabase
+    .from('users')
+    .update({
+      calendar_watch_channel_id: result.channelId,
+      calendar_watch_token: result.watchToken,
+      calendar_watch_calendar_id: calendarId,
+      calendar_watch_expiration: expirationIso,
+      calendar_sync_token: null, // reset — new channel starts fresh
+    })
+    .eq('id', userId)
+
+  if (error) {
+    console.error('Calendar sync: failed to persist watch fields', error)
+    return null
+  }
+
+  return result
 }
 
 /**
@@ -124,6 +164,66 @@ export async function renewCalendarWatch(
     body: JSON.stringify({ id: channelId }),
   }).catch(() => null)
 
-  // Register a fresh channel
+  // Register a fresh channel (this also persists the new ids + expiration)
   return registerCalendarWatch(userId, calendarId)
+}
+
+/**
+ * Daily cron entry point. Finds every user whose calendar watch expires in
+ * the next 48 hours and renews it. Runs as best-effort: errors on one user
+ * don't block the rest. Safe to call when no users have watches — returns 0.
+ *
+ * Audit R2-#11: without this, Google watch channels expired silently after
+ * ~7 days and the external-edit sync quietly stopped working.
+ */
+export async function renewExpiringCalendarWatches(): Promise<{
+  renewed: number
+  failed: number
+}> {
+  const { createClient } = await import('@/lib/supabase/server')
+  const supabase = await createClient()
+
+  // Find watches that will expire in the next 48 hours. 48h gives us two
+  // daily cron cycles of runway in case one fails — safer than a tight
+  // just-in-time window.
+  const cutoff = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, calendar_watch_channel_id, calendar_watch_calendar_id')
+    .not('calendar_watch_channel_id', 'is', null)
+    .lt('calendar_watch_expiration', cutoff)
+
+  if (error || !users || users.length === 0) {
+    return { renewed: 0, failed: 0 }
+  }
+
+  let renewed = 0
+  let failed = 0
+
+  for (const user of users) {
+    const u = user as {
+      id: string
+      calendar_watch_channel_id: string | null
+      calendar_watch_calendar_id: string | null
+    }
+    if (!u.calendar_watch_channel_id) continue
+    try {
+      const result = await renewCalendarWatch(
+        u.id,
+        u.calendar_watch_calendar_id ?? 'primary',
+        u.calendar_watch_channel_id
+      )
+      if (result) {
+        renewed++
+      } else {
+        failed++
+      }
+    } catch (err) {
+      console.error(`[calendar-sync] renew failed for user ${u.id}:`, err)
+      failed++
+    }
+  }
+
+  return { renewed, failed }
 }

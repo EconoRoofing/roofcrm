@@ -2,7 +2,12 @@
 
 import { useState } from 'react'
 
-// Base styles shared across all inputs
+// Base styles shared across all inputs.
+// fontSize MUST be >= 16px on inputs/textareas/selects to prevent iOS Safari
+// from auto-zooming the viewport on focus. iOS Safari treats anything below
+// 16px as "the user can't read this, let me zoom in," and the viewport stays
+// stuck zoomed until the user pinches out manually. Mario uses this app on
+// his iPhone all day — every form field was triggering the zoom.
 const baseInputStyle: React.CSSProperties = {
   width: '100%',
   background: 'var(--bg-elevated)',
@@ -10,7 +15,7 @@ const baseInputStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '12px',
   color: 'var(--text-primary)',
-  fontSize: '15px',
+  fontSize: '16px',
   outline: 'none',
   boxSizing: 'border-box',
   transition: 'border-color 0.15s ease',

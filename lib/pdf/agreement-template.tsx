@@ -476,15 +476,21 @@ function SpecYNRow({
 export function RoofingAgreement({ company, job, repSignature, customerSignature, signedDate }: AgreementProps) {
   const specs: EstimateSpecs = job.estimate_specs ?? {}
   // Total comes from *_cents when available, falls back to legacy float dollars.
-  // Deposit is computed in cents so the 50/50 split sums exactly to the total
-  // (halfCents([$100.01]) → [$50.01, $50.00] not $50.005/$50.005).
+  // Deposit is computed in cents so the 50/50 split sums exactly to the total.
+  // `halfCents` returns only the FIRST half — we compute the SECOND half as
+  // `totalCents - firstHalfCents` so the two rows sum exactly to the total.
+  // Audit R2-#9: previously both rows rendered the same `deposit` variable,
+  // so for odd-cent totals like $10,000.01 the PDF showed $5,000.01 twice,
+  // summing to $10,000.02 (one cent over contract).
   const totalCents = readMoneyFromRow(
     (job as { total_amount_cents?: number | null }).total_amount_cents,
     job.total_amount
   )
-  const depositCents = halfCents(totalCents)
+  const firstHalfCents = halfCents(totalCents)
+  const secondHalfCents = totalCents - firstHalfCents
   const total = centsToDollars(totalCents)
-  const deposit = centsToDollars(depositCents)
+  const firstHalf = centsToDollars(firstHalfCents)
+  const secondHalf = centsToDollars(secondHalfCents)
   const companyName = company.name || 'ROOFING CO'
 
   // Parse company address into lines
@@ -807,18 +813,19 @@ export function RoofingAgreement({ company, job, repSignature, customerSignature
           <Text style={s.pricingParenClose}>)</Text>
         </View>
 
-        {/* 50% deposit */}
+        {/* First half — due on material delivery */}
         <View style={s.pricingRow}>
           <Text style={s.pricingLabel}>50% Due upon delivery of materials:</Text>
           <Text style={s.pricingDollarLabel}>$</Text>
-          <Text style={s.pricingAmountBox}>{formatMoneyPdf(deposit)}</Text>
+          <Text style={s.pricingAmountBox}>{formatMoneyPdf(firstHalf)}</Text>
         </View>
 
-        {/* 50% completion */}
+        {/* Second half — due on completion. For odd-cent totals the two
+            halves differ by 1¢ so they sum exactly to `total`. */}
         <View style={s.pricingRow}>
           <Text style={s.pricingLabel}>50% Due upon completion:</Text>
           <Text style={s.pricingDollarLabel}>$</Text>
-          <Text style={s.pricingAmountBox}>{formatMoneyPdf(deposit)}</Text>
+          <Text style={s.pricingAmountBox}>{formatMoneyPdf(secondHalf)}</Text>
         </View>
 
         <Text style={s.pricingNote}>

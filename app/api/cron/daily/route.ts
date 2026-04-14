@@ -4,6 +4,7 @@ import { processFollowUps } from '@/lib/actions/follow-ups'
 import { processPostJobAutomation } from '@/lib/actions/post-job'
 import { processFollowUpTasks } from '@/lib/actions/follow-up-tasks'
 import { detectUnclosedClockIns } from '@/lib/actions/time-tracking'
+import { renewExpiringCalendarWatches } from '@/lib/calendar-sync'
 
 // Single daily cron that runs all automations sequentially
 // Vercel Hobby plan allows 2 cron jobs — this consolidates 3 into 1
@@ -73,6 +74,17 @@ export async function GET(request: Request) {
     results.invoiceReminders = await processInvoiceReminders()
   } catch (error) {
     console.error('Cron: invoice reminders failed', error)
+  }
+
+  // 8. Renew Google Calendar watch channels before they expire.
+  // Google push channels expire after ~7 days. This pass finds watches
+  // expiring in the next 48 hours and re-registers them. Without this,
+  // external Google Calendar edits silently stop syncing back after a week.
+  try {
+    results.calendarWatchesRenewed = await renewExpiringCalendarWatches()
+  } catch (error) {
+    console.error('Cron: calendar watch renewal failed', error)
+    results.calendarWatchesRenewed = { renewed: 0, failed: -1 }
   }
 
   // 6. Update expired certifications

@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, requireJobEditor } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import { dollarsToCents, centsToDollars } from '@/lib/money'
 
@@ -28,7 +28,12 @@ export async function updateClaimStatus(
   new_status: ClaimStatus,
   notes?: string
 ) {
-  const { userId, companyId } = await getUserWithCompany()
+  const { userId, companyId, role } = await getUserWithCompany()
+  // Audit R2-#4: role gate. Previously crew could flip insurance jobs to
+  // completed via this action and bypass the entire status-change pipeline
+  // (warranty, calendar, SMS, commission, audit log). requireJobEditor
+  // matches the rest of the job-mutation surface.
+  requireJobEditor(role)
 
   // Runtime validation of the status value
   if (!CLAIM_STATUSES.includes(new_status)) throw new Error('Invalid claim status')
@@ -64,21 +69,33 @@ export async function updateClaimStatus(
     notes: notes,
   }
 
-  // Update claim_status + conditionally update job status (do NOT touch notes)
-  const updatePayload: Record<string, unknown> = {
-    claim_status: new_status,
-  }
-  if (new_status === 'approved') updatePayload.status = 'sold'
-  if (new_status === 'done') updatePayload.status = 'completed'
-
+  // Update only the claim_status column here — NEVER write jobs.status
+  // directly. Audit R2-#4: the previous version bypassed updateJobStatus,
+  // skipping warranty/calendar/SMS/commission/audit-log side effects.
+  // Route any implied job-status transition through the gated action below.
   const { data: updatedJob, error: updateError } = await supabase
     .from('jobs')
-    .update(updatePayload)
+    .update({ claim_status: new_status })
     .eq('id', job_id)
+    .eq('company_id', companyId)
     .select()
     .single()
 
   if (updateError) throw new Error(`Failed to update claim status: ${updateError.message}`)
+
+  // Implied job-status transitions go through updateJobStatus so the full
+  // side-effects pipeline runs. Best-effort: if the transition is invalid
+  // (e.g. job is already completed), we swallow the error and leave the
+  // claim_status update in place — the manager can correct via /jobs/[id].
+  if (new_status === 'approved' || new_status === 'done') {
+    try {
+      const { updateJobStatus } = await import('./jobs')
+      const targetStatus = new_status === 'approved' ? 'sold' : 'completed'
+      await updateJobStatus(job_id, targetStatus)
+    } catch (err) {
+      console.warn('[insurance] implied job status transition failed:', err)
+    }
+  }
 
   // Log activity for audit trail — pass currentStatus as old_value
   await logActivity(job_id, userId, 'insurance_claim_update', currentStatus, new_status)

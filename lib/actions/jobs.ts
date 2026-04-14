@@ -285,6 +285,29 @@ export async function updateJob(id: string, data: UpdateJobData) {
   return job
 }
 
+/**
+ * Public wrapper around `executePostStatusEffects` for server actions that
+ * already hold their own Supabase client + verified ownership but can't go
+ * through `updateJobStatus` (e.g. `clockIn` runs as a crew user which
+ * `requireJobEditor` would reject). Fires the full side-effects pipeline:
+ * calendar sync, SMS, automations, commission calc, activity log entry.
+ *
+ * Call ONLY after you have already committed the status write with your own
+ * optimistic-lock check. This function does NOT write `jobs.status` itself.
+ */
+export async function executePostStatusEffectsInternal(
+  jobId: string,
+  oldStatus: string,
+  newStatus: string,
+  currentJob: Record<string, unknown>,
+  userId: string,
+  companyId: string,
+): Promise<void> {
+  const supabase = await createClient()
+  await logActivity(jobId, userId, 'status_change', oldStatus, newStatus)
+  await executePostStatusEffects(supabase, jobId, oldStatus, newStatus, currentJob, userId, companyId)
+}
+
 async function executePostStatusEffects(
   supabase: Awaited<ReturnType<typeof createClient>>,
   jobId: string,
@@ -487,9 +510,22 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
       updatePayload.warranty_expiration = localDateString(expiryDate)
     }
   }
-  // Reopening a completed job: clear the completed_date so reports stay accurate
+  // Reopening a completed job (completed → in_progress): clear completed_date
+  // AND warranty_expiration so reports don't list voided jobs as warranty-
+  // active. The warranty will be re-stamped when the job is re-completed.
+  // Audit R2-#6.
   if (oldStatus === 'completed' && newStatus !== 'completed' && newStatus !== 'cancelled') {
     updatePayload.completed_date = null
+    updatePayload.warranty_expiration = null
+  }
+  // Cancelling (from any state): clear ALL stale "this job earned money"
+  // artifacts. Commission and warranty_expiration should not survive on a
+  // cancelled job, otherwise rep commission reports and warranty exports
+  // keep listing it. Audit R2-#6.
+  if (newStatus === 'cancelled') {
+    updatePayload.commission_amount_cents = null
+    updatePayload.commission_amount = null
+    updatePayload.warranty_expiration = null
   }
 
   // Optimistic lock: only update if status is still what we read.
@@ -542,7 +578,19 @@ export async function getJob(id: string) {
     throw new Error(`Failed to fetch job: ${error.message}`)
   }
 
-  // maybeSingle() returns null for zero rows without an error
+  if (!data) return null
+
+  // Re-sign the estimate PDF URL on the fly — the stored URL is a 24h
+  // signed URL from createSignedUrl() and has likely expired (R2-#8).
+  if ((data as { estimate_pdf_url?: string | null }).estimate_pdf_url) {
+    const { resignEstimatesPdf } = await import('@/lib/storage-urls')
+    const fresh = await resignEstimatesPdf(
+      supabase,
+      (data as { estimate_pdf_url?: string | null }).estimate_pdf_url
+    )
+    ;(data as { estimate_pdf_url?: string | null }).estimate_pdf_url = fresh
+  }
+
   return data
 }
 

@@ -3,7 +3,12 @@ import { getProjectPhotos } from '@/lib/companycam'
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
 
-export const revalidate = 300 // Cache for 5 minutes via Next.js route segment config
+// NO route-segment cache. Previously had `export const revalidate = 300`
+// which keys the Next.js data cache by URL only — meaning two different
+// authenticated users requesting `?projectId=X` within 5 minutes shared the
+// same cached JSON, completely bypassing the per-request ownership check
+// below. Audit finding R2-#1: removed entirely.
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   let companyId: string

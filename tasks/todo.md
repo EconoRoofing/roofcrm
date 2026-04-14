@@ -41,7 +41,61 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
-## LOW-severity sweep + atomic PIN + portal expiry (current session)
+## Round-2 audit criticals 1–12 (current session)
+
+### Mario must run this in Supabase SQL Editor
+```sql
+-- supabase/migrations/032_calendar_watch_columns.sql
+-- Adds users.calendar_watch_channel_id + users.calendar_watch_expiration
+-- (catch-up — referenced in code, never existed in the DB).
+```
+Defensive, safe to re-run.
+
+### Security + cross-tenant leaks (audit R2-#1 to R2-#3)
+- **#1 `/api/companycam/photos` `revalidate = 300` removed** — Next.js data cache was URL-keyed, so two different users asking for the same projectId within 5 min shared the same cached JSON, bypassing the per-request ownership check entirely. Switched to `export const dynamic = 'force-dynamic'`.
+- **#2 `update-companycam` cross-company link hijack** — route now rejects (409) if the projectId is already linked to a job in a DIFFERENT company. Closes the chain where user in company A could link their job to company B's CompanyCam project and then read company B's photos via the photos route.
+- **#3 Service worker narrow-scoped** — bumped cache to `v4`, dropped pre-caching, and the fetch handler now ONLY caches `/_next/static/*` (content-hashed immutable build output). Everything else — including `/_next/image?url=...` (Supabase signed thumbnails), all `/api/*`, HTML navigations — passes straight to network. Closes the cross-user photo leak on shared PWA devices.
+
+### Privilege escalation — direct status writes (audit R2-#4, R2-#5)
+- **#4 `updateClaimStatus` in `lib/actions/insurance.ts`** — added `requireJobEditor(role)`. The direct `jobs.status` write was removed: implied transitions (`approved` → sold, `done` → completed) now go through `updateJobStatus()` via a dynamic import so the full side-effects pipeline runs (calendar sync, SMS, activity log, commission auto-calc).
+- **#5 `clockIn` status transition** — no longer writes `jobs.status` directly. Uses a new public helper `executePostStatusEffectsInternal` exported from `lib/actions/jobs.ts` which fires the full side-effects pipeline (calendar, SMS, automations, activity log) after the gated status update. The helper is the "escape hatch" for server actions that already hold verified ownership but can't go through `updateJobStatus` (which requires manager role that crew lacks).
+
+### Reopening completed jobs (audit R2-#6)
+- **`updateJobStatus` cleanup on transitions out of completed**:
+  - `completed → in_progress` now nulls both `completed_date` AND `warranty_expiration` (warranty will be re-stamped on the next completion)
+  - `* → cancelled` nulls `commission_amount_cents`, `commission_amount`, and `warranty_expiration` — cancelled jobs stay out of rep commission reports and warranty exports
+
+### Portal shows $0 (audit R2-#7)
+- **`app/portal/[token]/page.tsx`** now reads `formatCents(readMoneyFromRow(inv.total_amount_cents, inv.total_amount))` instead of `formatCurrency(inv.total_amount)`. `getPortalInvoices` also now selects `total_amount_cents` in the query. Fresh invoices (which populate only the cents column for the legacy dual-write is intentional, but just-in-case) render correctly.
+
+### Dead signed URLs (audit R2-#8)
+- **New `lib/storage-urls.ts`** with `extractStoragePath()` (parses either public or signed URL shape) and `resignEstimatesPdf()` (re-issues a fresh 24h signed URL on demand).
+- **`getJob`** in `jobs.ts`, **`getJobInvoices`** in `invoicing.ts`, and **`getPortalInvoices`** in `portal.ts` all call `resignEstimatesPdf` on every read. Persisted URLs in the DB can expire — the re-signer handles both fresh and stale inputs.
+- No migration needed. Storage path is extracted from whatever URL shape was stored.
+
+### Agreement PDF 50/50 split (audit R2-#9)
+- **`lib/pdf/agreement-template.tsx`** now computes `firstHalfCents = halfCents(totalCents)` and `secondHalfCents = totalCents - firstHalfCents`. For an odd-cent total like $10,000.01, the first row shows $5,000.01 and the second shows $5,000.00 — summing exactly to the contract total. Previously both rows showed the same `deposit` variable (→ $5,000.01 twice → $10,000.02, one cent over).
+
+### iOS input zoom (audit R2-#10)
+- **`components/ui/form-field.tsx`** base input font-size bumped from `15px` → `16px`. iOS Safari's auto-zoom policy triggers on anything below 16px, and the viewport stays stuck until the user pinches out. Every FormInput/FormTextarea/FormSelect across the app (job-form, estimate wizard, pricing-form, etc.) was triggering it.
+
+### Calendar watch renewal (audit R2-#11)
+- **Migration 032** adds `users.calendar_watch_channel_id` and `users.calendar_watch_expiration` (catch-up — referenced in code but never existed as a column). Includes a partial index for the daily cron's expiring-watches query.
+- **`registerCalendarWatch`** now generates a random `watchToken`, passes it to Google via the `token` param, and persists all four fields (channel_id, token, calendar_id, expiration) to the users row. Previous version returned the result but never wrote it — the webhook had no record of the channel.
+- **New `renewExpiringCalendarWatches()`** in `lib/calendar-sync.ts`. Daily cron finds users with `calendar_watch_expiration < now() + 48h` and calls `renewCalendarWatch()` on each. 48h window gives two cron cycles of runway in case one fails.
+- **`/api/cron/daily/route.ts`** wires it as step #8.
+
+### Invoice role gates (audit R2-#12)
+- **`lib/actions/invoicing.ts`** now enforces roles on every mutation:
+  - `createInvoice`, `updateInvoiceStatus`, `addLineItem`, `removeLineItem`, `updateLineItem` → `requireEstimateEditor` (sales + managers, crew blocked)
+  - `markInvoicePaid`, `deleteInvoice` → `requireManager` (owner + office_manager only — financial actions)
+
+### Verification
+- `npx next build` clean across all 44 routes
+
+---
+
+## LOW-severity sweep + atomic PIN + portal expiry (previous session)
 
 ### Mario must run this in Supabase SQL Editor
 ```sql

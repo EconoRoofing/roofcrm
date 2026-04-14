@@ -197,12 +197,24 @@ export async function getPortalInvoices(token: string) {
 
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, invoice_number, type, total_amount, status, due_date, payment_link, pdf_url')
+    .select('id, invoice_number, type, total_amount, total_amount_cents, status, due_date, payment_link, pdf_url')
     .eq('job_id', job.id)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
 
-  return invoices ?? []
+  if (!invoices || invoices.length === 0) return []
+
+  // Audit R2-#8: pdf_url in the DB is a 24h signed URL that may have
+  // expired. Re-sign each one on the fly so the customer-facing portal
+  // never hands out a dead link.
+  const { resignEstimatesPdf } = await import('@/lib/storage-urls')
+  const resigned = await Promise.all(
+    invoices.map(async (inv) => ({
+      ...inv,
+      pdf_url: inv.pdf_url ? await resignEstimatesPdf(supabase, inv.pdf_url) : null,
+    }))
+  )
+  return resigned
 }
 
 export async function getPortalMessages(token: string) {

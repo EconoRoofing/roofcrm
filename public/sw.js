@@ -1,20 +1,14 @@
 // Bump this on every deploy that changes caching semantics so the new SW
 // installs cleanly and the old cache is purged.
-const CACHE_VERSION = 'v3'
+const CACHE_VERSION = 'v4'
 const CACHE_NAME = `roofcrm-${CACHE_VERSION}`
 
-// Static assets only — NEVER cache authenticated app routes here, otherwise
-// a different user on a shared device sees the previous user's HTML shell.
-const STATIC_ASSETS = [
-  '/manifest.webmanifest',
-  '/logo.png',
-]
-
-// Install: cache the static asset list
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  )
+// Install: no pre-caching. Everything useful is under /_next/static/* with
+// content-hashed filenames, and those get cached on first request via the
+// fetch handler below. Pre-caching `/logo.png` or `/manifest.webmanifest`
+// just means the user waits for a background fetch on install — they'll be
+// downloaded on first paint anyway.
+self.addEventListener('install', () => {
   self.skipWaiting()
 })
 
@@ -28,13 +22,21 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Fetch:
-//   - /api/*  → ALWAYS network. Never cache, never serve from cache.
-//               Caching authenticated JSON on a shared device leaks data
-//               between users (Mario's brother, the office manager, the crew).
-//   - HTML pages → network only. Pages render per-user content (profile picker,
-//                  role-based nav) — do not cache them either.
-//   - Hashed static assets (Next build output, images, fonts) → stale-while-revalidate.
+// Fetch strategy — AGGRESSIVELY narrow caching to avoid cross-user leaks.
+//
+// Audit R2-#3: the previous version used a catchall stale-while-revalidate
+// for anything that wasn't /api/* or an HTML navigation. That caught
+// /_next/image?url=... (Supabase signed-URL thumbnails, CompanyCam photo
+// proxies) which ARE user-scoped content, and leaked between users on
+// shared devices (PWA on Mario's tablets).
+//
+// New rule: ONLY cache `/_next/static/*` — the hashed build output. These
+// filenames include content hashes, so they're immutable and contain zero
+// user data. Everything else passes through to network, including:
+//   - /_next/image?url=...  (user-scoped image proxy)
+//   - /api/*                (authenticated JSON)
+//   - HTML navigations      (auth-sensitive shells)
+//   - Supabase storage URLs (signed, cross-origin anyway)
 self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
@@ -44,32 +46,25 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // API: network-only, never cached
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(request))
-    return
-  }
-
-  // HTML navigations: network-only, never cached (auth-sensitive)
-  const accept = request.headers.get('accept') ?? ''
-  if (request.mode === 'navigate' || accept.includes('text/html')) {
-    event.respondWith(fetch(request))
-    return
-  }
-
-  // Static assets only: stale-while-revalidate
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request).then((response) => {
-        if (response.ok) {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-        }
-        return response
+  // Only cache hashed build output — nothing else is safe on a shared device
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const network = fetch(request).then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
+        return cached || network
       })
-      return cached || network
-    })
-  )
+    )
+    return
+  }
+
+  // Everything else: pass through to network untouched
+  // (default fetch behavior if we don't call event.respondWith)
 })
 
 
