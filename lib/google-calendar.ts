@@ -6,6 +6,31 @@
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
+/**
+ * Dry-run mode for WRITE operations only (create/update/delete).
+ *
+ * Set `CALENDAR_DRY_RUN=true` in the environment to make all three write
+ * helpers log what they WOULD do to Google and return a fake result
+ * without actually calling the Google API. Read helpers
+ * (`listCalendarEvents`, `listCalendarEventsDebug`) are unaffected — they
+ * only read, never mutate, so it's always safe to let them through.
+ *
+ * Use case: Mario wanted to verify migration 041's per-company routing
+ * (pickCalendarId in lib/actions/jobs.ts) end-to-end before trusting it
+ * against his real production calendars. The dry-run flag lets him walk
+ * a test job through new_lead → estimate_scheduled → job_scheduled →
+ * completed and watch the Vercel logs to confirm the right calendar ID
+ * is being targeted at every step, with zero risk to real events.
+ *
+ * Create returns a synthetic event ID of the form `dry-run-<timestamp>`
+ * so downstream updates/deletes can prove they read the same row that
+ * create wrote — you can trace a single test job through all 4
+ * transitions in the logs by matching on the synthetic ID.
+ */
+function isDryRun(): boolean {
+  return process.env.CALENDAR_DRY_RUN === 'true'
+}
+
 // In-memory token cache with 55-minute TTL (Google tokens valid for 60 min)
 // Resets on serverless cold starts — acceptable, as cache is perf-only, not correctness
 const tokenCache = new Map<string, { token: string; expiresAt: number }>()
@@ -204,10 +229,18 @@ export async function createCalendarEvent(
   eventType: 'estimate' | 'job',
   calendarId = 'primary'
 ): Promise<string | null> {
+  const body = buildEventBody(job, eventType)
+
+  if (isDryRun()) {
+    const syntheticId = `dry-run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    console.log(
+      `[CALENDAR_DRY_RUN] createCalendarEvent: userId=${userId} job=${job.job_number} eventType=${eventType} calendarId=${calendarId} → synthetic eventId=${syntheticId} summary="${body.summary}"`
+    )
+    return syntheticId
+  }
+
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return null
-
-  const body = buildEventBody(job, eventType)
 
   const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
@@ -250,6 +283,13 @@ export async function updateCalendarEvent(
   },
   calendarId = 'primary'
 ): Promise<boolean> {
+  if (isDryRun()) {
+    console.log(
+      `[CALENDAR_DRY_RUN] updateCalendarEvent: userId=${userId} eventId=${eventId} calendarId=${calendarId} updates=${JSON.stringify(updates)}`
+    )
+    return true
+  }
+
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return false
 
@@ -477,6 +517,13 @@ export async function listCalendarEventsDebug(
  * Returns true on success, false on failure.
  */
 export async function deleteCalendarEvent(userId: string, eventId: string, calendarId = 'primary'): Promise<boolean> {
+  if (isDryRun()) {
+    console.log(
+      `[CALENDAR_DRY_RUN] deleteCalendarEvent: userId=${userId} eventId=${eventId} calendarId=${calendarId}`
+    )
+    return true
+  }
+
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return false
 
