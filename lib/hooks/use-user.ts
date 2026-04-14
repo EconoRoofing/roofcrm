@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 
-type UserRole = 'manager' | 'sales' | 'crew' | 'sales_crew' | null
+type UserRole = 'owner' | 'office_manager' | 'sales' | 'crew' | null
 
 interface UseUserReturn {
   user: User | null

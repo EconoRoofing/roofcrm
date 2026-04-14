@@ -1,5 +1,5 @@
 // Enum types matching database enums
-export type UserRole = 'manager' | 'sales' | 'crew' | 'sales_crew'
+export type UserRole = 'owner' | 'office_manager' | 'sales' | 'crew'
 export type JobStatus =
   | 'lead'
   | 'estimate_scheduled'

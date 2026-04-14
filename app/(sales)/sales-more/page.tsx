@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getUser, getUserRole, signOut } from '@/lib/auth'
-import { RoleToggle } from '@/components/crew/role-toggle'
+import { getUser, signOut } from '@/lib/auth'
 import { clearActiveProfile } from '@/lib/actions/profiles'
 import { SectionLabel } from '@/components/ui/section-label'
 import { ListItem } from '@/components/ui/list-item'
@@ -11,7 +10,6 @@ const { OFFICE_PHONE } = APP_CONFIG
 
 export default async function SalesMorePage() {
   const user = await getUser()
-  const role = user ? (await getUserRole(user.id)) ?? 'sales' : 'sales'
 
   return (
     <div
@@ -40,8 +38,6 @@ export default async function SalesMorePage() {
           More
         </h1>
 
-        {/* Role toggle for sales_crew users */}
-        {role === 'sales_crew' && <RoleToggle currentRole={role} />}
       </div>
 
       {/* Quick Actions */}

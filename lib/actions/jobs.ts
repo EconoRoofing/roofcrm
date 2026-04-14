@@ -383,7 +383,7 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   // Skip if status is the same (dropped on same column)
   if (oldStatus === newStatus) return currentJob
 
-  const isManager = role === 'manager'
+  const isManager = role === 'owner' || role === 'office_manager'
 
   if (!isManager) {
     const validNextStatuses = VALID_TRANSITIONS[oldStatus]
@@ -502,11 +502,6 @@ export async function getJobsByDate(date: string, userId: string, role: UserRole
 
   if (role === 'crew') {
     query = query.eq('assigned_crew_id', userId).eq('scheduled_date', date)
-  } else if (role === 'sales_crew') {
-    query = query.or(
-      `and(assigned_crew_id.eq.${userId},scheduled_date.eq.${date}),` +
-        `and(rep_id.eq.${userId},scheduled_date.eq.${date})`
-    )
   } else if (role === 'sales') {
     query = query
       .eq('rep_id', userId)

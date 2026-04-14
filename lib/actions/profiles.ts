@@ -72,14 +72,10 @@ export async function setPin(userId: string, pin: string) {
 
 // Unlock a locked account (manager only — resets failed attempts)
 export async function unlockAccount(userId: string) {
+  const { role } = await getUserWithCompany()
+  requireManager(role)
+
   const supabase = await createClient()
-  const user = await getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  // Verify caller is a manager
-  const { data: callerData } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (callerData?.role !== 'manager') throw new Error('Only managers can unlock accounts')
-
   await supabase.from('users').update({
     pin_failed_attempts: 0,
     pin_locked_until: null,

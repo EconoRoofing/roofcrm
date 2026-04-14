@@ -107,7 +107,7 @@ export async function proxy(request: NextRequest) {
 
       const url = request.nextUrl.clone()
 
-      if (role === 'owner' || role === 'manager' || role === 'office_manager') {
+      if (role === 'owner' || role === 'office_manager') {
         url.pathname = '/home'
         return NextResponse.redirect(url)
       } else if (role === 'sales') {
@@ -115,10 +115,6 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(url)
       } else if (role === 'crew') {
         url.pathname = '/route'
-        return NextResponse.redirect(url)
-      } else if (role === 'sales_crew') {
-        const preferredView = request.cookies.get('preferred_view')?.value
-        url.pathname = preferredView === 'sales' ? '/today' : '/route'
         return NextResponse.redirect(url)
       }
     }

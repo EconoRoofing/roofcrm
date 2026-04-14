@@ -38,7 +38,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
   const [email, setEmail] = useState(existingJob?.email ?? '')
   const [jobType, setJobType] = useState<JobType | ''>(existingJob?.job_type ?? '')
   const [repId, setRepId] = useState<string>(
-    existingJob?.rep_id ?? (currentUserRole === 'manager' ? '' : currentUserId)
+    existingJob?.rep_id ?? ((currentUserRole === 'owner' || currentUserRole === 'office_manager') ? '' : currentUserId)
   )
   const [scheduledDate, setScheduledDate] = useState(existingJob?.scheduled_date ?? '')
   const [notes, setNotes] = useState(existingJob?.notes ?? '')
@@ -65,7 +65,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
           phone: phone || null,
           email: email || null,
           job_type: jobType as JobType,
-          rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
+          rep_id: ((currentUserRole === 'owner' || currentUserRole === 'office_manager') ? repId : currentUserId) || null,
           notes: notes || null,
           scheduled_date: scheduledDate || null,
           ...(isInsuranceClaim && {
@@ -84,7 +84,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
           phone: phone || null,
           email: email || null,
           job_type: jobType as JobType,
-          rep_id: (currentUserRole === 'manager' ? repId : currentUserId) || null,
+          rep_id: ((currentUserRole === 'owner' || currentUserRole === 'office_manager') ? repId : currentUserId) || null,
           notes: notes || null,
           scheduled_date: scheduledDate || null,
           ...(isInsuranceClaim && {
@@ -230,7 +230,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       </div>
 
       {/* Rep Assignment — manager only */}
-      {currentUserRole === 'manager' && salesUsers.length > 0 && (
+      {(currentUserRole === 'owner' || currentUserRole === 'office_manager') && salesUsers.length > 0 && (
         <div style={fieldStyle}>
           <label style={labelStyle}>Assigned Rep</label>
           <FormSelect

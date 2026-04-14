@@ -4,17 +4,17 @@ import { COMPANY_COLORS } from '@/lib/theme'
 import { LogOutIcon } from '@/components/icons'
 
 const ROLE_LABELS: Record<string, string> = {
-  manager: 'Manager',
+  owner: 'Owner',
+  office_manager: 'Office Manager',
   sales: 'Sales',
   crew: 'Crew',
-  sales_crew: 'Sales / Crew',
 }
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
-  manager: { bg: 'var(--accent-purple-dim)', text: 'var(--accent-purple)' },
+  owner: { bg: 'var(--accent-purple-dim)', text: 'var(--accent-purple)' },
+  office_manager: { bg: 'var(--accent-dim)', text: 'var(--accent)' },
   sales: { bg: 'var(--accent-blue-dim)', text: 'var(--accent-blue)' },
   crew: { bg: 'var(--accent-amber-dim)', text: 'var(--accent-amber)' },
-  sales_crew: { bg: 'var(--accent-dim)', text: 'var(--accent)' },
 }
 
 export default async function Home() {

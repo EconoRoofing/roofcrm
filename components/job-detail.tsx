@@ -297,8 +297,9 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const company = job.company
   const rep = job.rep
 
-  const isManager = role === 'manager'
-  const canManageEstimate = role === 'manager' || role === 'sales' || role === 'sales_crew'
+  // Owner + office_manager can edit everything; sales can manage estimates; crew is read-only
+  const isManager = role === 'owner' || role === 'office_manager'
+  const canManageEstimate = isManager || role === 'sales'
 
   let laborCost = 0
   let laborHours = 0
@@ -328,7 +329,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       const { data } = await supabase
         .from('users')
         .select('id, name')
-        .in('role', ['crew', 'sales_crew'])
+        .eq('role', 'crew')
         .eq('is_active', true)
         .order('name')
       crewMembers = data ?? []

@@ -15,9 +15,7 @@ interface ProfileCardProps {
 const ROLE_COLORS: Record<string, { bg: string; color: string; label: string }> = {
   owner: { bg: 'var(--accent-purple-dim)', color: 'var(--accent-purple)', label: 'Owner' },
   office_manager: { bg: 'var(--accent-dim)', color: 'var(--accent)', label: 'Office Manager' },
-  manager: { bg: 'var(--accent-dim)', color: 'var(--accent)', label: 'Manager' },
   sales: { bg: 'var(--accent-blue-dim)', color: 'var(--accent-blue)', label: 'Sales' },
-  sales_crew: { bg: 'var(--accent-blue-dim)', color: 'var(--accent-blue)', label: 'Sales / Crew' },
   crew: { bg: 'var(--accent-amber-dim)', color: 'var(--accent-amber)', label: 'Crew' },
 }
 

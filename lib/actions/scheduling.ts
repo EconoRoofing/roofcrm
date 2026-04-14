@@ -160,7 +160,7 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
 
   if (!crewMember) throw new Error('Crew member not found')
   if (!crewMember.is_active) throw new Error('Crew member is deactivated')
-  if (!['crew', 'sales_crew'].includes(crewMember.role)) throw new Error('User is not a crew member')
+  if (crewMember.role !== 'crew') throw new Error('User is not a crew member')
 
   // Check for double-booking (including multi-day jobs that span across the target date)
   // Only check jobs scheduled within the last 30 days — no need to check ancient jobs
@@ -237,7 +237,7 @@ export async function assignJobToCrewMultiDay(
 
   if (!crewMember) throw new Error('Crew member not found')
   if (!crewMember.is_active) throw new Error('Crew member is deactivated')
-  if (!['crew', 'sales_crew'].includes(crewMember.role)) throw new Error('User is not a crew member')
+  if (crewMember.role !== 'crew') throw new Error('User is not a crew member')
 
   // Check for double-booking across ALL dates in the multi-day range
   // Only check jobs scheduled within the last 30 days — no need to check ancient jobs

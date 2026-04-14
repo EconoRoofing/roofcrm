@@ -57,9 +57,14 @@ export function JobActions({ job, role }: JobActionsProps) {
   const address = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(address)}`
 
-  const next = NEXT_STATUS[job.status]
-  const canCancel = job.status !== 'completed' && job.status !== 'cancelled'
-  const canManageEstimate = role === 'manager' || role === 'sales' || role === 'sales_crew'
+  // Role gating:
+  // - owner/office_manager: full edit (advance status, cancel, estimate)
+  // - sales: estimate only (no status changes)
+  // - crew: read-only (no edit buttons at all)
+  const isManager = role === 'owner' || role === 'office_manager'
+  const canManageEstimate = isManager || role === 'sales'
+  const next = isManager ? NEXT_STATUS[job.status] : undefined
+  const canCancel = isManager && job.status !== 'completed' && job.status !== 'cancelled'
 
   async function handleAdvance() {
     if (!next) return

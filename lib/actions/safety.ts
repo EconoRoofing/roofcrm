@@ -131,9 +131,9 @@ export async function signToolboxTalk(sessionId: string, userId: string): Promis
   const { userId: currentUserId, companyId, role } = await getUserWithCompany()
   const supabase = await createClient()
 
-  // Authorization: only the user themselves, or a manager/crew lead can sign on behalf
-  if (userId !== currentUserId && role !== 'manager' && role !== 'crew_lead') {
-    throw new Error('Only managers or crew leads can sign on behalf of others')
+  // Authorization: only the user themselves, or owner/office_manager can sign on behalf
+  if (userId !== currentUserId && role !== 'owner' && role !== 'office_manager') {
+    throw new Error('Only managers can sign on behalf of others')
   }
 
   // Verify the target user belongs to the same company
@@ -618,12 +618,12 @@ export async function getCrewsMissingTalkToday(): Promise<Array<{ userId: string
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Get all active crew/sales_crew users in this company
+  // Get all active crew users in this company
   const { data: crewMembers } = await supabase
     .from('users')
     .select('id, name')
     .eq('primary_company_id', companyId)
-    .in('role', ['crew', 'sales_crew'])
+    .eq('role', 'crew')
     .eq('is_active', true)
 
   if (!crewMembers || crewMembers.length === 0) return []

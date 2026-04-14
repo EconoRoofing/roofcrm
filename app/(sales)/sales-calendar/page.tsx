@@ -34,7 +34,8 @@ export default async function SalesCalendarPage() {
     )
   }
 
-  const jobs = await getJobs({ rep_id: user.id })
+  // Sales sees the entire company calendar (read-only), not just their own jobs
+  const jobs = await getJobs()
 
   // getJobs does not include rep relation, provide null for compatibility
   const jobsWithRelations = jobs.map((job) => ({

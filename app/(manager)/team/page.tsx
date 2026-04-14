@@ -17,16 +17,16 @@ interface Company {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  manager: 'Manager',
+  owner: 'Owner',
+  office_manager: 'Office Manager',
   sales: 'Sales',
   crew: 'Crew',
-  sales_crew: 'Sales / Crew',
 }
 
 const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
-  manager: { bg: 'var(--accent-dim)', color: 'var(--accent)' },
+  owner: { bg: 'var(--accent-purple-dim)', color: 'var(--accent-purple)' },
+  office_manager: { bg: 'var(--accent-dim)', color: 'var(--accent)' },
   sales: { bg: 'var(--accent-blue-dim)', color: 'var(--accent-blue)' },
-  sales_crew: { bg: 'var(--accent-blue-dim)', color: 'var(--accent-blue)' },
   crew: { bg: 'var(--accent-amber-dim)', color: 'var(--accent-amber)' },
 }
 
@@ -166,10 +166,8 @@ function AddMemberModal({
             >
               <option value="owner">Owner</option>
               <option value="office_manager">Office Manager</option>
-              <option value="manager">Manager</option>
               <option value="sales">Sales</option>
               <option value="crew">Crew</option>
-              <option value="sales_crew">Sales / Crew</option>
             </select>
           </div>
 

@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { getUser, getUserRole, signOut } from '@/lib/auth'
-import { RoleToggle } from '@/components/crew/role-toggle'
+import { getUser, signOut } from '@/lib/auth'
 import { clearActiveProfile } from '@/lib/actions/profiles'
 import { SectionLabel } from '@/components/ui/section-label'
 import { ListItem } from '@/components/ui/list-item'
@@ -13,7 +12,6 @@ const { OFFICE_PHONE, EMERGENCY_PHONE } = APP_CONFIG
 
 export default async function MorePage() {
   const user = await getUser()
-  const role = user ? (await getUserRole(user.id)) ?? 'crew' : 'crew'
   const cookieStore = await cookies()
   const isSimpleMode = cookieStore.get('crew_simple_mode')?.value === 'true'
 
@@ -44,8 +42,6 @@ export default async function MorePage() {
           More
         </h1>
 
-        {/* Role toggle — only for sales_crew */}
-        {role === 'sales_crew' && <RoleToggle currentRole={role} />}
       </div>
 
       {/* View Preferences */}

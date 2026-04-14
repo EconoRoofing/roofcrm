@@ -58,8 +58,10 @@ export async function verifyJobOwnership(jobId: string, companyId: string) {
   return job
 }
 
-/** Roles with management access (owner > office_manager > manager) */
-const MANAGER_ROLES = ['owner', 'office_manager', 'manager', 'admin']
+/** Roles with management access. Order: owner > office_manager.
+ *  Note: legacy 'manager' / 'admin' roles are no longer recognized — they were
+ *  removed when the role model was simplified to: owner, office_manager, sales, crew. */
+const MANAGER_ROLES = ['owner', 'office_manager']
 
 /** Require management-level role or throw */
 export function requireManager(role: string | null) {

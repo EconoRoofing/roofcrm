@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
 import { checkGeofence } from '@/lib/geo'
 import type { TimeEntry, GeofenceResult } from '@/lib/types/time-tracking'
 
@@ -671,7 +671,7 @@ export async function getWeeklyHours(
 
 export async function flagEntry(entryId: string, reason: string): Promise<void> {
   const { companyId, role } = await getUserWithCompany()
-  if (role !== 'manager') throw new Error('Manager access required')
+  requireManager(role)
   const supabase = await createClient()
 
   // Verify the time entry's job belongs to the user's company
@@ -694,7 +694,7 @@ export async function flagEntry(entryId: string, reason: string): Promise<void> 
 
 export async function unflagEntry(entryId: string): Promise<void> {
   const { companyId, role } = await getUserWithCompany()
-  if (role !== 'manager') throw new Error('Manager access required')
+  requireManager(role)
   const supabase = await createClient()
 
   // Verify the time entry's job belongs to the user's company

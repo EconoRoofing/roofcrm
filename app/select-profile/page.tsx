@@ -16,7 +16,7 @@ interface Profile {
 // --- Setup form for first-time ---
 function SetupForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
-  const [role, setRole] = useState('manager')
+  const [role, setRole] = useState('owner')
   const [pin, setPin] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -121,10 +121,8 @@ function SetupForm({ onCreated }: { onCreated: () => void }) {
           >
             <option value="owner">Owner</option>
             <option value="office_manager">Office Manager</option>
-            <option value="manager">Manager</option>
             <option value="sales">Sales</option>
             <option value="crew">Crew</option>
-            <option value="sales_crew">Sales / Crew</option>
           </select>
         </div>
 

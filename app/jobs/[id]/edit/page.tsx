@@ -35,11 +35,11 @@ export default async function EditJobPage({ params }: PageProps) {
 
   // Fetch sales users for manager rep assignment
   let salesUsers: User[] = []
-  if (role === 'manager') {
+  if (role === 'owner' || role === 'office_manager') {
     const { data } = await supabase
       .from('users')
       .select('*')
-      .in('role', ['sales', 'sales_crew'])
+      .eq('role', 'sales')
       .order('name', { ascending: true })
     salesUsers = (data as User[]) ?? []
   }
