@@ -65,7 +65,17 @@ export async function setPin(userId: string, pin: string) {
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 
-  await supabase.from('users').update({ pin_hash: pinHash }).eq('id', userId)
+  // Audit R3-#16: previously the update error was silently dropped. A
+  // failed write (RLS rejection, network blip, schema mismatch) returned
+  // success and the caller believed the PIN had changed. Throw on any
+  // Supabase error so the form surfaces the failure.
+  const { error: pinUpdateError } = await supabase
+    .from('users')
+    .update({ pin_hash: pinHash })
+    .eq('id', userId)
+  if (pinUpdateError) {
+    throw new Error(`Failed to set PIN: ${pinUpdateError.message}`)
+  }
 
   // Audit trail for PIN changes
   try {
@@ -79,16 +89,39 @@ export async function setPin(userId: string, pin: string) {
   } catch {}
 }
 
-// Unlock a locked account (manager only — resets failed attempts)
+// Unlock a locked account (manager only — resets failed attempts).
+// Audit R3-#16: previously this had no company-membership check on the
+// target userId AND silently swallowed update errors. An office manager
+// could pass any UUID and unlock a user in a DIFFERENT company. Now we
+// verify the target belongs to the caller's company before resetting,
+// and throw on update errors.
 export async function unlockAccount(userId: string) {
-  const { role } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
   requireManager(role)
 
   const supabase = await createClient()
-  await supabase.from('users').update({
-    pin_failed_attempts: 0,
-    pin_locked_until: null,
-  }).eq('id', userId)
+
+  // Verify the target user is in the caller's company
+  const { data: targetUser } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .eq('primary_company_id', companyId)
+    .maybeSingle()
+  if (!targetUser) {
+    throw new Error('User not found or not in your company')
+  }
+
+  const { error } = await supabase
+    .from('users')
+    .update({
+      pin_failed_attempts: 0,
+      pin_locked_until: null,
+    })
+    .eq('id', userId)
+  if (error) {
+    throw new Error(`Failed to unlock account: ${error.message}`)
+  }
 }
 
 // Verify a PIN

@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, localDateString, requireJobEditor } from '@/lib/auth-helpers'
 import {
@@ -281,6 +282,18 @@ export async function updateJob(id: string, data: UpdateJobData) {
   if (activityEntries.length > 0) {
     await supabase.from('activity_log').insert(activityEntries)
   }
+
+  // Audit R3-#13: invalidate the RSC cache for the affected job + the
+  // pipeline list views so the destination page after `router.push` is
+  // fresh. The form previously called `router.refresh()` on the client
+  // immediately after `router.push`, which races: refresh acts on the
+  // CURRENT route (the edit page), not the destination, wasting a
+  // round-trip and briefly showing stale data.
+  revalidatePath(`/jobs/${id}`)
+  revalidatePath(`/jobs/${id}/edit`)
+  revalidatePath('/pipeline')
+  revalidatePath('/sales-pipeline')
+  revalidatePath('/list')
 
   return job
 }

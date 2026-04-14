@@ -5,48 +5,44 @@ import { getUserWithCompany, verifyJobOwnership, requireEstimateEditor } from '@
 import { randomBytes } from 'crypto'
 
 // ─── Portal rate limiting ────────────────────────────────────────────────────
-// Audit finding #35. `/portal/[token]` is unauthenticated (token-gated), so a
-// token holder could previously flood `sendPortalMessage` / `requestBooking`
-// with arbitrary content. This module-level sliding-window limiter caps
-// writes per token to LIMIT requests per WINDOW_MS.
+// Audit R3-#10 + R3-#11: was an in-memory Map<token, timestamps[]> at module
+// level. Two fatal flaws:
 //
-// Module state is per-serverless-instance — Vercel spreads traffic across
-// instances, so the effective cap is roughly LIMIT × instance_count. At the
-// current scale (a handful of customers per portal) this is plenty. If this
-// ever becomes insufficient, move to a Supabase-backed counter.
+//   1. Vercel sprays serverless invocations across N warm lambdas, so the
+//      effective cap was LIMIT × instance_count rather than LIMIT.
+//   2. The bucket key was the raw token — checked BEFORE the token was
+//      validated against the database. An attacker could pump random tokens
+//      at the endpoint and bloat the Map until the lambda OOM'd.
+//
+// Now backed by `portal_rate_limits` (migration 033) and called via
+// `check_portal_rate_limit` RPC, keyed on the resolved JOB ID (which only
+// exists after the token has been verified). The RPC does atomic
+// upsert-and-increment in one round trip.
 
-const WINDOW_MS = 60 * 1000 // 1 minute
-const LIMIT_PER_WINDOW = 5   // messages or booking requests per token per minute
+const PORTAL_RATE_WINDOW_SECONDS = 60
+const PORTAL_RATE_LIMIT_PER_WINDOW = 5
 
-type RateLimitBucket = { timestamps: number[] }
-const rateLimitBuckets = new Map<string, RateLimitBucket>()
-
-/**
- * Record a portal write attempt and return `true` if it's within the limit,
- * `false` if the token has hit its cap. Sliding 60-second window: the entry
- * expires from the bucket once 60 seconds have passed.
- */
-function checkPortalRateLimit(token: string): boolean {
-  const now = Date.now()
-  const cutoff = now - WINDOW_MS
-  const bucket = rateLimitBuckets.get(token) ?? { timestamps: [] }
-  // Drop expired entries
-  bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff)
-  if (bucket.timestamps.length >= LIMIT_PER_WINDOW) {
-    rateLimitBuckets.set(token, bucket)
+async function checkPortalRateLimit(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  jobId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('check_portal_rate_limit', {
+      p_job_id: jobId,
+      p_limit: PORTAL_RATE_LIMIT_PER_WINDOW,
+      p_window_seconds: PORTAL_RATE_WINDOW_SECONDS,
+    })
+    if (error) {
+      // Fail closed on RPC errors — better to occasionally drop a legit
+      // message than silently let abuse through.
+      console.warn('[portal] check_portal_rate_limit RPC failed', error)
+      return false
+    }
+    return data === true
+  } catch (err) {
+    console.warn('[portal] check_portal_rate_limit threw', err)
     return false
   }
-  bucket.timestamps.push(now)
-  rateLimitBuckets.set(token, bucket)
-
-  // Opportunistic cleanup — purge buckets that are fully expired, so a burst
-  // of one-time portal visits doesn't leak memory forever.
-  if (rateLimitBuckets.size > 500) {
-    for (const [key, b] of rateLimitBuckets.entries()) {
-      if (b.timestamps.every((t) => t <= cutoff)) rateLimitBuckets.delete(key)
-    }
-  }
-  return true
 }
 
 // Max characters for any user-generated portal content. Prevents a token
@@ -244,15 +240,20 @@ export async function sendPortalMessage(token: string, messageText: string): Pro
   // Cap length — a portal token shouldn't be able to write megabytes
   const body = trimmed.slice(0, MAX_PORTAL_MESSAGE_CHARS)
 
-  // Rate-limit per token. If the token is flooding, silently drop.
-  if (!checkPortalRateLimit(token)) {
-    console.warn('[portal] rate limit hit for sendPortalMessage')
-    return false
-  }
-
-  // Use shared resolver so expired tokens are rejected here too
+  // Audit R3-#11: validate the token FIRST. Previously the rate-limit check
+  // ran on the raw token before any validation, which let an attacker pump
+  // random tokens to bloat the in-memory Map. Now invalid tokens never touch
+  // the rate limiter at all.
   const job = await resolveLiveJobByPortalToken(supabase, token, 'customer_name, companies(name)')
   if (!job) return false
+
+  // Rate-limit per JOB (now that we know it exists). Postgres-backed via
+  // migration 033 so the cap is global across lambdas, not per-instance.
+  const allowed = await checkPortalRateLimit(supabase, job.id as string)
+  if (!allowed) {
+    console.warn('[portal] rate limit hit for sendPortalMessage', job.id)
+    return false
+  }
 
   // companyName kept for future notification fan-out; not used here yet
   void (job as { companies?: { name?: string } }).companies?.name
@@ -370,18 +371,20 @@ export async function requestBooking(
   // Cap notes length
   const safeNotes = notes?.trim().slice(0, MAX_PORTAL_NOTES_CHARS) ?? ''
 
-  // Rate-limit per token
-  if (!checkPortalRateLimit(token)) {
-    console.warn('[portal] rate limit hit for requestBooking')
-    return false
-  }
-
+  // Audit R3-#11: validate the token FIRST, then rate-limit on the resolved
+  // job id. Same fix as sendPortalMessage above.
   const job = await resolveLiveJobByPortalToken(
     supabase,
     token,
     'customer_name, rep_id, company_id'
   )
   if (!job) return false
+
+  const allowed = await checkPortalRateLimit(supabase, job.id as string)
+  if (!allowed) {
+    console.warn('[portal] rate limit hit for requestBooking', job.id)
+    return false
+  }
 
   // Create a follow-up task for the assigned rep.
   // Notes are already trimmed and capped above; dates are format-validated.

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { SignaturePad } from '@/components/estimate/signature-pad'
 import { signEstimate } from '@/lib/actions/signature'
@@ -33,8 +33,27 @@ export function SignClient({
   const [emailLoading, setEmailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Audit R3-#15: synchronous double-submit guard + unmount safety. The
+  // SignaturePad's onSave can fire twice on a customer double-tap (the
+  // signEstimate call takes 5–10s on slow 4G), and the previous version
+  // had no synchronous gate — both invocations would race, generate two
+  // PDFs, and email the customer twice. signingRef flips synchronously
+  // before any state update so the second call early-returns. mountedRef
+  // guards every post-await setState in case the customer backs out
+  // mid-submit.
+  const signingRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   async function handleBothSigned(customerSig: string) {
     if (!repSignature) return
+    if (signingRef.current) return
+    signingRef.current = true
     setStep('signing')
     setError(null)
 
@@ -48,11 +67,15 @@ export function SignClient({
           timestamp: new Date().toISOString(),
         }
       )
+      if (!mountedRef.current) return
       setPdfUrl(result.pdfUrl)
       setStep('done')
     } catch (err) {
+      if (!mountedRef.current) return
       setError(err instanceof Error ? err.message : 'Signing failed. Please try again.')
       setStep('customer')
+      // Allow a retry after the error path resets state
+      signingRef.current = false
     }
   }
 

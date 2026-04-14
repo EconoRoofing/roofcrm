@@ -80,8 +80,14 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
             claim_number: claimNumber || null,
           }),
         })
+        // Audit R3-#13: dropped the trailing router.refresh(). The App
+        // Router refresh invalidates the CURRENT route's RSC payload, but
+        // the push hasn't committed yet — so refresh wastes a round trip
+        // on the edit page AND the detail page can briefly show pre-edit
+        // values before the push-driven RSC fetch lands. updateJob already
+        // calls revalidatePath for the affected job + list pages on the
+        // server, so the push lands on a freshly-invalidated cache.
         router.push(`/jobs/${existingJob.id}`)
-        router.refresh()
       } else {
         const newJob = await createJob({
           company_id: companyId,

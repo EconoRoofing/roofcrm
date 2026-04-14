@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -90,10 +90,30 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
     data: draggableData,
   })
 
+  // Audit R3-#14: dnd-kit flips `isDragging` back to false BEFORE the
+  // synthetic click event fires after a drag ends. So a 10px drag that
+  // releases on the same column (no drop target change) used to navigate
+  // the user away — they thought they were rearranging a card, the page
+  // navigated to the job detail. Track the moment a drag ended in a ref
+  // and suppress click for ~250ms after that moment.
+  const lastDragEndRef = useRef<number>(0)
+  const wasDraggingRef = useRef<boolean>(false)
+  useEffect(() => {
+    if (wasDraggingRef.current && !isDragging) {
+      // Drag just ended — start the suppression window
+      lastDragEndRef.current = Date.now()
+    }
+    wasDraggingRef.current = isDragging
+  }, [isDragging])
+
   const handleClick = (e: React.MouseEvent) => {
-    // Suppress the click if dnd-kit is currently mid-drag — without this,
-    // releasing on the same column triggers both a drag end AND a navigation.
     if (isDragging) {
+      e.stopPropagation()
+      e.preventDefault()
+      return
+    }
+    // Drag just ended within the suppression window — don't navigate.
+    if (Date.now() - lastDragEndRef.current < 250) {
       e.stopPropagation()
       e.preventDefault()
       return

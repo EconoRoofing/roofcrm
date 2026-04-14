@@ -101,6 +101,18 @@ export async function getDashboardData(filters?: {
   // is the canonical fix and avoids the millisecond cliff entirely.
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()
+  // Audit R3-#12: `completed_date` is a YYYY-MM-DD date string, but
+  // `monthStart` and `nextMonthStart` are full ISO timestamps. Lexicographic
+  // compare returns false for "2026-04-01" >= "2026-04-01T07:00:00.000Z"
+  // (the date-only string is shorter and sorts before the timestamp),
+  // so jobs completed on the FIRST of the month were silently dropped
+  // from the count. We need date-only bounds for `completed_date`.
+  const monthStartDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const nextMonthStartDate = (() => {
+    const m = now.getMonth() + 1 // 0-indexed → next month is +1, but JS Date overflow normalizes Dec→Jan
+    const next = new Date(now.getFullYear(), m, 1)
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`
+  })()
 
   const revenueThisMonthCents = jobs
     .filter(
@@ -116,8 +128,8 @@ export async function getDashboardData(filters?: {
     (j) =>
       j.status === 'completed' &&
       j.completed_date &&
-      j.completed_date >= monthStart &&
-      j.completed_date < nextMonthStart
+      j.completed_date >= monthStartDate &&
+      j.completed_date < nextMonthStartDate
   ).length
 
   // Avg days from created_at to sold/completed
