@@ -123,26 +123,40 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
     const isMatch = storedBuf.length === computedBuf.length && timingSafeEqual(storedBuf, computedBuf)
 
     if (!isMatch) {
-      // Increment failed attempts and set lockout if threshold reached
-      const attempts = (user.pin_failed_attempts ?? 0) + 1
-      const lockUntil = attempts >= 5
-        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
-        : null
+      // Atomic increment + conditional lockout via the Postgres function from
+      // migration 030. Replaces the prior read-then-update which had a race:
+      // two concurrent wrong PINs could both read attempts=4, both write
+      // attempts=5, and one of the failed attempts was lost.
+      // The function returns the post-update attempt count and lock window.
+      const { data: result, error: rpcError } = await supabase.rpc('record_pin_failure', {
+        p_user_id: userId,
+        p_threshold: 5,
+        p_lockout_minutes: 15,
+      })
 
-      await supabase.from('users').update({
-        pin_failed_attempts: attempts,
-        pin_locked_until: lockUntil,
-      }).eq('id', userId)
+      if (rpcError) {
+        console.error('[verifyPin] record_pin_failure RPC failed', rpcError)
+        // Fall back to fail-closed: return false without leaking state
+        return false
+      }
 
-      if (attempts >= 5) throw new Error('Too many PIN attempts. Try again in 15 minutes.')
+      // Supabase RPC returns an array of rows; we expect exactly one
+      const row = Array.isArray(result) ? result[0] : result
+      const newAttempts = (row?.new_attempts ?? user.pin_failed_attempts ?? 0) as number
+      if (newAttempts >= 5) {
+        throw new Error('Too many PIN attempts. Try again in 15 minutes.')
+      }
       return false
     }
 
-    // On success, reset failed attempts
-    await supabase.from('users').update({
-      pin_failed_attempts: 0,
-      pin_locked_until: null,
-    }).eq('id', userId)
+    // On success, reset attempts via the companion Postgres function.
+    // Single-statement UPDATE inside the function — also atomic.
+    const { error: resetError } = await supabase.rpc('reset_pin_attempts', {
+      p_user_id: userId,
+    })
+    if (resetError) {
+      console.warn('[verifyPin] reset_pin_attempts RPC failed (non-fatal)', resetError)
+    }
 
     return true
   } catch (err) {

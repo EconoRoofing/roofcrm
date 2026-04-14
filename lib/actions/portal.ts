@@ -54,6 +54,56 @@ function checkPortalRateLimit(token: string): boolean {
 const MAX_PORTAL_MESSAGE_CHARS = 2000
 const MAX_PORTAL_NOTES_CHARS = 500
 
+// Portal tokens expire after this many days since issuance. A warranty job
+// that completed 6 months ago shouldn't still have a live portal link.
+// The accompanying column `jobs.portal_token_issued_at` is set by
+// `generatePortalToken` and checked by every portal read.
+const PORTAL_TOKEN_TTL_DAYS = 180
+
+/**
+ * Check whether a portal row (the result of `jobs` query including the
+ * `portal_token_issued_at` column) is still within the valid TTL window.
+ * Returns true for a missing `portal_token_issued_at` (treat as "never
+ * expires" for rows that predate the migration — the 030 backfill
+ * populates this from updated_at so no row should be null in practice).
+ */
+function isPortalTokenLive(issuedAt: string | null | undefined): boolean {
+  if (!issuedAt) return true
+  const issuedMs = new Date(issuedAt).getTime()
+  if (!Number.isFinite(issuedMs)) return true
+  const ageMs = Date.now() - issuedMs
+  return ageMs < PORTAL_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+}
+
+/**
+ * Shared resolver: given a portal token, return the job's row (just the id)
+ * if the token exists AND is still within the TTL window. Returns null
+ * otherwise — every caller of a portal action should use this so no action
+ * forgets the expiry check.
+ */
+async function resolveLiveJobByPortalToken(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  token: string,
+  extraFields: string = ''
+): Promise<Record<string, unknown> | null> {
+  const fields = ['id', 'portal_token_issued_at']
+  if (extraFields) fields.push(extraFields)
+  // Cast through unknown — Supabase's generated types can't infer the column
+  // list from a runtime-built select string, so we tell TS to trust the cast.
+  const { data: job } = await supabase
+    .from('jobs')
+    .select(fields.join(', '))
+    .eq('portal_token', token)
+    .single()
+
+  if (!job) return null
+  const row = job as unknown as Record<string, unknown>
+  if (!isPortalTokenLive(row.portal_token_issued_at as string | null | undefined)) {
+    return null
+  }
+  return row
+}
+
 export async function generatePortalToken(jobId: string, forceRegenerate = false): Promise<string> {
   const { companyId, role } = await getUserWithCompany()
 
@@ -69,23 +119,33 @@ export async function generatePortalToken(jobId: string, forceRegenerate = false
 
   const supabase = await createClient()
 
-  // If not forcing, return existing token to avoid invalidating active portal sessions
+  // If not forcing, return existing token to avoid invalidating active portal
+  // sessions — but ONLY if the existing token is still within its TTL. Expired
+  // tokens get transparently rotated, which is the whole point of the expiry.
   if (!forceRegenerate) {
     const { data: existing } = await supabase
       .from('jobs')
-      .select('portal_token')
+      .select('portal_token, portal_token_issued_at')
       .eq('id', jobId)
       .single()
 
-    if (existing?.portal_token) return existing.portal_token
+    if (
+      existing?.portal_token &&
+      isPortalTokenLive((existing as { portal_token_issued_at?: string | null }).portal_token_issued_at)
+    ) {
+      return existing.portal_token
+    }
   }
 
-  // Generate new 32-char hex token
+  // Generate new 32-char hex token AND stamp the issuance timestamp
   const token = randomBytes(16).toString('hex')
 
   const { error } = await supabase
     .from('jobs')
-    .update({ portal_token: token })
+    .update({
+      portal_token: token,
+      portal_token_issued_at: new Date().toISOString(),
+    })
     .eq('id', jobId)
 
   if (error) {
@@ -110,6 +170,7 @@ export async function getJobByPortalToken(token: string) {
       city,
       scheduled_date,
       completed_date,
+      portal_token_issued_at,
       companies(name, phone, color, address)
     `)
     .eq('portal_token', token)
@@ -120,18 +181,18 @@ export async function getJobByPortalToken(token: string) {
     return null
   }
 
+  // Reject expired tokens — the portal session should no longer be accessible
+  if (!isPortalTokenLive((job as { portal_token_issued_at?: string | null }).portal_token_issued_at)) {
+    return null
+  }
+
   return job as any
 }
 
 export async function getPortalInvoices(token: string) {
   const supabase = await createClient()
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id')
-    .eq('portal_token', token)
-    .single()
-
+  const job = await resolveLiveJobByPortalToken(supabase, token)
   if (!job) return []
 
   const { data: invoices } = await supabase
@@ -147,12 +208,7 @@ export async function getPortalInvoices(token: string) {
 export async function getPortalMessages(token: string) {
   const supabase = await createClient()
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id')
-    .eq('portal_token', token)
-    .single()
-
+  const job = await resolveLiveJobByPortalToken(supabase, token)
   if (!job) return []
 
   const { data: messages } = await supabase
@@ -179,12 +235,8 @@ export async function sendPortalMessage(token: string, messageText: string): Pro
     return false
   }
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id, customer_name, companies(name)')
-    .eq('portal_token', token)
-    .single()
-
+  // Use shared resolver so expired tokens are rejected here too
+  const job = await resolveLiveJobByPortalToken(supabase, token, 'customer_name, companies(name)')
   if (!job) return false
 
   // companyName kept for future notification fan-out; not used here yet
@@ -207,12 +259,11 @@ export async function sendPortalMessage(token: string, messageText: string): Pro
 export async function getPortalPhotos(token: string) {
   const supabase = await createClient()
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id, address, city, state, companycam_project_id')
-    .eq('portal_token', token)
-    .single()
-
+  const job = await resolveLiveJobByPortalToken(
+    supabase,
+    token,
+    'address, city, state, companycam_project_id'
+  )
   if (!job) return []
 
   // If we have a stored CompanyCam project ID use it directly
@@ -239,12 +290,11 @@ export async function getPortalPhotos(token: string) {
 export async function getPortalPhotoGallery(token: string) {
   const supabase = await createClient()
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id, address, city, state, companycam_project_id')
-    .eq('portal_token', token)
-    .single()
-
+  const job = await resolveLiveJobByPortalToken(
+    supabase,
+    token,
+    'address, city, state, companycam_project_id'
+  )
   if (!job) return { categories: [], total: 0 }
 
   const { getProjectPhotos, searchProjectsByAddress } = await import('@/lib/companycam')
@@ -311,12 +361,11 @@ export async function requestBooking(
     return false
   }
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select('id, customer_name, rep_id, company_id')
-    .eq('portal_token', token)
-    .single()
-
+  const job = await resolveLiveJobByPortalToken(
+    supabase,
+    token,
+    'customer_name, rep_id, company_id'
+  )
   if (!job) return false
 
   // Create a follow-up task for the assigned rep.
@@ -362,15 +411,22 @@ export async function requestBooking(
 export async function getPortalJobTimeline(token: string) {
   const supabase = await createClient()
 
-  const { data: job } = await supabase
-    .from('jobs')
-    .select(
-      'id, status, created_at, scheduled_date, completed_date, total_amount'
-    )
-    .eq('portal_token', token)
-    .single()
-
-  if (!job) return []
+  // Resolver returns Record<string, unknown> — narrow once at the boundary
+  // so the rest of the function reads from a typed shape.
+  const raw = await resolveLiveJobByPortalToken(
+    supabase,
+    token,
+    'status, created_at, scheduled_date, completed_date, total_amount'
+  )
+  if (!raw) return []
+  const job = raw as {
+    id: string
+    status: string
+    created_at: string
+    scheduled_date: string | null
+    completed_date: string | null
+    total_amount: number | null
+  }
 
   // Define the canonical stages in order
   const stages = [

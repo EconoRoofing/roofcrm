@@ -41,7 +41,48 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
-## Audit items 28–41 + LOW items (current session)
+## LOW-severity sweep + atomic PIN + portal expiry (current session)
+
+### Mario must run this in Supabase SQL Editor
+```sql
+-- supabase/migrations/030_portal_expiry_and_pin_atomic.sql
+-- Adds jobs.portal_token_issued_at + record_pin_failure / reset_pin_attempts
+-- Postgres functions for atomic PIN lockout.
+```
+Defensive, safe to re-run.
+
+### Already-fixed items (verified, no work needed)
+4 of the 7 LOW items Mario listed turned out to be already fixed in earlier sessions:
+- Kanban `draggable + onClick` race → fixed by the dnd-kit rewrite (PointerSensor's `distance: 8` activation constraint cleanly separates clicks from drags, and `isDragging` guards `handleClick`)
+- Calendar `today` captured at mount → fixed last session, `todayKey` derives from a fresh `new Date()` per render
+- `pathname` null guard in `crew-bottom-nav.tsx` → fixed last session, also fixed in `sales-bottom-nav.tsx` and 3 spots in `manager-top-nav.tsx`
+- `photos-grid` raw `<img>` `onError` fallback → fixed last session, swaps to a camera-icon placeholder
+
+### `/api/measurements` cache eviction (#audit LOW)
+- Bounded the in-memory cache at 500 entries (`MAX_CACHE_ENTRIES`)
+- On overflow: first sweep expired entries, then drop the oldest by insertion order
+- Same pattern I applied to `/api/weather` in an earlier session
+
+### Portal token expiry (#audit LOW)
+- Migration 030 adds `jobs.portal_token_issued_at TIMESTAMPTZ`. Backfill from `updated_at` for existing rows.
+- New `PORTAL_TOKEN_TTL_DAYS = 180` constant in `portal.ts`. Tokens older than 180 days are rejected.
+- New `isPortalTokenLive(issuedAt)` helper + `resolveLiveJobByPortalToken()` shared resolver. Every portal action (`getJobByPortalToken`, `getPortalInvoices`, `getPortalMessages`, `sendPortalMessage`, `getPortalPhotos`, `getPortalPhotoGallery`, `requestBooking`, `getPortalJobTimeline`) goes through the resolver — so no action can forget the expiry check.
+- `generatePortalToken` stamps `portal_token_issued_at = now()` on issuance. Re-issuance behavior: if the existing token is still live, return it (preserves active sessions); if it's expired, transparently rotate.
+
+### Atomic PIN lockout (#audit LOW)
+- Migration 030 adds two Postgres functions:
+  - `record_pin_failure(user_id, threshold, lockout_minutes)` — single `UPDATE … RETURNING` that atomically increments `pin_failed_attempts` AND conditionally sets `pin_locked_until` if the new count crosses the threshold. Returns `(new_attempts, locked_until)`.
+  - `reset_pin_attempts(user_id)` — companion: clears attempts on successful login.
+  - Both are `SECURITY DEFINER` so they bypass RLS for the specific writes they're authorized to do.
+- `verifyPin` in `lib/actions/profiles.ts` now calls these RPCs instead of doing the read-modify-write dance. The race window (two concurrent wrong PINs both reading attempts=4 and both writing attempts=5, losing one) is gone.
+
+### Verification
+- `npx next build` clean across all 44 routes
+- TypeScript checks pass (one round of fixing — the dynamic `select(fields.join(','))` returns `Record<string, unknown>` from Supabase's typed client, narrow at the call site)
+
+---
+
+## Audit items 28–41 + LOW items (previous session)
 
 ### Mario must run this in Supabase SQL Editor
 ```sql
