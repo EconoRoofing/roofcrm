@@ -193,8 +193,14 @@ const s = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
+  // Audit R4-#16: `alignItems: 'flex-start'` keeps the right-column
+  // cells anchored to the TOP of a wrapped description cell, instead
+  // of floating mid-row. Without this, a 200-char line item causes
+  // the QTY/UNIT/TOTAL cells to visually misalign against the
+  // multi-line description.
   tableRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     borderBottomWidth: 0.5,
     borderBottomColor: '#E0E0E0',
     paddingVertical: 6,
@@ -202,6 +208,7 @@ const s = StyleSheet.create({
   },
   tableRowAlt: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     borderBottomWidth: 0.5,
     borderBottomColor: '#E0E0E0',
     paddingVertical: 6,
@@ -405,7 +412,13 @@ export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: I
             const unitCents = Number((item.unit_price_cents as number | null | undefined) ?? 0)
             const totalCents = Number((item.total_cents as number | null | undefined) ?? 0)
             return (
-              <View key={item.id} style={idx % 2 === 0 ? s.tableRow : s.tableRowAlt}>
+              // Audit R4-#16: wrap={false} keeps each row atomic across
+              // page breaks — the row either renders in full on the
+              // current page or flows to the next. Without this,
+              // long-description rows that cross a page boundary break
+              // mid-row and visually explode. The parent table is still
+              // allowed to wrap between rows, giving us the best of both.
+              <View key={item.id} wrap={false} style={idx % 2 === 0 ? s.tableRow : s.tableRowAlt}>
                 <Text style={[s.cellText, s.colDesc]}>{item.description}</Text>
                 <Text style={[s.cellTextRight, s.colQty]}>{item.quantity}</Text>
                 <Text style={[s.cellTextRight, s.colUnit]}>{formatMoney(unitCents)}</Text>
@@ -414,7 +427,7 @@ export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: I
             )
           })
         ) : (
-          <View style={s.tableRow}>
+          <View wrap={false} style={s.tableRow}>
             <Text style={[s.cellText, s.colDesc]}>
               {invoiceType} — {job.customer_name} ({job.job_number})
             </Text>

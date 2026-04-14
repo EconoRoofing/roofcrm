@@ -27,7 +27,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { InvoicePDF } from './invoice-template'
 import type { Company } from '@/lib/types/database'
 
-const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24
+// Audit R4-#19: bumped from 24h to 30d. Invoice PDFs are embedded in the
+// customer-facing email as a clickable link. At 24h, any customer who opens
+// the email on day 2 hits a 403 on the PDF. The portal resigns URLs on
+// read, but the PDF link in the email is dead. 30d matches the typical
+// invoice payment-attention window and keeps the email functional.
+//
+// Security note: the exposure model is unchanged. The email ALREADY carries
+// a link to the PDF; whoever had access to the email at hour 0 can download
+// it. Extending from 24h to 30d doesn't open any new access path — it just
+// stops the legitimate recipient from hitting a dead link. For estimate
+// signing (where the PDF is consumed within minutes of generation), 24h
+// is still the right TTL — that's in lib/actions/signature.ts, not here.
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 30
 
 export interface RenderedInvoicePDF {
   url: string

@@ -63,9 +63,16 @@ export async function sendDailyDigest(): Promise<boolean> {
         </div>
       `).join('')}
 
+      ${/* Audit R4-#22: if appUrl is empty (neither NEXT_PUBLIC_APP_URL nor
+           VERCEL_URL was set), the old code produced `<a href="/pipeline">`
+           — a relative URL in an email, which resolves against whatever
+           the mail client thinks the base URL is (which is usually
+           nothing, so the link is broken). Only render the link when we
+           have a real absolute URL. */''}
+      ${appUrl ? `
       <p style="color: #4a5168; font-size: 12px; margin-top: 24px;">
         <a href="${appUrl}/pipeline" style="color: #00e676;">Open RoofCRM Dashboard</a>
-      </p>
+      </p>` : ''}
     </div>
   `
 

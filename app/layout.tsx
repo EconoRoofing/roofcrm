@@ -42,7 +42,14 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="RoofCRM" />
         <meta name="theme-color" content="#08090d" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+        {/* Audit R4-#20: removed `maximum-scale=1, user-scalable=no`. Those
+            directives blocked pinch-zoom, a WCAG 2.1 SC 1.4.4 (Resize text)
+            violation. iOS 10+ ignores them by default so the practical
+            effect was limited to Android + accessibility tooling, but
+            low-vision crew members on Android could not zoom job addresses
+            or detail views. `viewport-fit=cover` is preserved so the safe
+            area insets still push content around the iPhone notch. */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2" />
         <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png?v=2" />
         <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png?v=2" />
