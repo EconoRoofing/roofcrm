@@ -17,16 +17,21 @@ export async function getLastUsedPrices(
   const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
+  // Filter: EITHER cents OR legacy dollars is non-zero. During the cents
+  // migration soak period, old rows only have legacy `total_amount` populated.
+  // Audit R2-#13: previously filtered on cents-only, which made un-migrated
+  // rows invisible even though readMoneyFromRow would have fallen back
+  // correctly. After migration 031 drops the legacy columns, simplify to
+  // just `.gt('total_amount_cents', 0)`.
   const { data } = await supabase
     .from('jobs')
     .select('roof_amount, total_amount, roof_amount_cents, total_amount_cents, squares')
     .eq('company_id', companyId)
     .eq('material', material)
-    .not('total_amount_cents', 'is', null)
-    .gt('total_amount_cents', 0)
+    .or('total_amount_cents.gt.0,total_amount.gt.0')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!data || !data.squares || data.squares === 0) return null
 
@@ -57,6 +62,8 @@ export async function getPreviousJobAtAddress(
 
   const escaped = address.replace(/%/g, '\\%').replace(/_/g, '\\_')
 
+  // See comment above — `.or()` form accepts either cents or legacy dollars
+  // during the migration soak.
   const { data } = await supabase
     .from('jobs')
     .select(
@@ -64,11 +71,10 @@ export async function getPreviousJobAtAddress(
     )
     .eq('company_id', companyId)
     .ilike('address', `%${escaped}%`)
-    .not('total_amount_cents', 'is', null)
-    .gt('total_amount_cents', 0)
+    .or('total_amount_cents.gt.0,total_amount.gt.0')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!data) return null
   return { specs: (data as Record<string, unknown>).estimate_specs, pricing: data }

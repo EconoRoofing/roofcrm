@@ -190,11 +190,15 @@ export async function applyPricebookToEstimate(
 
   if (jobError || !job) throw new Error('Job not found or access denied')
 
-  // Fetch all requested pricebook items (scoped to company)
+  // Fetch all requested pricebook items (scoped to company).
+  // Audit R2-#15: SELECT was missing `base_price_cents` — readMoneyFromRow
+  // always fell back to legacy, and after migration 031 drops legacy columns
+  // this whole action broke. Now fetches both so readMoneyFromRow works
+  // during the soak AND after the cleanup.
   const ids = itemIds.map((i) => i.id)
   const { data: items, error: itemsError } = await supabase
     .from('pricebook_items')
-    .select('id, name, base_price, unit')
+    .select('id, name, base_price, base_price_cents, unit')
     .in('id', ids)
     .eq('company_id', companyId)
     .eq('is_active', true)
@@ -229,7 +233,11 @@ export async function applyPricebookToEstimate(
   })
   const totalCents = sumCents(lineTotalsCents)
 
-  // Update job total_amount (dual-write cents + legacy dollars)
+  // Update job total_amount (dual-write cents + legacy dollars).
+  // Audit R2-#15: added `.eq('company_id', companyId)` for defense in
+  // depth. We already verified ownership above, but scoping the UPDATE
+  // itself prevents an accidentally-changed `jobId` (e.g. stale closure,
+  // future refactor) from writing cross-company.
   const { error: updateError } = await supabase
     .from('jobs')
     .update({
@@ -237,6 +245,7 @@ export async function applyPricebookToEstimate(
       total_amount_cents: totalCents,
     })
     .eq('id', jobId)
+    .eq('company_id', companyId)
 
   if (updateError) {
     console.error('Failed to update job estimate:', updateError)

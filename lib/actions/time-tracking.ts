@@ -405,13 +405,21 @@ export async function clockOut(
   weekStart.setDate(clockOutDate.getDate() + mondayOffset)
   weekStart.setHours(0, 0, 0, 0)
 
-  // Run same-day and weekly queries in parallel — both independent of each other
+  // Run same-day and weekly queries in parallel — both independent of each other.
+  //
+  // Audit R2-#16: both queries now filter `excluded_from_payroll = false`.
+  // Without this, a fraudulent entry that a manager had previously excluded
+  // would still count toward the OT threshold for the employee's NEXT
+  // legitimate shift, pushing them into OT/DT too early and causing
+  // overpayment. Every other payroll rollup filters excluded entries; this
+  // one silently didn't.
   const [sameDayResult, weekResult] = await Promise.all([
     payType !== 'day_rate'
       ? supabase
           .from('time_entries')
           .select('total_hours')
           .eq('user_id', userId)
+          .eq('excluded_from_payroll', false)
           .not('id', 'eq', entry.id)
           .not('clock_out', 'is', null)
           .gte('clock_in', dayStart.toISOString())
@@ -421,6 +429,7 @@ export async function clockOut(
       .from('time_entries')
       .select('total_hours, regular_hours, overtime_hours, doubletime_hours')
       .eq('user_id', userId)
+      .eq('excluded_from_payroll', false)
       .gte('clock_in', weekStart.toISOString())
       .not('id', 'eq', entry.id),
   ])
@@ -441,10 +450,13 @@ export async function clockOut(
   let isSeventhConsecutiveDay = false
   if (dayOfWeek === 0 && payType !== 'day_rate') {
     const daysWorked = new Set<number>()
+    // Also exclude payroll-excluded entries from the consecutive-day count —
+    // a fraudulent entry shouldn't count as "worked" for CA premium pay.
     const { data: weekDayEntries } = await supabase
       .from('time_entries')
       .select('clock_in')
       .eq('user_id', userId)
+      .eq('excluded_from_payroll', false)
       .gte('clock_in', weekStart.toISOString())
       .lt('clock_in', clockOut.toISOString())
 
