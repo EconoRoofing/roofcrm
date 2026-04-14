@@ -195,9 +195,12 @@ export async function getPortalInvoices(token: string) {
   const job = await resolveLiveJobByPortalToken(supabase, token)
   if (!job) return []
 
+  // Audit R3-#2: cents-only — drops legacy `total_amount` so this is
+  // 031-safe. Consumers (portal page) already use total_amount_cents
+  // via formatCents/readMoneyFromRow.
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, invoice_number, type, total_amount, total_amount_cents, status, due_date, payment_link, pdf_url')
+    .select('id, invoice_number, type, total_amount_cents, status, due_date, payment_link, pdf_url')
     .eq('job_id', job.id)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
@@ -425,10 +428,14 @@ export async function getPortalJobTimeline(token: string) {
 
   // Resolver returns Record<string, unknown> — narrow once at the boundary
   // so the rest of the function reads from a typed shape.
+  // Audit R3-#2: cents-only — `total_amount` is removed by migration 031.
+  // Note: `total_amount_cents` is selected here to keep the timeline shape
+  // consistent with other portal endpoints, even though this function
+  // doesn't consume it directly today.
   const raw = await resolveLiveJobByPortalToken(
     supabase,
     token,
-    'status, created_at, scheduled_date, completed_date, total_amount'
+    'status, created_at, scheduled_date, completed_date, total_amount_cents'
   )
   if (!raw) return []
   const job = raw as {
@@ -437,7 +444,7 @@ export async function getPortalJobTimeline(token: string) {
     created_at: string
     scheduled_date: string | null
     completed_date: string | null
-    total_amount: number | null
+    total_amount_cents: number | null
   }
 
   // Define the canonical stages in order

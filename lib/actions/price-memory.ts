@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
-import { readMoneyFromRow, centsToDollars } from '@/lib/money'
+import { centsToDollars } from '@/lib/money'
 
 /**
  * Returns the per-square price from the last completed job with the given material.
@@ -10,6 +10,11 @@ import { readMoneyFromRow, centsToDollars } from '@/lib/money'
  *
  * Both values are returned as DOLLARS (UI inputs accept dollars). The
  * division is done in cents first to avoid float drift, then converted.
+ *
+ * Audit R3-#2: cents-only — references to legacy `total_amount` and
+ * `roof_amount` were removed so this works after migration 031 drops
+ * those columns. Migration 031's defensive backfill ensures every row
+ * has cents populated before the legacy columns disappear.
  */
 export async function getLastUsedPrices(
   material: string
@@ -17,32 +22,20 @@ export async function getLastUsedPrices(
   const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
-  // Filter: EITHER cents OR legacy dollars is non-zero. During the cents
-  // migration soak period, old rows only have legacy `total_amount` populated.
-  // Audit R2-#13: previously filtered on cents-only, which made un-migrated
-  // rows invisible even though readMoneyFromRow would have fallen back
-  // correctly. After migration 031 drops the legacy columns, simplify to
-  // just `.gt('total_amount_cents', 0)`.
   const { data } = await supabase
     .from('jobs')
-    .select('roof_amount, total_amount, roof_amount_cents, total_amount_cents, squares')
+    .select('roof_amount_cents, total_amount_cents, squares')
     .eq('company_id', companyId)
     .eq('material', material)
-    .or('total_amount_cents.gt.0,total_amount.gt.0')
+    .gt('total_amount_cents', 0)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (!data || !data.squares || data.squares === 0) return null
 
-  const roofCents = readMoneyFromRow(
-    (data as { roof_amount_cents?: number | null }).roof_amount_cents,
-    data.roof_amount
-  )
-  const totalCents = readMoneyFromRow(
-    (data as { total_amount_cents?: number | null }).total_amount_cents,
-    data.total_amount
-  )
+  const roofCents = (data as { roof_amount_cents?: number | null }).roof_amount_cents ?? 0
+  const totalCents = (data as { total_amount_cents?: number | null }).total_amount_cents ?? 0
 
   return {
     roofAmount: centsToDollars(Math.round(roofCents / data.squares)),
@@ -62,16 +55,15 @@ export async function getPreviousJobAtAddress(
 
   const escaped = address.replace(/%/g, '\\%').replace(/_/g, '\\_')
 
-  // See comment above — `.or()` form accepts either cents or legacy dollars
-  // during the migration soak.
+  // Audit R3-#2: cents-only.
   const { data } = await supabase
     .from('jobs')
     .select(
-      'material, material_color, felt_type, squares, layers, ridge_type, ventilation, roof_amount, gutters_amount, options_amount, total_amount, roof_amount_cents, gutters_amount_cents, options_amount_cents, total_amount_cents, estimate_specs, warranty_manufacturer_years, warranty_workmanship_years'
+      'material, material_color, felt_type, squares, layers, ridge_type, ventilation, roof_amount_cents, gutters_amount_cents, options_amount_cents, total_amount_cents, estimate_specs, warranty_manufacturer_years, warranty_workmanship_years'
     )
     .eq('company_id', companyId)
     .ilike('address', `%${escaped}%`)
-    .or('total_amount_cents.gt.0,total_amount.gt.0')
+    .gt('total_amount_cents', 0)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()

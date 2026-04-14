@@ -196,17 +196,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // SECURITY: verify X-Goog-Channel-Token matches the secret we registered.
   // Google echoes whatever `token` we passed when calling watch(). Without
   // this check, anyone who learns a channelId can POST forged notifications.
-  // Audit R2-#28: use timingSafeEqual instead of `!==` so a remote attacker
-  // can't recover the watchToken byte-by-byte via timing analysis.
-  if (owner.watchToken) {
-    const presented = Buffer.from(channelToken ?? '')
-    const expected = Buffer.from(owner.watchToken)
-    const ok =
-      presented.length === expected.length && timingSafeEqual(presented, expected)
-    if (!ok) {
-      console.warn('[calendar-webhook] channel token mismatch', channelId)
-      return NextResponse.json({ error: 'Invalid channel token' }, { status: 401 })
-    }
+  //
+  // Audit R3-#3: previously this whole block was gated on `if (owner.watchToken)`,
+  // which silently FAIL-OPENED for any row with a NULL `calendar_watch_token`.
+  // The default state for a freshly-created user is NULL, so an attacker who
+  // learned a channelId could POST forged events and rewrite jobs.scheduled_date
+  // for any job whose calendar_event_id they could guess. Fail closed instead:
+  // a missing watchToken means re-registration is required, the push is
+  // refused, and the daily renewal cron will issue a fresh token + secret.
+  if (!owner.watchToken) {
+    console.warn('[calendar-webhook] channel has no watchToken — refusing push, re-register required', channelId)
+    return NextResponse.json({ error: 'Channel re-registration required' }, { status: 401 })
+  }
+  // Audit R2-#28: timingSafeEqual instead of `!==` to defend against remote
+  // byte-by-byte timing recovery of the secret.
+  const presented = Buffer.from(channelToken ?? '')
+  const expected = Buffer.from(owner.watchToken)
+  const ok = presented.length === expected.length && timingSafeEqual(presented, expected)
+  if (!ok) {
+    console.warn('[calendar-webhook] channel token mismatch', channelId)
+    return NextResponse.json({ error: 'Invalid channel token' }, { status: 401 })
   }
 
   // Get a fresh access token

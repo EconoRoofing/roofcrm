@@ -10,8 +10,16 @@
 --   1. Cents columns have been the source of truth in production for at
 --      least a week with no money-display bugs reported.
 --   2. The application code has been updated to:
---      - Stop dual-writing the legacy columns (still in place as of this commit)
---      - Remove the readMoneyFromRow legacy fallback
+--      - Stop dual-writing the legacy columns
+--        (audit R3-#2: still active at lib/actions/invoicing.ts:122 and
+--         lib/actions/jobs.ts:128 — these need a cleanup pass before run)
+--      - Remove the readMoneyFromRow legacy fallback wherever it reads
+--        the legacy column. Hot paths cleaned in audit R3-#2 batch:
+--        dashboard.ts, price-memory.ts, reporting.ts (getLeadConversionReport
+--        only), follow-up-tasks.ts, portal.ts, insurance.ts. Still TODO:
+--        command-center.ts, profitability.ts, export.ts, jobs.ts (lines
+--        405, 729), invoicing.ts (lines 110, 175, 593, 822, 910),
+--        quickbooks-export.ts, the rest of reporting.ts.
 --      - Remove the legacy `*_amount` fields from TypeScript types
 --   3. The verification SQL at the bottom of this file returns 0 rows.
 --
@@ -24,25 +32,113 @@
 
 BEGIN;
 
--- ─── Verification gate ──────────────────────────────────────────────────────
--- Refuse to run if any row has a non-zero legacy value with a zero cents
--- counterpart. This means dual-write is incomplete or there's drift, and
--- dropping the legacy columns would silently lose data.
+-- ─── Defensive backfill ─────────────────────────────────────────────────────
+-- Audit R3-#2: belt-and-suspenders. Migration 027 backfilled all rows at the
+-- time, but if a code path elsewhere inserted a row with only the legacy
+-- column populated (forgot to dual-write), this catches it before the drift
+-- gate below would refuse to drop. Idempotent: re-running this on already
+-- backfilled rows is a no-op because we filter on `cents IS NULL OR = 0`.
+-- Each statement is gated on column existence so the migration is safe to
+-- re-run after the columns have been dropped.
 DO $$
 DECLARE
+  spec RECORD;
+BEGIN
+  FOR spec IN
+    SELECT * FROM (VALUES
+      ('jobs',               'roof_amount',         'roof_amount_cents'),
+      ('jobs',               'gutters_amount',      'gutters_amount_cents'),
+      ('jobs',               'options_amount',      'options_amount_cents'),
+      ('jobs',               'total_amount',        'total_amount_cents'),
+      ('jobs',               'commission_amount',   'commission_amount_cents'),
+      ('jobs',               'deductible',          'deductible_cents'),
+      ('jobs',               'insurance_payout',    'insurance_payout_cents'),
+      ('jobs',               'supplement_amount',   'supplement_amount_cents'),
+      ('users',              'hourly_rate',         'hourly_rate_cents'),
+      ('users',              'day_rate',            'day_rate_cents'),
+      ('time_entries',       'hourly_rate',         'hourly_rate_cents'),
+      ('time_entries',       'day_rate',            'day_rate_cents'),
+      ('time_entries',       'total_cost',          'total_cost_cents'),
+      ('material_lists',     'total_estimated_cost','total_estimated_cost_cents'),
+      ('invoices',           'amount',              'amount_cents'),
+      ('invoices',           'total_amount',        'total_amount_cents'),
+      ('invoices',           'paid_amount',         'paid_amount_cents'),
+      ('invoice_line_items', 'unit_price',          'unit_price_cents'),
+      ('purchase_orders',    'total_estimated_cost','total_estimated_cost_cents'),
+      ('supplement_rounds',  'amount',              'amount_cents'),
+      ('job_subcontractors', 'agreed_amount',       'agreed_amount_cents'),
+      ('pricebook_items',    'base_price',          'base_price_cents'),
+      ('pricebook_items',    'cost',                'cost_cents')
+    ) AS t(tbl, legacy, cents)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.legacy
+    ) AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.cents
+    ) THEN
+      EXECUTE format(
+        'UPDATE public.%I SET %I = ROUND(COALESCE(%I, 0) * 100)::BIGINT WHERE %I IS NULL OR %I = 0',
+        spec.tbl, spec.cents, spec.legacy, spec.cents, spec.cents
+      );
+    END IF;
+  END LOOP;
+END $$;
+
+-- ─── Verification gate ──────────────────────────────────────────────────────
+-- Refuse to run if any row has a non-zero legacy value with a zero cents
+-- counterpart. The defensive backfill above should have caught everything,
+-- so any remaining drift is a real problem. We check ALL the dual-write
+-- pairs, not just jobs.total_amount.
+DO $$
+DECLARE
+  spec RECORD;
   v_drift integer;
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'jobs' AND column_name = 'total_amount'
-  ) THEN
-    SELECT count(*) INTO v_drift FROM public.jobs
-      WHERE COALESCE(total_amount, 0) > 0
-        AND COALESCE(total_amount_cents, 0) = 0;
-    IF v_drift > 0 THEN
-      RAISE EXCEPTION 'REFUSING TO DROP: % jobs have legacy total_amount > 0 but total_amount_cents = 0. Run the cents backfill before dropping.', v_drift;
+  FOR spec IN
+    SELECT * FROM (VALUES
+      ('jobs',               'roof_amount',         'roof_amount_cents'),
+      ('jobs',               'gutters_amount',      'gutters_amount_cents'),
+      ('jobs',               'options_amount',      'options_amount_cents'),
+      ('jobs',               'total_amount',        'total_amount_cents'),
+      ('jobs',               'commission_amount',   'commission_amount_cents'),
+      ('jobs',               'deductible',          'deductible_cents'),
+      ('jobs',               'insurance_payout',    'insurance_payout_cents'),
+      ('jobs',               'supplement_amount',   'supplement_amount_cents'),
+      ('users',              'hourly_rate',         'hourly_rate_cents'),
+      ('users',              'day_rate',            'day_rate_cents'),
+      ('time_entries',       'hourly_rate',         'hourly_rate_cents'),
+      ('time_entries',       'day_rate',            'day_rate_cents'),
+      ('time_entries',       'total_cost',          'total_cost_cents'),
+      ('material_lists',     'total_estimated_cost','total_estimated_cost_cents'),
+      ('invoices',           'amount',              'amount_cents'),
+      ('invoices',           'total_amount',        'total_amount_cents'),
+      ('invoices',           'paid_amount',         'paid_amount_cents'),
+      ('invoice_line_items', 'unit_price',          'unit_price_cents'),
+      ('purchase_orders',    'total_estimated_cost','total_estimated_cost_cents'),
+      ('supplement_rounds',  'amount',              'amount_cents'),
+      ('job_subcontractors', 'agreed_amount',       'agreed_amount_cents'),
+      ('pricebook_items',    'base_price',          'base_price_cents'),
+      ('pricebook_items',    'cost',                'cost_cents')
+    ) AS t(tbl, legacy, cents)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.legacy
+    ) AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.cents
+    ) THEN
+      EXECUTE format(
+        'SELECT count(*) FROM public.%I WHERE COALESCE(%I, 0) > 0 AND COALESCE(%I, 0) = 0',
+        spec.tbl, spec.legacy, spec.cents
+      ) INTO v_drift;
+      IF v_drift > 0 THEN
+        RAISE EXCEPTION 'REFUSING TO DROP: % rows in %.% have legacy > 0 but cents = 0. Backfill before dropping.', v_drift, spec.tbl, spec.legacy;
+      END IF;
     END IF;
-  END IF;
+  END LOOP;
 END $$;
 
 -- ─── Drop legacy columns ────────────────────────────────────────────────────

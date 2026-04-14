@@ -66,9 +66,11 @@ export async function getLeadConversionReport(startDate: string, endDate: string
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2: was selecting `total_amount` (legacy column) but never
+  // using the field in the return. Dropped to make this 031-safe.
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('status, created_at, completed_date, total_amount')
+    .select('status, created_at, completed_date')
     .eq('company_id', companyId)
     .gte('created_at', startDate)
     .lte('created_at', endDate)

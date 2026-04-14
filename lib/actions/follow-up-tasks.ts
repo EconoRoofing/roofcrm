@@ -78,11 +78,13 @@ export async function getDueFollowUps(): Promise<FollowUp[]> {
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
+  // Audit R3-#2: switched join from total_amount → total_amount_cents so
+  // this cron survives migration 031.
   const { data, error } = await supabase
     .from('follow_ups')
     .select(`
       *,
-      job:jobs!follow_ups_job_id_fkey(job_number, customer_name, address, job_type, total_amount),
+      job:jobs!follow_ups_job_id_fkey(job_number, customer_name, address, job_type, total_amount_cents),
       assignee:users!follow_ups_assigned_to_fkey(name, phone_number)
     `)
     .eq('due_date', today)
@@ -135,7 +137,9 @@ export async function processFollowUpTasks(): Promise<{ sent: number; skipped: n
     const customerName = job?.customer_name ?? 'a customer'
     const address = job?.address ?? ''
     const jobType = job?.job_type ? String(job.job_type).replace(/_/g, ' ') : ''
-    const amount = job?.total_amount ? `$${Number(job.total_amount).toLocaleString()}` : ''
+    // Audit R3-#2: format from cents directly via centsToDollars.
+    const amountCents = Number(job?.total_amount_cents ?? 0)
+    const amount = amountCents > 0 ? `$${(amountCents / 100).toLocaleString()}` : ''
 
     let message: string
     if (address && jobType && amount) {

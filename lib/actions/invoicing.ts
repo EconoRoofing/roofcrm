@@ -517,8 +517,17 @@ export async function updateLineItem(
 
 export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   const supabase = await createClient()
-  const { companyId } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
+  // Audit R3-#1: was an HTTP self-fetch to /api/jobs/[id]/invoice-pdf with a
+  // Bearer header. The route handler authenticates via session cookies which
+  // are not forwarded on server-side fetch, so the call always returned 401
+  // and `sendInvoiceWithPDF` quietly emailed customers without the attachment.
+  // Now we render in-process via the shared helper. Same auth gate the route
+  // applies, just inlined here.
+  requireManager(role)
 
+  // Resolve the job for the invoice and verify it belongs to this company
+  // BEFORE handing off to the renderer (the helper trusts its caller's authz).
   const { data: invoice } = await supabase
     .from('invoices')
     .select('job_id, jobs!inner(company_id)')
@@ -528,28 +537,13 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   if (!invoice) throw new Error('Invoice not found')
   if ((invoice as any).jobs.company_id !== companyId) throw new Error('Access denied')
 
-  // Delegate to the API route which handles rendering + storage
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000')
-
-  // Use server-side fetch with service key for internal route call
-  const response = await fetch(`${baseUrl}/api/jobs/${invoice.job_id}/invoice-pdf`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.CRON_SECRET || ''}`,
-    },
-    body: JSON.stringify({ invoiceId }),
+  const { renderAndStoreInvoicePDF } = await import('@/lib/pdf/render-invoice')
+  const { url } = await renderAndStoreInvoicePDF(supabase, {
+    invoiceId,
+    jobId: invoice.job_id as string,
+    companyId,
   })
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}))
-    throw new Error((err as { error?: string }).error || 'Failed to generate PDF')
-  }
-
-  const result = await response.json()
-  return (result as { url: string }).url
+  return url
 }
 
 export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boolean; pdfIncluded: boolean }> {

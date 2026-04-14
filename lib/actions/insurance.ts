@@ -442,22 +442,31 @@ export async function getSupplementSummary(jobId: string) {
 
   if (error) throw new Error(`Failed to fetch supplement summary: ${error.message}`)
 
+  // Audit R3-#2: was summing legacy `r.amount` (float dollars) and reading
+  // `job.total_amount` — both are dropped by migration 031. Sum cents now,
+  // and convert at the boundary so the public return shape stays in dollars
+  // for backward compatibility with existing UI consumers.
   const allRounds = rounds || []
-  let totalSupplemented = 0
-  let totalApproved = 0
-  let totalDenied = 0
+  let totalSupplementedCents = 0
+  let totalApprovedCents = 0
+  let totalDeniedCents = 0
 
   for (const r of allRounds) {
-    totalSupplemented += Number(r.amount) || 0
-    if (r.status === 'approved') totalApproved += Number(r.amount) || 0
-    if (r.status === 'denied') totalDenied += Number(r.amount) || 0
+    const cents = Number((r as { amount_cents?: number | null }).amount_cents ?? 0)
+    totalSupplementedCents += cents
+    if (r.status === 'approved') totalApprovedCents += cents
+    if (r.status === 'denied') totalDeniedCents += cents
   }
 
+  const originalEstimateCents = Number(
+    (job as { total_amount_cents?: number | null }).total_amount_cents ?? 0
+  )
+
   return {
-    originalEstimate: Number(job.total_amount ?? 0),
-    totalSupplemented: +totalSupplemented.toFixed(2),
-    totalApproved: +totalApproved.toFixed(2),
-    totalDenied: +totalDenied.toFixed(2),
+    originalEstimate: originalEstimateCents / 100,
+    totalSupplemented: totalSupplementedCents / 100,
+    totalApproved: totalApprovedCents / 100,
+    totalDenied: totalDeniedCents / 100,
     rounds: allRounds,
   }
 }

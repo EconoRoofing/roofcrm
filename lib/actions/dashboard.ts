@@ -294,16 +294,15 @@ export async function getDashboardData(filters?: {
   // Last 20 completed jobs by contract amount.
   // Full margin (labor cost vs revenue) requires joining time_entries — deferred for a future query.
 
-  // Audit R2-#14: include un-migrated rows (cents-or-legacy) during the
-  // dual-write soak. Previous version filtered cents-only which made the
-  // trend panel empty for companies whose completed jobs predate the
-  // cents backfill. After migration 031 drops legacy columns, simplify
-  // back to `.gt('total_amount_cents', 0)`.
+  // Audit R3-#2: cents-only — migration 031 will drop the legacy
+  // `total_amount` column and any reference here would error out on read.
+  // The defensive backfill at the top of 031 ensures every row has cents
+  // populated before the legacy column is dropped, so this filter is safe.
   let jobQueryForTrend = supabase
     .from('jobs')
-    .select('job_number, total_amount, total_amount_cents, completed_date')
+    .select('job_number, total_amount_cents, completed_date')
     .eq('status', 'completed')
-    .or('total_amount_cents.gt.0,total_amount.gt.0')
+    .gt('total_amount_cents', 0)
     .order('completed_date', { ascending: false })
     .limit(20)
 
@@ -314,10 +313,7 @@ export async function getDashboardData(filters?: {
   const profitabilityTrend = (trendJobs ?? []).map((j) => ({
     jobNumber: j.job_number ?? '',
     contractAmount: centsToDollars(
-      readMoneyFromRow(
-        (j as { total_amount_cents?: number | null }).total_amount_cents,
-        j.total_amount
-      )
+      (j as { total_amount_cents?: number | null }).total_amount_cents ?? 0
     ),
     completedDate: j.completed_date ?? '',
   }))
