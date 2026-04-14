@@ -1,132 +1,175 @@
 -- =============================================================================
--- Migration 027: Float → Integer Cents
+-- Migration 027: Float → Integer Cents (defensive variant)
 -- =============================================================================
 -- Convert every money column from `numeric`/`decimal` floats to `bigint` cents.
--- Eliminates float drift bugs: invoice totals no longer diverge from line-item
--- sums by a penny, commission calculations are exact, payroll is exact.
+-- Eliminates float drift bugs.
 --
--- STRATEGY: expand-and-contract.
---   1. Add `*_cents BIGINT` columns alongside the existing `*_amount` columns.
---   2. Backfill cents = ROUND(amount * 100).
---   3. Deploy new application code that reads `_cents` and dual-writes both
---      columns (so old reports/exports keep working during the transition).
---   4. After soak period, a follow-up migration drops the legacy columns.
+-- DEFENSIVE: every cents column add and every backfill is guarded by an
+-- information_schema check. If a parent table or source column doesn't exist
+-- in this database (because an earlier migration was never applied), that
+-- step is silently skipped instead of failing the whole migration.
 --
--- BIGINT chosen over INTEGER because INT4 max is ~$21.4M and commercial jobs
--- can approach that. BIGINT max is effectively unbounded for this use case.
+-- This means the migration is SAFE TO RE-RUN. New columns are added with
+-- IF NOT EXISTS; backfills only fire for columns that actually exist.
 --
--- Also includes the unique partial index for time_entries double-clock-in
--- protection (deferred from audit #11).
+-- Wrapped in BEGIN/COMMIT — any unguarded failure rolls back everything.
 -- =============================================================================
 
 BEGIN;
 
--- ─── jobs ────────────────────────────────────────────────────────────────────
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS roof_amount_cents       BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS gutters_amount_cents    BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS options_amount_cents    BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS total_amount_cents      BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS commission_amount_cents BIGINT;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deductible_cents        BIGINT;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS insurance_payout_cents  BIGINT;
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS supplement_amount_cents BIGINT;
+-- ─── Helper: add a *_cents column to a table iff both the table and the
+--             source column exist, then backfill from the source column.
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  spec RECORD;
+BEGIN
+  -- Each row: (table, source dollar column, target cents column, NOT NULL?, default)
+  FOR spec IN
+    SELECT * FROM (VALUES
+      -- jobs
+      ('jobs',               'roof_amount',          'roof_amount_cents',          true,  '0'),
+      ('jobs',               'gutters_amount',       'gutters_amount_cents',       true,  '0'),
+      ('jobs',               'options_amount',       'options_amount_cents',       true,  '0'),
+      ('jobs',               'total_amount',         'total_amount_cents',         true,  '0'),
+      ('jobs',               'commission_amount',    'commission_amount_cents',    false, NULL),
+      ('jobs',               'deductible',           'deductible_cents',           false, NULL),
+      ('jobs',               'insurance_payout',     'insurance_payout_cents',     false, NULL),
+      ('jobs',               'supplement_amount',    'supplement_amount_cents',    false, NULL),
+      -- users
+      ('users',              'hourly_rate',          'hourly_rate_cents',          true,  '0'),
+      ('users',              'day_rate',             'day_rate_cents',             true,  '0'),
+      -- time_entries
+      ('time_entries',       'hourly_rate',          'hourly_rate_cents',          true,  '0'),
+      ('time_entries',       'day_rate',             'day_rate_cents',             true,  '0'),
+      ('time_entries',       'total_cost',           'total_cost_cents',           true,  '0'),
+      -- material_lists
+      ('material_lists',     'total_estimated_cost', 'total_estimated_cost_cents', true,  '0'),
+      -- invoices
+      ('invoices',           'amount',               'amount_cents',               true,  '0'),
+      ('invoices',           'total_amount',         'total_amount_cents',         true,  '0'),
+      ('invoices',           'paid_amount',          'paid_amount_cents',          true,  '0'),
+      -- invoice_line_items
+      ('invoice_line_items', 'unit_price',           'unit_price_cents',           true,  '0'),
+      -- purchase_orders
+      ('purchase_orders',    'total_estimated_cost', 'total_estimated_cost_cents', true,  '0'),
+      -- supplement_rounds
+      ('supplement_rounds',  'amount',               'amount_cents',               true,  '0'),
+      -- job_subcontractors
+      ('job_subcontractors', 'agreed_amount',        'agreed_amount_cents',        false, NULL),
+      -- pricebook_items
+      ('pricebook_items',    'base_price',           'base_price_cents',           true,  '0'),
+      ('pricebook_items',    'cost',                 'cost_cents',                 false, NULL)
+    ) AS t(tbl, src_col, dst_col, not_null, default_expr)
+  LOOP
+    -- Skip if the parent table doesn't exist in this DB
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = spec.tbl
+    ) THEN
+      RAISE NOTICE 'Skipping %.%: table does not exist', spec.tbl, spec.dst_col;
+      CONTINUE;
+    END IF;
 
-UPDATE jobs SET
-  roof_amount_cents       = COALESCE(ROUND(roof_amount       * 100)::BIGINT, 0),
-  gutters_amount_cents    = COALESCE(ROUND(gutters_amount    * 100)::BIGINT, 0),
-  options_amount_cents    = COALESCE(ROUND(options_amount    * 100)::BIGINT, 0),
-  total_amount_cents      = COALESCE(ROUND(total_amount      * 100)::BIGINT, 0),
-  commission_amount_cents = CASE WHEN commission_amount IS NULL THEN NULL ELSE ROUND(commission_amount * 100)::BIGINT END,
-  deductible_cents        = CASE WHEN deductible        IS NULL THEN NULL ELSE ROUND(deductible        * 100)::BIGINT END,
-  insurance_payout_cents  = CASE WHEN insurance_payout  IS NULL THEN NULL ELSE ROUND(insurance_payout  * 100)::BIGINT END,
-  supplement_amount_cents = CASE WHEN supplement_amount IS NULL THEN NULL ELSE ROUND(supplement_amount * 100)::BIGINT END;
+    -- Skip if the source dollar column doesn't exist (legacy migration not applied)
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.src_col
+    ) THEN
+      RAISE NOTICE 'Skipping %.%: source column %.% does not exist',
+        spec.tbl, spec.dst_col, spec.tbl, spec.src_col;
+      CONTINUE;
+    END IF;
 
--- ─── users (pay rates) ───────────────────────────────────────────────────────
-ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS day_rate_cents    BIGINT NOT NULL DEFAULT 0;
+    -- Add the cents column if it isn't already there
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = spec.tbl AND column_name = spec.dst_col
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.%I ADD COLUMN %I BIGINT %s %s',
+        spec.tbl,
+        spec.dst_col,
+        CASE WHEN spec.not_null THEN 'NOT NULL' ELSE '' END,
+        CASE WHEN spec.default_expr IS NOT NULL THEN 'DEFAULT ' || spec.default_expr ELSE '' END
+      );
+      RAISE NOTICE 'Added %.% (BIGINT)', spec.tbl, spec.dst_col;
+    END IF;
 
-UPDATE users SET
-  hourly_rate_cents = COALESCE(ROUND(hourly_rate * 100)::BIGINT, 0),
-  day_rate_cents    = COALESCE(ROUND(day_rate    * 100)::BIGINT, 0);
+    -- Backfill from the source dollar column. NULL stays NULL for nullable
+    -- targets; for NOT NULL targets we COALESCE the source to 0.
+    IF spec.not_null THEN
+      EXECUTE format(
+        'UPDATE public.%I SET %I = COALESCE(ROUND(%I * 100)::BIGINT, 0)',
+        spec.tbl, spec.dst_col, spec.src_col
+      );
+    ELSE
+      EXECUTE format(
+        'UPDATE public.%I SET %I = CASE WHEN %I IS NULL THEN NULL ELSE ROUND(%I * 100)::BIGINT END',
+        spec.tbl, spec.dst_col, spec.src_col, spec.src_col
+      );
+    END IF;
+    RAISE NOTICE 'Backfilled %.% from %.%', spec.tbl, spec.dst_col, spec.tbl, spec.src_col;
+  END LOOP;
+END $$;
 
--- ─── time_entries ────────────────────────────────────────────────────────────
-ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS hourly_rate_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS day_rate_cents    BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS total_cost_cents  BIGINT NOT NULL DEFAULT 0;
+-- ─── invoice_line_items.total_cents ──────────────────────────────────────────
+-- Special case: depends on quantity * unit_price (the original column was a
+-- GENERATED column). Add it only if both source columns exist.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'invoice_line_items'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'invoice_line_items' AND column_name = 'unit_price'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'invoice_line_items' AND column_name = 'quantity'
+  ) THEN
+    -- Add total_cents if not present
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'invoice_line_items' AND column_name = 'total_cents'
+    ) THEN
+      ALTER TABLE public.invoice_line_items ADD COLUMN total_cents BIGINT NOT NULL DEFAULT 0;
+      RAISE NOTICE 'Added invoice_line_items.total_cents';
+    END IF;
 
-UPDATE time_entries SET
-  hourly_rate_cents = COALESCE(ROUND(hourly_rate * 100)::BIGINT, 0),
-  day_rate_cents    = COALESCE(ROUND(day_rate    * 100)::BIGINT, 0),
-  total_cost_cents  = COALESCE(ROUND(total_cost  * 100)::BIGINT, 0);
+    -- Backfill from quantity * unit_price (rounded to cents)
+    UPDATE public.invoice_line_items
+      SET total_cents = COALESCE(ROUND(quantity * unit_price * 100)::BIGINT, 0);
+    RAISE NOTICE 'Backfilled invoice_line_items.total_cents';
+  END IF;
+END $$;
 
--- Unique partial index: a user can have AT MOST ONE open time entry at a time.
--- This is the DB-level fix for audit finding #11 (double clock-in race).
--- The code-level guard in clockIn() still runs as defense in depth.
-CREATE UNIQUE INDEX IF NOT EXISTS time_entries_one_open_per_user
-  ON time_entries (user_id)
-  WHERE clock_out IS NULL;
+-- ─── time_entries unique partial index ───────────────────────────────────────
+-- Audit finding #11: DB-level guard against double clock-in.
+-- A user can have AT MOST ONE open time entry (clock_out IS NULL) at a time.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'time_entries'
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS time_entries_one_open_per_user
+      ON public.time_entries (user_id)
+      WHERE clock_out IS NULL;
+    RAISE NOTICE 'Created unique partial index time_entries_one_open_per_user';
+  END IF;
+END $$;
 
--- ─── material_lists ──────────────────────────────────────────────────────────
-ALTER TABLE material_lists ADD COLUMN IF NOT EXISTS total_estimated_cost_cents BIGINT NOT NULL DEFAULT 0;
-
-UPDATE material_lists SET
-  total_estimated_cost_cents = COALESCE(ROUND(total_estimated_cost * 100)::BIGINT, 0);
-
--- ─── invoices ────────────────────────────────────────────────────────────────
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_cents       BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS total_amount_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_amount_cents  BIGINT NOT NULL DEFAULT 0;
-
-UPDATE invoices SET
-  amount_cents       = COALESCE(ROUND(amount       * 100)::BIGINT, 0),
-  total_amount_cents = COALESCE(ROUND(total_amount * 100)::BIGINT, 0),
-  paid_amount_cents  = COALESCE(ROUND(paid_amount  * 100)::BIGINT, 0);
-
--- ─── invoice_line_items ──────────────────────────────────────────────────────
--- `total` is a GENERATED ALWAYS column from migration 020 — it cannot coexist
--- with a new cents counterpart via ALTER. We drop it, add regular columns,
--- and the application computes total_cents = ROUND(quantity * unit_price_cents).
-ALTER TABLE invoice_line_items ADD COLUMN IF NOT EXISTS unit_price_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE invoice_line_items ADD COLUMN IF NOT EXISTS total_cents      BIGINT NOT NULL DEFAULT 0;
-
-UPDATE invoice_line_items SET
-  unit_price_cents = COALESCE(ROUND(unit_price * 100)::BIGINT, 0),
-  total_cents      = COALESCE(ROUND(quantity * unit_price * 100)::BIGINT, 0);
-
--- NOTE: We are NOT dropping the legacy `total` generated column in this
--- migration — that would break reads that still expect it. It will be dropped
--- in the follow-up migration once all code paths are on `total_cents`.
-
--- ─── purchase_orders ─────────────────────────────────────────────────────────
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS total_estimated_cost_cents BIGINT NOT NULL DEFAULT 0;
-
-UPDATE purchase_orders SET
-  total_estimated_cost_cents = COALESCE(ROUND(total_estimated_cost * 100)::BIGINT, 0);
-
--- ─── supplement_rounds ───────────────────────────────────────────────────────
-ALTER TABLE supplement_rounds ADD COLUMN IF NOT EXISTS amount_cents BIGINT NOT NULL DEFAULT 0;
-
-UPDATE supplement_rounds SET
-  amount_cents = COALESCE(ROUND(amount * 100)::BIGINT, 0);
-
--- ─── job_subcontractors ──────────────────────────────────────────────────────
-ALTER TABLE job_subcontractors ADD COLUMN IF NOT EXISTS agreed_amount_cents BIGINT;
-
-UPDATE job_subcontractors SET
-  agreed_amount_cents = CASE WHEN agreed_amount IS NULL THEN NULL ELSE ROUND(agreed_amount * 100)::BIGINT END;
-
--- ─── pricebook_items ─────────────────────────────────────────────────────────
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS base_price_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE pricebook_items ADD COLUMN IF NOT EXISTS cost_cents       BIGINT;
-
-UPDATE pricebook_items SET
-  base_price_cents = COALESCE(ROUND(base_price * 100)::BIGINT, 0),
-  cost_cents       = CASE WHEN cost IS NULL THEN NULL ELSE ROUND(cost * 100)::BIGINT END;
+COMMIT;
 
 -- =============================================================================
 -- VERIFICATION (run after the migration — each row should be 0 drift)
 -- =============================================================================
--- SELECT id, total_amount, total_amount_cents, (total_amount_cents - ROUND(total_amount * 100)::BIGINT) AS drift
---   FROM jobs WHERE ABS(total_amount_cents - ROUND(total_amount * 100)::BIGINT) > 0;
-
-COMMIT;
+-- SELECT count(*) AS jobs_with_drift FROM jobs
+--   WHERE ABS(total_amount_cents - ROUND(COALESCE(total_amount, 0) * 100)::BIGINT) > 0;
+--
+-- SELECT count(*) AS invoices_with_drift FROM invoices
+--   WHERE ABS(total_amount_cents - ROUND(COALESCE(total_amount, 0) * 100)::BIGINT) > 0;
+--
+-- SELECT count(*) AS time_entries_with_drift FROM time_entries
+--   WHERE ABS(total_cost_cents - ROUND(COALESCE(total_cost, 0) * 100)::BIGINT) > 0;
