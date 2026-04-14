@@ -84,10 +84,18 @@ export async function signEstimate(
     throw new Error(`Failed to upload signed PDF: ${uploadError.message}`)
   }
 
-  // 4. Get a signed URL (estimates bucket is private — see /tasks/todo.md storage notes)
+  // Audit R5-M: shortened from 1 year to 30 days. A 1-year TTL means
+  // that if a signed URL leaks (log, referer, screen share), it gives
+  // unauthenticated access to a legally-binding contract for a full
+  // year. The estimate PDF re-sign path via `resignEstimatesPdf` in
+  // `lib/storage-urls.ts` regenerates a fresh URL every time it's read
+  // (e.g., on job detail load, on portal view) so a shorter TTL here
+  // doesn't break any consumer — the stored URL is just a cache that
+  // self-heals on read. 30 days matches the invoice PDF pattern shipped
+  // in R4-#19.
   const { data: signed, error: signedErr } = await supabase.storage
     .from('estimates')
-    .createSignedUrl(storagePath, 60 * 60 * 24 * 365) // 1 year — signed contracts
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 30) // 30 days — re-signed on read
 
   if (signedErr || !signed?.signedUrl) {
     throw new Error(`Failed to issue signed URL: ${signedErr?.message ?? 'unknown'}`)

@@ -266,6 +266,17 @@ export async function selectProfile(userId: string) {
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30, // 30 days
   })
+
+  // Audit R5-#10: read the `post_login_next` cookie stashed by the
+  // auth callback handler and return its value so the caller can
+  // redirect there. Clear the cookie on first read so a subsequent
+  // profile switch doesn't re-use a stale target. Returns undefined
+  // when the user signed in fresh without a pending redirect.
+  const postLoginNext = cookieStore.get('post_login_next')?.value
+  if (postLoginNext) {
+    cookieStore.delete('post_login_next')
+  }
+  return { postLoginNext: postLoginNext ?? null }
 }
 
 // Get the current active profile

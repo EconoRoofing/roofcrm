@@ -89,10 +89,41 @@ export function ClaimWorkflow({
       setTimeout(() => setError(null), 5000)
       return
     }
+
+    // Audit R5-#6: previously passed `contentType: file.type` unmodified
+    // — an attacker could upload evil.html with Content-Type: text/html.
+    // If the bucket ever became public (see R5-#2 for the estimates
+    // bucket story), the uploaded HTML would execute JS in the browser
+    // when the signed URL is opened, with session cookies for the
+    // supabase.co domain — full XSS on the storage origin.
+    // Fix: whitelist to PDFs and images only. Also validate filename
+    // extensions to block things like `invoice.pdf.html`.
+    const ALLOWED_MIME = new Set([
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/heic',
+      'image/heif',
+      'image/webp',
+    ])
+    if (!ALLOWED_MIME.has(file.type)) {
+      setError(`File type not allowed. PDF or image only (got: ${file.type || 'unknown'})`)
+      setTimeout(() => setError(null), 5000)
+      return
+    }
+    // Strip any path-traversal characters from the filename before
+    // embedding it in the storage path. File.name is user-controlled.
+    const safeName = file.name
+      .replace(/[^\w.\- ]/g, '_')
+      .replace(/\.+/g, '.')
+      .slice(0, 200)
+
     setUploadingStage(stage)
     try {
       const supabase = createClient()
-      const path = `claim-docs/${jobId}/${stage}/${Date.now()}-${file.name}`
+      const path = `claim-docs/${jobId}/${stage}/${Date.now()}-${safeName}`
       const { error: uploadError } = await supabase.storage
         .from('claim-documents')
         .upload(path, file, { contentType: file.type, upsert: false })

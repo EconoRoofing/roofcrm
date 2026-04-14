@@ -11,8 +11,17 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     try {
-      const redirectTo = `${window.location.origin}/auth/callback`
-      await signInWithGoogle(redirectTo)
+      // Audit R5-#10: propagate the `next` param through the OAuth
+      // roundtrip. proxy.ts sets it when bouncing an unauthenticated
+      // user from a protected route; the callback handler reads it
+      // and stashes it in a cookie for /select-profile to consume.
+      const url = new URL(window.location.href)
+      const next = url.searchParams.get('next')
+      const callback = new URL('/auth/callback', window.location.origin)
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        callback.searchParams.set('next', next)
+      }
+      await signInWithGoogle(callback.toString())
     } catch {
       setError('Sign-in failed. Please try again.')
       setLoading(false)

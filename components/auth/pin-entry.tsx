@@ -49,9 +49,14 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
       const valid = await verifyPin(profileId, pin)
       if (!mountedRef.current) return
       if (valid) {
-        await selectProfile(profileId)
+        // Audit R5-#10: selectProfile returns `postLoginNext` if the
+        // auth-callback handler stashed one. Prefer it over the role
+        // home so a user who was bounced from /jobs/abc ends up back
+        // at /jobs/abc after profile selection.
+        const result = await selectProfile(profileId)
         if (!mountedRef.current) return
-        router.push(getRoleRoute())
+        const target = result?.postLoginNext || getRoleRoute()
+        router.push(target)
       } else {
         setShaking(true)
         setError('Incorrect PIN')

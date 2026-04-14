@@ -43,17 +43,13 @@ export async function getDashboardData(filters?: {
   // Build base job query — always scoped to authenticated user's company.
   // Audit R3-#2 follow-up: cents-only post-031.
   //
-  // Performance pass R5-#4: when no date filters are provided, default
-  // to the last 90 days. The dashboard's KPIs (revenue this month,
-  // pipeline value, completion stats) are all month/quarter scoped, so
-  // pulling years of history is wasted bandwidth + RSC serialization
-  // cost. 90 days covers any rolling-quarter view; explicit filters can
-  // still override.
-  //
-  // Belt-and-suspenders .limit(10000) caps the worst case in case a
-  // single 90-day window happens to contain more than that — which
-  // would be a sign that the company is healthy and a longer-term
-  // pagination strategy should kick in.
+  // Audit R5-#7: earlier performance pass added a 90-day default window
+  // when no filters were provided. That SILENTLY CLAMPED the "All Time"
+  // option in the dashboard range picker AND the daily digest (both of
+  // which call with empty filters expecting the full history). Reverted
+  // to the explicit-only behavior. The `.limit(10000)` cap still bounds
+  // payload growth — it kicks in at scale but doesn't misrepresent the
+  // time window.
   let jobQuery = supabase
     .from('jobs')
     .select(
@@ -64,9 +60,6 @@ export async function getDashboardData(filters?: {
 
   if (filters?.startDate) {
     jobQuery = jobQuery.gte('created_at', filters.startDate)
-  } else {
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-    jobQuery = jobQuery.gte('created_at', ninetyDaysAgo)
   }
   if (filters?.endDate) {
     jobQuery = jobQuery.lte('created_at', filters.endDate)
@@ -79,6 +72,31 @@ export async function getDashboardData(filters?: {
   ])
 
   const jobs = jobsResult.data ?? []
+
+  // Audit R5-M: surface row-limit truncation as a structured log line so
+  // it shows up in Vercel runtime logs and the reportError webhook. At
+  // 10000 jobs, the dashboard's KPIs silently under-report — a healthy
+  // company hitting this is a real data-correctness issue that needs to
+  // be visible. The 9999 threshold is intentional: Supabase returns
+  // exactly `limit` rows when there are more, and we warn preemptively.
+  if (jobs.length >= 9999) {
+    try {
+      const { reportError } = await import('@/lib/observability')
+      reportError(
+        new Error('getDashboardData hit row-limit cap — KPIs may under-report'),
+        {
+          route: 'lib/actions/dashboard.ts:getDashboardData',
+          companyId,
+          rowCount: jobs.length,
+          filters: filters ? JSON.stringify(filters) : 'none',
+        }
+      )
+    } catch {
+      // observability import failed — fall back to plain warn so the
+      // signal is at least in the runtime log.
+      console.warn('[dashboard] row-limit cap hit', { companyId, rowCount: jobs.length })
+    }
+  }
   const companies = companiesResult.data ?? []
   const users = usersResult.data ?? []
 

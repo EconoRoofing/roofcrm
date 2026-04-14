@@ -670,10 +670,15 @@ export async function getJobsForCalendar(scheduledFrom: string, scheduledTo: str
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R5-#8: previous version omitted the `rep` join, but
+  // `JobWithRelations` declares `rep: { id, name } | null` as a non-
+  // optional field. The `as unknown as` cast at the call site papered
+  // over the type mismatch. Added rep to the select so the runtime
+  // shape matches the type. Negligible query cost.
   const { data, error } = await supabase
     .from('jobs')
     .select(
-      'id, job_number, customer_name, address, city, status, scheduled_date, schedule_duration_days, company:companies(id, name, color)'
+      'id, job_number, customer_name, address, city, status, scheduled_date, schedule_duration_days, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)'
     )
     .eq('company_id', companyId)
     .not('scheduled_date', 'is', null)

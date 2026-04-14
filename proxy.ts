@@ -64,10 +64,18 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Unauthenticated → redirect to login
+  // Unauthenticated → redirect to login, preserving the original target
+  // so the login handler can send the user back after a successful sign-in.
+  // Audit R5-#10: previously the `next` param was dropped, so every user
+  // who tried to open /jobs/abc unauthenticated got bounced through /login
+  // → role home, never to their actual target.
   if (!user) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    // Only preserve `next` for non-root paths — /login?next=/ is noise.
+    if (pathname !== '/') {
+      url.searchParams.set('next', pathname + request.nextUrl.search)
+    }
     return NextResponse.redirect(url)
   }
 
@@ -86,20 +94,47 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Verify profile exists AND is active — security check
-    const { data: profileCheck } = await supabase
-      .from('users')
-      .select('id, is_active')
-      .eq('id', activeProfileId)
-      .single()
+    // Audit R5-#11: avoid a Supabase round-trip on every navigation by
+    // caching "this profile id exists and is active" in a short-lived
+    // cookie. The check is still a security signal — we want a deleted
+    // or deactivated profile to lose access quickly — but 5 minutes is
+    // the right tradeoff for a small-team CRM (admin actions already
+    // clear this cookie on role changes via updateProfile, and a
+    // deleted profile gets caught on its next mutation attempt via the
+    // server-action layer, not just the middleware).
+    //
+    // Also switched `.single()` → `.maybeSingle()` so a deleted profile
+    // row doesn't raise PGRST116 as an error. The null check below
+    // already handles the "not found" case.
+    const validityCookieName = `profile_valid_${activeProfileId}`
+    const validityCache = request.cookies.get(validityCookieName)?.value
 
-    if (!profileCheck || !profileCheck.is_active) {
-      // Profile is inactive or deleted — clear cookie and redirect
-      const url = request.nextUrl.clone()
-      url.pathname = '/select-profile'
-      const response = NextResponse.redirect(url)
-      response.cookies.delete('active_profile_id')
-      return response
+    if (validityCache !== 'true') {
+      const { data: profileCheck } = await supabase
+        .from('users')
+        .select('id, is_active')
+        .eq('id', activeProfileId)
+        .maybeSingle()
+
+      if (!profileCheck || !profileCheck.is_active) {
+        // Profile is inactive or deleted — clear both cookies and redirect
+        const url = request.nextUrl.clone()
+        url.pathname = '/select-profile'
+        const response = NextResponse.redirect(url)
+        response.cookies.delete('active_profile_id')
+        response.cookies.delete(`profile_role_${activeProfileId}`)
+        return response
+      }
+
+      // Cache validity for 5 minutes. Short TTL keeps deleted profiles
+      // from lingering too long; long enough to skip the check on the
+      // typical page-navigation burst.
+      supabaseResponse.cookies.set(validityCookieName, 'true', {
+        path: '/',
+        httpOnly: true,
+        maxAge: 5 * 60,
+        sameSite: 'lax',
+      })
     }
 
     // Role-based routing — only redirect from root path
