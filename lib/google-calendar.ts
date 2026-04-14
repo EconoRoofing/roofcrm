@@ -26,6 +26,24 @@ const JOB_TYPE_COLOR: Record<string, string> = {
  * Get a fresh Google access token for a user.
  * Uses the google_refresh_token stored on the users table.
  * Returns null if the user has no refresh token (Calendar not connected).
+ *
+ * RLS NOTE: `public.users` has an `auth.uid() IS NOT NULL` read floor
+ * from migration 036's defensive_floor. When this helper is called from
+ * a no-session context (cron, webhook), the anon client silently returns
+ * zero rows from the users table because `auth.uid()` is NULL and the
+ * RLS policy fails closed. The symptom was `syncDaysOff` reporting
+ * `{synced: 0, skipped: false}` with zero log lines — invisible because
+ * the "user not found" branch below returns null without logging.
+ *
+ * Fix: prefer the service-role client when available (always bypasses
+ * RLS), fall back to the cookie-scoped anon client if the service key
+ * isn't configured. This upgrades cron/webhook paths without changing
+ * behavior for authenticated user contexts — both SELECTs succeed, just
+ * via different code paths.
+ *
+ * The update/revoke path at the bottom has the same RLS problem for
+ * writes (anon client can't UPDATE users in no-session context), so it
+ * uses the same preferred-service-client pattern.
  */
 async function getGoogleAccessToken(userId: string): Promise<string | null> {
   // Check in-memory cache first — avoids a DB query + token exchange on every calendar op
@@ -34,8 +52,14 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
     return cached.token
   }
 
-  const { createClient } = await import('@/lib/supabase/server')
-  const supabase = await createClient()
+  // Try service-role client first (bypasses RLS, works in any context).
+  // Fall back to anon/cookie client only if service key isn't configured.
+  const { createServiceClient } = await import('@/lib/supabase/service')
+  let supabase = createServiceClient()
+  if (!supabase) {
+    const { createClient } = await import('@/lib/supabase/server')
+    supabase = await createClient()
+  }
 
   const { data: userData, error } = await supabase
     .from('users')
@@ -44,6 +68,13 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
     .single()
 
   if (error || !userData?.google_refresh_token) {
+    // Log the lookup miss so we stop getting invisible `synced: 0` results
+    // from cron callers. This used to be a silent return — the bug that
+    // took half an hour to find because nothing ever made it to Vercel's
+    // logs. Now every failure mode writes a log line.
+    console.warn(
+      `Calendar: getGoogleAccessToken user=${userId} lookup returned no refresh_token (error=${error?.message ?? 'none'})`
+    )
     return null
   }
 
@@ -72,9 +103,15 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
   if (!res.ok) {
     const body = await res.text()
     if (res.status === 400 && body.includes('invalid_grant')) {
-      // Token was revoked — clear it so we stop trying
-      const { createClient: createClientForRevoke } = await import('@/lib/supabase/server')
-      const supabaseRevoke = await createClientForRevoke()
+      // Token was revoked — clear it so we stop trying. Uses the same
+      // preferred-service-client pattern as the SELECT above so it works
+      // from cron/webhook contexts where the anon client can't UPDATE.
+      const { createServiceClient: createServiceForRevoke } = await import('@/lib/supabase/service')
+      let supabaseRevoke = createServiceForRevoke()
+      if (!supabaseRevoke) {
+        const { createClient: createClientForRevoke } = await import('@/lib/supabase/server')
+        supabaseRevoke = await createClientForRevoke()
+      }
       await supabaseRevoke.from('users').update({ google_refresh_token: null }).eq('id', userId)
       console.warn(`Calendar: refresh token revoked for user ${userId}, cleared from DB`)
       return null
