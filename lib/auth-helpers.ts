@@ -78,6 +78,26 @@ export function isManagerRole(role: string | null): boolean {
   return !!role && MANAGER_ROLES.includes(role)
 }
 
+/** Roles allowed to edit job rows / change job status. Crew is read-only. */
+const JOB_EDITOR_ROLES = ['owner', 'office_manager']
+
+/** Require ability to edit a job (status, fields, etc.). Crew and sales are blocked. */
+export function requireJobEditor(role: string | null) {
+  if (!role || !JOB_EDITOR_ROLES.includes(role)) {
+    throw new Error('You do not have permission to edit jobs')
+  }
+}
+
+/** Roles allowed to edit estimates. Sales can edit estimates; crew cannot. */
+const ESTIMATE_EDITOR_ROLES = ['owner', 'office_manager', 'sales']
+
+/** Require ability to edit an estimate. Crew is blocked. */
+export function requireEstimateEditor(role: string | null) {
+  if (!role || !ESTIMATE_EDITOR_ROLES.includes(role)) {
+    throw new Error('You do not have permission to edit estimates')
+  }
+}
+
 /** Wrap a Supabase error for client display (hides internal details, logs full error server-side) */
 export function safeError(prefix: string, error: { message?: string } | null): Error {
   if (error?.message) console.error(`[${prefix}]`, error.message)

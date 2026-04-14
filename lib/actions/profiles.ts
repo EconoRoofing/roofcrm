@@ -101,8 +101,13 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
       throw new Error('Too many PIN attempts. Try again later.')
     }
 
-    // No PIN set — allow first-time access
-    if (!user.pin_hash) return true
+    // SECURITY: fail closed when no PIN is set. Previous behavior allowed any
+    // PIN-less profile to be selected without authentication, which combined
+    // with the cross-tenant getProfiles() let any logged-in Google user
+    // impersonate any PIN-less account in the database.
+    if (!user.pin_hash) {
+      throw new Error('No PIN configured for this profile. Ask your manager to set one.')
+    }
 
     // Compute hash for comparison
     const encoder = new TextEncoder()
@@ -141,8 +146,11 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 
     return true
   } catch (err) {
-    // Re-throw rate limit errors so callers can show the message
-    if (err instanceof Error && err.message.includes('Too many PIN attempts')) {
+    // Re-throw rate-limit and "no PIN configured" errors so callers can show the message
+    if (err instanceof Error && (
+      err.message.includes('Too many PIN attempts') ||
+      err.message.includes('No PIN configured')
+    )) {
       throw err
     }
     // Fail closed on all other errors — don't grant access
@@ -166,18 +174,21 @@ export async function selectProfile(userId: string) {
 
   const companyIds = (ownedCompanies ?? []).map(c => c.id)
 
+  // SECURITY: fail closed when the authed Google user owns no companies.
+  // Previous behavior skipped the company filter entirely, letting any
+  // logged-in Google user select any active profile in the database.
+  if (companyIds.length === 0) {
+    throw new Error('No companies associated with this account')
+  }
+
   // Verify the profile exists, is active, and belongs to one of the auth user's companies
-  let query = supabase
+  const { data: profile } = await supabase
     .from('users')
     .select('id, is_active, primary_company_id')
     .eq('id', userId)
     .eq('is_active', true)
-
-  if (companyIds.length > 0) {
-    query = query.in('primary_company_id', companyIds)
-  }
-
-  const { data: profile } = await query.single()
+    .in('primary_company_id', companyIds)
+    .single()
 
   if (!profile) throw new Error('Profile not found or access denied')
 
@@ -222,6 +233,17 @@ export async function clearActiveProfile() {
 export async function createProfile(name: string, role: string, pin?: string, primaryCompanyId?: string) {
   const { companyId, role: callerRole } = await getUserWithCompany()
   requireManager(callerRole)
+
+  // Validate the requested role against the canonical role model.
+  // Only owners can mint other owners — office_manager promoting itself to
+  // owner via the "Add Member" form is an escalation path otherwise.
+  const ALLOWED_ROLES = ['owner', 'office_manager', 'sales', 'crew']
+  if (!ALLOWED_ROLES.includes(role)) {
+    throw new Error(`Invalid role: ${role}`)
+  }
+  if (role === 'owner' && callerRole !== 'owner') {
+    throw new Error('Only owners can create other owner profiles')
+  }
 
   const supabase = await createClient()
 
@@ -282,16 +304,32 @@ export async function updateProfile(
   const { companyId, role: callerRole } = await getUserWithCompany()
   requireManager(callerRole)
 
+  // Validate role on update too — same rules as createProfile
+  if (updates.role !== undefined) {
+    const ALLOWED_ROLES = ['owner', 'office_manager', 'sales', 'crew']
+    if (!ALLOWED_ROLES.includes(updates.role)) {
+      throw new Error(`Invalid role: ${updates.role}`)
+    }
+    if (updates.role === 'owner' && callerRole !== 'owner') {
+      throw new Error('Only owners can grant the owner role')
+    }
+  }
+
   const supabase = await createClient()
 
   // Verify the target user belongs to the manager's company
   const { data: targetUser } = await supabase
     .from('users')
-    .select('id')
+    .select('id, role')
     .eq('id', userId)
     .eq('primary_company_id', companyId)
     .maybeSingle()
   if (!targetUser) throw new Error('User not found or not in your company')
+
+  // Office managers cannot demote owners
+  if (targetUser.role === 'owner' && callerRole !== 'owner') {
+    throw new Error('Only owners can modify owner profiles')
+  }
 
   const { error } = await supabase.from('users').update(updates).eq('id', userId)
   if (error) throw new Error(error.message)

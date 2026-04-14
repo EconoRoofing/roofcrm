@@ -34,15 +34,21 @@ export default async function SalesCalendarPage() {
     )
   }
 
-  // Sales sees the entire company calendar (read-only), not just their own jobs
-  const jobs = await getJobs()
+  // Sales sees the entire company calendar (read-only), not just their own jobs.
+  // Scope to a 6-month window centered on today so we don't hit the row cap.
+  const now = new Date()
+  const fromDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
+  const toDate = new Date(now.getFullYear(), now.getMonth() + 4, 0)
+  const fromStr = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}-${String(fromDate.getDate()).padStart(2, '0')}`
+  const toStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`
+  const jobs = await getJobs({ scheduled_from: fromStr, scheduled_to: toStr, limit: 2000 })
 
-  // getJobs does not include rep relation, provide null for compatibility
+  // getJobs returns a narrowed projection — cast through unknown for the calendar view
   const jobsWithRelations = jobs.map((job) => ({
     ...job,
     company: (job as unknown as JobWithRelations).company ?? null,
     rep: null,
-  })) as JobWithRelations[]
+  })) as unknown as JobWithRelations[]
 
   return <CalendarView jobs={jobsWithRelations} />
 }

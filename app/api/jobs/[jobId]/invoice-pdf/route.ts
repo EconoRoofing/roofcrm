@@ -3,8 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
 import { InvoicePDF } from '@/lib/pdf/invoice-template'
+import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
 import type { Company } from '@/lib/types/database'
 import type { DocumentProps } from '@react-pdf/renderer'
+
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24
 
 export async function POST(
   req: NextRequest,
@@ -19,14 +22,28 @@ export async function POST(
       return NextResponse.json({ error: 'invoiceId is required' }, { status: 400 })
     }
 
-    const supabase = await createClient()
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Authn + authz: must be manager of the job's company
+    let companyId: string
+    let role: string | null
+    try {
+      ;({ companyId, role } = await getUserWithCompany())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    try {
+      requireManager(role)
+    } catch {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    try {
+      await verifyJobOwnership(jobId, companyId)
+    } catch {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
 
-    // Fetch invoice
+    const supabase = await createClient()
+
+    // Fetch invoice (scoped to the verified job)
     const { data: invoice, error: invError } = await supabase
       .from('invoices')
       .select('*')
@@ -43,6 +60,7 @@ export async function POST(
       .from('jobs')
       .select('job_number, customer_name, address, city, state, zip, phone, email, company_id')
       .eq('id', jobId)
+      .eq('company_id', companyId)
       .single()
 
     if (jobError || !job) {
@@ -93,19 +111,22 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to upload PDF' }, { status: 500 })
     }
 
-    const { data: urlData } = supabase.storage
+    const { data: signed, error: signedErr } = await supabase.storage
       .from('estimates')
-      .getPublicUrl(storagePath)
+      .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS)
 
-    const publicUrl = urlData.publicUrl
+    if (signedErr || !signed?.signedUrl) {
+      console.error('[invoice-pdf] signed url error:', signedErr)
+      return NextResponse.json({ error: 'Failed to issue signed URL' }, { status: 500 })
+    }
 
     // Persist pdf_url on invoice
     await supabase
       .from('invoices')
-      .update({ pdf_url: publicUrl })
+      .update({ pdf_url: signed.signedUrl })
       .eq('id', invoiceId)
 
-    return NextResponse.json({ url: publicUrl })
+    return NextResponse.json({ url: signed.signedUrl })
   } catch (err) {
     console.error('[invoice-pdf] generation error:', err)
     return NextResponse.json(

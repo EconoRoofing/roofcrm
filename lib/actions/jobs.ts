@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUserWithCompany, verifyJobOwnership, localDateString } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, localDateString, requireJobEditor } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import {
   createCalendarEvent,
@@ -20,9 +20,20 @@ const VALID_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   sold: ['scheduled', 'cancelled'],
   scheduled: ['in_progress', 'cancelled'],
   in_progress: ['completed', 'scheduled'],  // allow back to scheduled (weather/safety pause)
-  completed: [],
+  // Completed jobs CAN be reopened (typo fix) or cancelled (warranty void).
+  // Both paths go through updateJobStatus so side effects run.
+  completed: ['in_progress', 'cancelled'],
   cancelled: ['lead'],
 }
+
+// Fields that ONLY updateJobStatus may change. Blocking these here forces
+// status mutations through the side-effects pipeline (warranty, calendar, etc.).
+const STATUS_PROTECTED_FIELDS = new Set([
+  'status',
+  'completed_date',
+  'warranty_expiration',
+  'calendar_event_id',
+])
 
 interface CreateJobData {
   company_id: string
@@ -89,7 +100,8 @@ interface JobFilters {
 
 export async function createJob(data: CreateJobData) {
   const supabase = await createClient()
-  const { userId, companyId } = await getUserWithCompany()
+  const { userId, companyId, role } = await getUserWithCompany()
+  requireJobEditor(role)
 
   // Override client-supplied company_id with authenticated user's company
   data.company_id = companyId
@@ -148,7 +160,17 @@ export async function createJob(data: CreateJobData) {
 
 export async function updateJob(id: string, data: UpdateJobData) {
   const supabase = await createClient()
-  const { userId, companyId } = await getUserWithCompany()
+  const { userId, companyId, role } = await getUserWithCompany()
+  requireJobEditor(role)
+
+  // Block any attempt to change status / completion / warranty / calendar event
+  // fields directly. These MUST go through updateJobStatus so the side-effects
+  // pipeline (warranty expiration, calendar sync, SMS, etc.) actually fires.
+  for (const key of Object.keys(data)) {
+    if (STATUS_PROTECTED_FIELDS.has(key)) {
+      throw new Error(`Cannot set "${key}" via updateJob — use updateJobStatus instead`)
+    }
+  }
 
   // Verify job belongs to user's company — also returns the full job row
   const currentJob = await verifyJobOwnership(id, companyId)
@@ -278,7 +300,7 @@ async function executePostStatusEffects(
       await createFollowUp(
         jobId,
         currentJob.rep_id,
-        dueDate.toISOString().split('T')[0],
+        localDateString(dueDate),
         `Follow up on estimate — ${currentJob.customer_name}`,
       )
     } catch (err) {
@@ -286,8 +308,8 @@ async function executePostStatusEffects(
     }
   }
 
-  // Auto-calculate commission when job is sold
-  if (newStatus === 'sold') {
+  // Auto-calculate commission when job is sold (skip when no rep is assigned)
+  if (newStatus === 'sold' && currentJob.rep_id) {
     try {
       const { data: repData } = await supabase
         .from('users')
@@ -374,6 +396,7 @@ async function executePostStatusEffects(
 export async function updateJobStatus(id: string, newStatus: JobStatus) {
   const supabase = await createClient()
   const { userId, companyId, role } = await getUserWithCompany()
+  requireJobEditor(role)
 
   // Verify job belongs to user's company and get the full row in one query
   const currentJob = await verifyJobOwnership(id, companyId)
@@ -383,8 +406,9 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   // Skip if status is the same (dropped on same column)
   if (oldStatus === newStatus) return currentJob
 
+  // Validate transition. Managers (owner/office_manager) can override unusual
+  // transitions, but reopening from completed always goes through the normal map.
   const isManager = role === 'owner' || role === 'office_manager'
-
   if (!isManager) {
     const validNextStatuses = VALID_TRANSITIONS[oldStatus]
     if (!validNextStatuses.includes(newStatus)) {
@@ -405,16 +429,28 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
       updatePayload.warranty_expiration = localDateString(expiryDate)
     }
   }
+  // Reopening a completed job: clear the completed_date so reports stay accurate
+  if (oldStatus === 'completed' && newStatus !== 'completed' && newStatus !== 'cancelled') {
+    updatePayload.completed_date = null
+  }
 
+  // Optimistic lock: only update if status is still what we read.
+  // Two managers cancelling simultaneously will both pass verifyJobOwnership,
+  // but only the first UPDATE matches; the second returns no row → we abort
+  // before firing duplicate side effects (calendar events, follow-up tasks, etc.).
   const { data: job, error } = await supabase
     .from('jobs')
     .update(updatePayload)
     .eq('id', id)
     .eq('company_id', companyId)
+    .eq('status', oldStatus)
     .select()
-    .single()
+    .maybeSingle()
 
   if (error) throw new Error(`Failed to update job status: ${error.message}`)
+  if (!job) {
+    throw new Error('Job status changed by another user — please refresh and try again')
+  }
 
   await logActivity(id, userId, 'status_change', oldStatus, newStatus)
 
@@ -444,22 +480,30 @@ export async function getJob(id: string) {
   return data
 }
 
-export async function getJobs(filters?: JobFilters) {
+export async function getJobs(filters?: JobFilters & { scheduled_from?: string; scheduled_to?: string; limit?: number }) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
   let query = supabase
     .from('jobs')
-    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, schedule_duration_days, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
-    .limit(500)
+    .limit(filters?.limit ?? 2000)
 
   if (filters?.status) {
     query = query.eq('status', filters.status)
   }
   if (filters?.rep_id) {
     query = query.eq('rep_id', filters.rep_id)
+  }
+  // Calendar callers can scope to a date window so we don't drop scheduled jobs
+  // off the bottom of a 500-row limit.
+  if (filters?.scheduled_from) {
+    query = query.gte('scheduled_date', filters.scheduled_from)
+  }
+  if (filters?.scheduled_to) {
+    query = query.lte('scheduled_date', filters.scheduled_to)
   }
 
   const { data, error } = await query

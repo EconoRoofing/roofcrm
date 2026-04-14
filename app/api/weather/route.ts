@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getUserWithCompany } from '@/lib/auth-helpers'
 
 interface WeatherResponse {
   temp: number
@@ -9,10 +10,19 @@ interface WeatherResponse {
 }
 
 // In-memory cache: { key -> { data, expiresAt } }
+// Bounded to MAX_CACHE_ENTRIES so a long-running warm instance can't leak memory.
 const cache = new Map<string, { data: WeatherResponse; expiresAt: number }>()
 const CACHE_TTL_MS = 15 * 60 * 1000 // 15 minutes
+const MAX_CACHE_ENTRIES = 100
 
 export async function GET(request: NextRequest) {
+  // Auth required — anonymous access let anyone run up the OpenWeatherMap bill
+  try {
+    await getUserWithCompany()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city') ?? 'Fresno'
   const apiKey = process.env.OPENWEATHERMAP_API_KEY
@@ -59,6 +69,11 @@ export async function GET(request: NextRequest) {
       })(),
     }
 
+    // Bound the cache so a warm instance can't grow unbounded
+    if (cache.size >= MAX_CACHE_ENTRIES) {
+      const firstKey = cache.keys().next().value
+      if (firstKey) cache.delete(firstKey)
+    }
     cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
     return NextResponse.json(data)
   } catch {

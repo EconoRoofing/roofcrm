@@ -1,11 +1,18 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, requireEstimateEditor } from '@/lib/auth-helpers'
 import { randomBytes } from 'crypto'
 
 export async function generatePortalToken(jobId: string, forceRegenerate = false): Promise<string> {
-  const { companyId } = await getUserWithCompany()
+  const { companyId, role } = await getUserWithCompany()
+
+  // Sales + managers can mint/rotate portal tokens. Crew is blocked because
+  // a force-regenerate would invalidate an active customer portal session.
+  // The status_change side effect in jobs.ts also calls this with no caller
+  // context — that path goes through updateJobStatus which is already gated
+  // to managers, so by the time we reach here the role check is consistent.
+  requireEstimateEditor(role)
 
   // Verify the job belongs to the caller's company
   await verifyJobOwnership(jobId, companyId)

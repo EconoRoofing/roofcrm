@@ -213,9 +213,17 @@ export default function SelectProfilePage() {
 
   useEffect(() => {
     loadProfiles()
+    // Purge service-worker caches on profile-picker entry so the next user
+    // on a shared device doesn't see anything cached for the previous one.
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CACHE' })
+    }
   }, [])
 
   const handleSignOut = async () => {
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CACHE' })
+    }
     await signOutAndClear()
     router.push('/login')
   }

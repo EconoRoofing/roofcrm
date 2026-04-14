@@ -41,6 +41,45 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
+## Audit fix sweep — items 1–18 (current session)
+
+### Critical (security + data corruption)
+- [x] **#1** Server-side role gates on `createJob` / `updateJob` / `updateJobStatus` / `deleteJob` via new `requireJobEditor()`. Crew is fully blocked; sales is blocked from job mutations (estimates only).
+- [x] **#2** API route lockdown:
+  - `POST /api/jobs/update-companycam` — adds `verifyJobOwnership`
+  - `POST /api/jobs/[jobId]/estimate-pdf` — adds auth + `verifyJobOwnership` + `requireEstimateEditor`
+  - `POST /api/jobs/[jobId]/invoice-pdf` — adds auth + `verifyJobOwnership` + `requireManager`
+  - `GET /api/companycam/photos` — verifies projectId is linked to a job in caller's company
+  - `GET /api/companycam/search` — requires editor + caller-owned address
+  - `GET /api/weather` — now requires auth + cache size capped at 100 entries
+- [x] **#3** `selectProfile` now hard-fails when the auth user owns no companies (closes the empty-companyIds bypass). `verifyPin` fails closed when `pin_hash` is null (no more PIN-less access).
+- [x] **#4** Estimate PDF regeneration is blocked when the existing PDF URL is a signed contract (`-signed.pdf` filename convention). Signature flow uses 1-year signed URLs.
+- [x] **#5** Service worker rewritten:
+  - Bumped to `roofcrm-v3` cache name
+  - **Never** caches `/api/*` responses (cross-user leak fix)
+  - Never caches HTML navigations (auth-sensitive shells)
+  - Stale-while-revalidate only for true static assets
+  - New `CLEAR_CACHE` message handler — `select-profile` page posts it on mount and on sign-out
+- [ ] **#6** **REQUIRES SUPABASE DASHBOARD ACTION FROM MARIO**: flip the `estimates` bucket to private (Storage → estimates → Settings → toggle off "Public bucket"). Code already issues signed URLs; once bucket is private the PDFs are no longer enumerable.
+
+### High (business logic + data integrity)
+- [x] **#7** `CalendarView` now renders multi-day jobs on every day they span (not just day 1). Fixed local-tz date parsing too. Also fixed `100vh` → `100dvh` for iOS toolbar.
+- [x] **#8** `VALID_TRANSITIONS.completed` now allows `→ in_progress` (reopen for typo fix) and `→ cancelled` (warranty void). Reopening clears `completed_date`.
+- [x] **#9** `updateJob` now rejects any attempt to write `status`, `completed_date`, `warranty_expiration`, or `calendar_event_id`. All status mutations must go through `updateJobStatus` so the side-effects pipeline runs.
+- [x] **#10** `clockOut` no longer strands forgotten shifts. Shifts >24h are auto-closed at 12-hour cap, flagged "review required", and counted in payroll. Manager can correct via flag/unflag.
+- [x] **#11** Race-condition guard on double clock-in: re-checks for OTHER open entries after insert, deletes the loser. Includes a TODO for Mario to add a `CREATE UNIQUE INDEX time_entries_one_open_per_user ON time_entries(user_id) WHERE clock_out IS NULL` migration.
+- [x] **#12** `scheduling.ts` UTC-as-local date math replaced with `localDateString()` everywhere: `getCrewAvailability`, `assignJobToCrew`, `assignJobToCrewMultiDay`, `getCrewUnavailability`, `getDailyDispatchSummary`. Also fixed follow-up due date in `jobs.ts`.
+- [x] **#13** `assignJobToCrew[MultiDay]` now verifies the crew member's `primary_company_id` matches the caller's company.
+- [x] **#14** `updateJobStatus` adds optimistic-lock via `.eq('status', oldStatus)` — concurrent status changes by two managers will only fire side effects once. Uses `.maybeSingle()` and throws "changed by another user" if the row didn't match.
+- [ ] **#15** **DEFERRED to a separate session.** Floating-point money → integer cents is a DB migration touching every existing job row plus every read/write site (estimates, invoices, payroll, commissions, reports). Too big for this sweep.
+- [x] **#16** `createProfile` and `updateProfile` validate role against canonical list and require owner to mint/grant the `owner` role. Office managers can no longer self-elevate.
+- [x] **#17** `generatePortalToken` now requires `requireEstimateEditor` (sales + managers, not crew). Crew can no longer rotate customer portal tokens.
+- [x] **#18** `getJobs` now accepts `scheduled_from` / `scheduled_to` / `limit` filters. `/calendar` and `/sales-calendar` use a 6-month window so older scheduled jobs no longer fall off the bottom of the row cap.
+
+### After Mario's Supabase action
+1. **Flip `estimates` bucket to private** (Supabase Dashboard → Storage → estimates → toggle off Public). Until then, signed URLs still work but old `getPublicUrl()` PDF links from before this commit remain world-readable. After the flip, those public links 404 and only the freshly-generated signed URLs work.
+2. **Optional but recommended**: add the unique partial index for `time_entries(user_id) WHERE clock_out IS NULL` for hard double-clock-in protection.
+
 ## Review
 
 **What changed**

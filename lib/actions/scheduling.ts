@@ -62,9 +62,11 @@ export async function getCrewAvailability(weekStart: string) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Compute the week-end date as a local-tz date string (NOT toISOString,
+  // which shifts to UTC and breaks scheduling near midnight in PST).
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 7)
-  const weekEndStr = weekEnd.toISOString().split('T')[0]
+  const weekEndStr = localDateString(weekEnd)
 
   // Run all three independent queries in parallel
   const [crewResult, assignResult, unassignResult] = await Promise.all([
@@ -151,16 +153,19 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
     throw new Error('Cannot schedule in the past')
   }
 
-  // Validate crew member exists and is active
+  // Validate crew member exists, is active, AND belongs to the caller's company
   const { data: crewMember } = await supabase
     .from('users')
-    .select('id, role, is_active')
+    .select('id, role, is_active, primary_company_id')
     .eq('id', crewId)
     .single()
 
   if (!crewMember) throw new Error('Crew member not found')
   if (!crewMember.is_active) throw new Error('Crew member is deactivated')
   if (crewMember.role !== 'crew') throw new Error('User is not a crew member')
+  if (crewMember.primary_company_id !== companyId) {
+    throw new Error('Crew member is not in your company')
+  }
 
   // Check for double-booking (including multi-day jobs that span across the target date)
   // Only check jobs scheduled within the last 30 days — no need to check ancient jobs
@@ -172,7 +177,7 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
     .eq('assigned_crew_id', crewId)
     .not('status', 'in', '("cancelled","completed")')
     .not('scheduled_date', 'is', null)
-    .gte('scheduled_date', thirtyDaysAgo.toISOString().split('T')[0])
+    .gte('scheduled_date', localDateString(thirtyDaysAgo))
 
   const typedExisting = (existing ?? []) as JobWithDuration[]
   const conflicts = typedExisting.filter((job) => {
@@ -228,16 +233,19 @@ export async function assignJobToCrewMultiDay(
     throw new Error('Cannot schedule in the past')
   }
 
-  // Validate crew
+  // Validate crew (and verify company membership)
   const { data: crewMember } = await supabase
     .from('users')
-    .select('id, role, is_active')
+    .select('id, role, is_active, primary_company_id')
     .eq('id', crewId)
     .single()
 
   if (!crewMember) throw new Error('Crew member not found')
   if (!crewMember.is_active) throw new Error('Crew member is deactivated')
   if (crewMember.role !== 'crew') throw new Error('User is not a crew member')
+  if (crewMember.primary_company_id !== companyId) {
+    throw new Error('Crew member is not in your company')
+  }
 
   // Check for double-booking across ALL dates in the multi-day range
   // Only check jobs scheduled within the last 30 days — no need to check ancient jobs
@@ -249,7 +257,7 @@ export async function assignJobToCrewMultiDay(
     .eq('assigned_crew_id', crewId)
     .not('status', 'in', '("cancelled","completed")')
     .not('scheduled_date', 'is', null)
-    .gte('scheduled_date', thirtyDaysAgoMulti.toISOString().split('T')[0])
+    .gte('scheduled_date', localDateString(thirtyDaysAgoMulti))
 
   const newStart = new Date(startDate)
   const newEnd = new Date(newStart)
@@ -326,7 +334,7 @@ export async function getCrewUnavailability(weekStart: string): Promise<Record<s
     .from('crew_unavailability')
     .select('user_id, date, reason')
     .gte('date', weekStart)
-    .lt('date', weekEnd.toISOString().split('T')[0])
+    .lt('date', localDateString(weekEnd))
 
   // Returns: { userId: ['2024-01-15', '2024-01-16'] }
   const result: Record<string, string[]> = {}
@@ -433,8 +441,8 @@ export async function getDailyDispatchSummary(date: string): Promise<DailyDispat
     .eq('company_id', companyId)
     .not('status', 'in', '("cancelled","completed")')
     .not('scheduled_date', 'is', null)
-    .gte('scheduled_date', thirtyDaysAgo.toISOString().split('T')[0])
-    .lte('scheduled_date', thirtyDaysFromNow.toISOString().split('T')[0])
+    .gte('scheduled_date', localDateString(thirtyDaysAgo))
+    .lte('scheduled_date', localDateString(thirtyDaysFromNow))
 
   if (jobsError) throw new Error('Failed to fetch jobs for dispatch')
 

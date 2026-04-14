@@ -189,6 +189,29 @@ export async function clockIn(
 
   if (insertError || !entry) throw new Error(`Failed to clock in: ${insertError?.message}`)
 
+  // Race-condition guard: re-check for any OTHER open entry for this user.
+  // Two parallel clock-in requests can both pass the dup check at line 130
+  // and both insert. After insert, re-check; if there's more than one open
+  // entry, this insert lost the race — roll it back. The proper long-term
+  // fix is a unique partial index in Postgres:
+  //   CREATE UNIQUE INDEX time_entries_one_open_per_user
+  //     ON time_entries(user_id) WHERE clock_out IS NULL;
+  // Mario should add that migration when he has a chance.
+  const { data: openEntries } = await supabase
+    .from('time_entries')
+    .select('id, clock_in')
+    .eq('user_id', userId)
+    .is('clock_out', null)
+    .order('clock_in', { ascending: true })
+
+  if (openEntries && openEntries.length > 1) {
+    // Keep the earliest open entry (the one that actually "won"); delete this one.
+    if (openEntries[0].id !== entry.id) {
+      await supabase.from('time_entries').delete().eq('id', entry.id)
+      throw new Error('Already clocked in. Clock out first.')
+    }
+  }
+
   // Update job status to in_progress if it's currently scheduled
   if (job.status === 'scheduled') {
     await supabase
@@ -268,11 +291,16 @@ export async function clockOut(
 
   const clockInTime = new Date(entry.clock_in as string)
   const hoursSinceClock = (Date.now() - clockInTime.getTime()) / 1000 / 3600
-  if (hoursSinceClock > 24) {
-    throw new Error('Cannot clock out — clock-in was more than 24 hours ago. Contact your manager.')
-  }
 
-  const clockOut = new Date()
+  // If the user forgot to clock out for >24h, we still need to close the
+  // entry (otherwise it strands the shift out of payroll forever — the cron
+  // only flags it, doesn't fix it). Cap working hours at 12 to avoid a
+  // 30-hour shift inflating payroll, flag it for manager review, and let
+  // the manager correct the actual hours later via flag/unflag tooling.
+  const isForgottenShift = hoursSinceClock > 24
+  const clockOut = isForgottenShift
+    ? new Date(clockInTime.getTime() + 12 * 3600 * 1000) // assume 12h shift
+    : new Date()
 
   // Fetch all breaks for this entry
   const { data: breaks } = await supabase
@@ -400,6 +428,14 @@ export async function clockOut(
   if (workingHours > 12) {
     flagged = true
     flagReason = [flagReason, `Shift exceeds 12 hours (${workingHours.toFixed(2)} hrs)`]
+      .filter(Boolean)
+      .join('; ')
+  }
+
+  // Forgotten clock-out — flag for manager review (we already capped at 12h above)
+  if (isForgottenShift) {
+    flagged = true
+    flagReason = [flagReason, `Auto-closed: forgot to clock out (${hoursSinceClock.toFixed(1)}h since clock-in, capped at 12h) — review required`]
       .filter(Boolean)
       .join('; ')
   }

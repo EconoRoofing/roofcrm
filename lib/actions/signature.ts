@@ -84,12 +84,16 @@ export async function signEstimate(
     throw new Error(`Failed to upload signed PDF: ${uploadError.message}`)
   }
 
-  // 4. Get the public URL
-  const { data: urlData } = supabase.storage
+  // 4. Get a signed URL (estimates bucket is private — see /tasks/todo.md storage notes)
+  const { data: signed, error: signedErr } = await supabase.storage
     .from('estimates')
-    .getPublicUrl(storagePath)
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365) // 1 year — signed contracts
 
-  const pdfUrl = urlData.publicUrl
+  if (signedErr || !signed?.signedUrl) {
+    throw new Error(`Failed to issue signed URL: ${signedErr?.message ?? 'unknown'}`)
+  }
+
+  const pdfUrl = signed.signedUrl
 
   // 5. Update jobs.estimate_pdf_url with the signed PDF URL
   const { error: updateError } = await supabase

@@ -29,6 +29,12 @@ function toDateKey(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+// Build a YYYY-MM-DD key from a Y/M/D triple, treating values as local-tz dates.
+// This avoids the UTC-shift bug from `new Date('2026-04-13').toISOString()`.
+function dateKeyFromYMD(year: number, monthIdx: number, day: number): string {
+  return toDateKey(new Date(year, monthIdx, day))
+}
+
 export function CalendarView({ jobs }: CalendarViewProps) {
   const router = useRouter()
   const today = new Date()
@@ -37,14 +43,32 @@ export function CalendarView({ jobs }: CalendarViewProps) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
   // Build job map: date key → jobs
+  // Multi-day jobs (schedule_duration_days > 1) get added under EVERY day they
+  // span, not just the start day. Without this, a Mon–Wed reroof shows on
+  // Monday only and dispatchers looking at Tuesday miss it entirely.
   const jobMap = useMemo(() => {
     const map = new Map<string, JobWithRelations[]>()
     for (const job of jobs) {
       if (!job.scheduled_date) continue
-      const key = job.scheduled_date.substring(0, 10)
-      const existing = map.get(key) ?? []
-      existing.push(job)
-      map.set(key, existing)
+      // Parse scheduled_date as a LOCAL date — Supabase returns 'YYYY-MM-DD'
+      // strings, so split-then-construct avoids any UTC shift.
+      const [yStr, mStr, dStr] = job.scheduled_date.substring(0, 10).split('-')
+      const startY = Number(yStr)
+      const startM = Number(mStr) - 1
+      const startD = Number(dStr)
+      if (Number.isNaN(startY) || Number.isNaN(startM) || Number.isNaN(startD)) continue
+
+      const duration = Math.max(
+        1,
+        ((job as JobWithRelations & { schedule_duration_days?: number | null }).schedule_duration_days ?? 1)
+      )
+
+      for (let offset = 0; offset < duration; offset++) {
+        const key = dateKeyFromYMD(startY, startM, startD + offset)
+        const existing = map.get(key) ?? []
+        existing.push(job)
+        map.set(key, existing)
+      }
     }
     return map
   }, [jobs])
@@ -82,7 +106,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: 'calc(100dvh - 56px)',
         backgroundColor: 'var(--bg-deep)',
         overflow: 'hidden',
       }}
