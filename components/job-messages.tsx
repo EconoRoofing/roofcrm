@@ -8,13 +8,17 @@ interface JobMessagesProps {
   jobId: string
   customerPhone: string | null
   initialMessages?: Message[]
+  /**
+   * Audit R3-#6: was previously computed inside this client component via
+   * `process.env.TWILIO_ACCOUNT_SID`, which is `undefined` in the browser
+   * bundle (server-only env vars are not inlined). The SMS UI was therefore
+   * always hidden unless someone separately set `NEXT_PUBLIC_TWILIO_CONFIGURED`.
+   * Now passed in from the server parent at `components/job-detail.tsx`.
+   */
+  twilioConfigured: boolean
 }
 
-const twilioConfigured =
-  typeof process !== 'undefined' &&
-  !!(process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_CONFIGURED)
-
-export function JobMessages({ jobId, customerPhone, initialMessages }: JobMessagesProps) {
+export function JobMessages({ jobId, customerPhone, initialMessages, twilioConfigured }: JobMessagesProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
   const [loading, setLoading] = useState(!initialMessages)
   const [inputValue, setInputValue] = useState('')

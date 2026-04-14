@@ -49,8 +49,17 @@ export async function setPin(userId: string, pin: string) {
   }
 
   const supabase = await createClient()
+  // Audit R3-#7: was `process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'`.
+  // If the env var was ever deleted from Vercel (typo, refactor, accidental
+  // removal) every PIN would silently start hashing with a published constant
+  // that's checked into the repo, making the entire PIN system rainbow-table-able
+  // by anyone with read access to the DB. Fail closed instead — the platform
+  // refuses to set or verify a PIN unless the salt is explicitly configured.
+  const serverSalt = process.env.PIN_HASH_SALT
+  if (!serverSalt || serverSalt.length < 16) {
+    throw new Error('PIN_HASH_SALT is not configured. Contact your administrator.')
+  }
   const encoder = new TextEncoder()
-  const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
   const data = encoder.encode(pin + userId + serverSalt)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
@@ -109,9 +118,17 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
       throw new Error('No PIN configured for this profile. Ask your manager to set one.')
     }
 
-    // Compute hash for comparison
+    // Compute hash for comparison.
+    // Audit R3-#7: same fail-closed treatment as setPin. A missing salt
+    // means EVERY verify call would compute against a constant — which
+    // would never match the stored hash either, so verify would fail
+    // closed by accident — but throwing here makes the misconfig loud
+    // and visible instead of silently breaking login for everyone.
+    const serverSalt = process.env.PIN_HASH_SALT
+    if (!serverSalt || serverSalt.length < 16) {
+      throw new Error('PIN_HASH_SALT is not configured. Contact your administrator.')
+    }
     const encoder = new TextEncoder()
-    const serverSalt = process.env.PIN_HASH_SALT ?? 'roofcrm-default-salt-change-me'
     const data = encoder.encode(pin + userId + serverSalt)
     const hashBuffer = await crypto.subtle.digest('SHA-256', data)
     const hashArray = Array.from(new Uint8Array(hashBuffer))
@@ -160,14 +177,16 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 
     return true
   } catch (err) {
-    // Re-throw rate-limit and "no PIN configured" errors so callers can show the message
+    // Re-throw rate-limit, "no PIN configured", and the R3-#7 missing-salt
+    // misconfig error so callers can show the message. Everything else is
+    // fail-closed — return false without leaking state.
     if (err instanceof Error && (
       err.message.includes('Too many PIN attempts') ||
-      err.message.includes('No PIN configured')
+      err.message.includes('No PIN configured') ||
+      err.message.includes('PIN_HASH_SALT is not configured')
     )) {
       throw err
     }
-    // Fail closed on all other errors — don't grant access
     return false
   }
 }

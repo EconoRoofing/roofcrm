@@ -332,6 +332,13 @@ export async function JobDetail({ job, role }: JobDetailProps) {
     // best-effort — client will fall back to its own fetch
   }
 
+  // Audit R3-#6: twilioConfigured was previously read from process.env in the
+  // client component, where TWILIO_ACCOUNT_SID is `undefined` (server-only env
+  // vars are not inlined into the client bundle), so the SMS UI was hidden
+  // for everyone unless someone also set NEXT_PUBLIC_TWILIO_CONFIGURED.
+  // Compute it here in the server parent and pass as a prop.
+  const twilioConfigured = !!process.env.TWILIO_ACCOUNT_SID
+
   // Fetch crew members for assignment — manager only
   let crewMembers: Array<{ id: string; name: string }> = []
   if (isManager) {
@@ -690,7 +697,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       )}
 
       {/* Messages */}
-      <JobMessages jobId={job.id} customerPhone={job.phone ?? null} initialMessages={initialMessages} />
+      <JobMessages jobId={job.id} customerPhone={job.phone ?? null} initialMessages={initialMessages} twilioConfigured={twilioConfigured} />
 
       {/* Calendar deleted warning */}
       <JobCalendarWarning jobId={job.id} />

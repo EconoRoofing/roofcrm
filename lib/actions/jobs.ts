@@ -394,16 +394,27 @@ async function executePostStatusEffects(
     currentJob.rep_id
   if (shouldStampCommission) {
     try {
-      const { data: repData } = await supabase
-        .from('users')
-        .select('commission_rate')
-        .eq('id', currentJob.rep_id)
-        .single()
+      // Audit R3-#5: round 2 added the `in_progress → completed` re-stamp
+      // path but it read `currentJob.total_amount_cents` from the snapshot
+      // captured BEFORE the status UPDATE — so any price edit made during
+      // the reopen window was ignored and commission was calculated against
+      // the old total. Re-fetch the live row here so the cents we apply
+      // match the current DB state. The `.single()` here is safe because
+      // we already verified the job exists via verifyJobOwnership earlier.
+      const [{ data: freshJob }, { data: repData }] = await Promise.all([
+        supabase
+          .from('jobs')
+          .select('total_amount_cents')
+          .eq('id', jobId)
+          .single(),
+        supabase
+          .from('users')
+          .select('commission_rate')
+          .eq('id', currentJob.rep_id)
+          .single(),
+      ])
 
-      const totalCents = readMoneyFromRow(
-        currentJob.total_amount_cents,
-        currentJob.total_amount
-      )
+      const totalCents = Number(freshJob?.total_amount_cents ?? 0)
       if (repData?.commission_rate && totalCents > 0) {
         const commissionCents = applyPercentCents(totalCents, Number(repData.commission_rate))
         await supabase.from('jobs').update({

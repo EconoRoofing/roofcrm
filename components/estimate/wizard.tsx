@@ -68,14 +68,28 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
   const [previousJobData, setPreviousJobData] = useState<{ specs: unknown; pricing: unknown } | null>(null)
   const [showPrevBanner, setShowPrevBanner] = useState(false)
 
-  // Check for a previous job at the same address on mount
+  // Check for a previous job at the same address on mount.
+  // Audit R3-#9: previously this had no cancellation flag and no mounted
+  // guard. In React StrictMode (or when the wizard remounts because the
+  // parent re-renders), two effect runs would race and the loser could
+  // overwrite the winner with stale data — flashing a "previous job at
+  // this address" banner pointing at the WRONG property if the address
+  // prop ever changed mid-fetch. The cancelled flag guards both setState
+  // calls and is reset on cleanup.
   useEffect(() => {
-    getPreviousJobAtAddress(job.address).then((prev) => {
-      if (prev) {
-        setPreviousJobData(prev)
-        setShowPrevBanner(true)
-      }
-    }).catch(() => {})
+    let cancelled = false
+    getPreviousJobAtAddress(job.address)
+      .then((prev) => {
+        if (cancelled) return
+        if (prev) {
+          setPreviousJobData(prev)
+          setShowPrevBanner(true)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [job.address])
 
   function applyPreviousSpecs() {

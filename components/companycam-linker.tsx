@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CompanyCamProject } from '@/lib/companycam'
 import { LinkIcon, UnlinkIcon, CameraIcon } from '@/components/icons'
 
@@ -10,11 +10,16 @@ interface CompanyCamLinkerProps {
   currentProjectId: string | null
 }
 
-async function updateJobCompanyCam(jobId: string, projectId: string | null) {
+async function updateJobCompanyCam(
+  jobId: string,
+  projectId: string | null,
+  signal?: AbortSignal,
+) {
   const res = await fetch('/api/jobs/update-companycam', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, projectId }),
+    signal,
   })
   if (!res.ok) throw new Error('Failed to update job')
   return res.json()
@@ -28,50 +33,92 @@ export function CompanyCamLinker({ jobId, address, currentProjectId }: CompanyCa
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
+  // Audit R3-#8: previously every async handler spread setState calls after
+  // an `await` with no unmount check and no AbortController, so navigating
+  // away from the job detail page mid-CompanyCam-fetch (these calls can take
+  // 5+ seconds) leaked "setState on unmounted component" warnings AND the
+  // network requests themselves never aborted. The mountedRef gates all
+  // post-await setState; a single AbortController is reset between handler
+  // invocations and aborted on unmount so any in-flight fetch is cancelled.
+  const mountedRef = useRef(true)
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      abortRef.current?.abort()
+    }
+  }, [])
+
+  function freshAbortController(): AbortController {
+    abortRef.current?.abort()
+    const c = new AbortController()
+    abortRef.current = c
+    return c
+  }
+
   async function handleSearch() {
+    if (isSearching) return
     setIsSearching(true)
     setError(null)
     setResults(null)
+    const controller = freshAbortController()
 
     try {
-      const res = await fetch(`/api/companycam/search?address=${encodeURIComponent(address)}`)
+      const res = await fetch(
+        `/api/companycam/search?address=${encodeURIComponent(address)}`,
+        { signal: controller.signal },
+      )
       const data: CompanyCamProject[] = await res.json()
+      if (!mountedRef.current || controller.signal.aborted) return
       setResults(data)
-    } catch {
+    } catch (err) {
+      if (controller.signal.aborted) return
+      if (!mountedRef.current) return
       setError('Failed to search CompanyCam. Check your connection.')
     } finally {
-      setIsSearching(false)
+      if (mountedRef.current) setIsSearching(false)
     }
   }
 
   async function handleLink(project: CompanyCamProject) {
+    if (isSaving) return
     setIsSaving(true)
     setError(null)
+    const controller = freshAbortController()
 
     try {
-      await updateJobCompanyCam(jobId, project.id)
+      await updateJobCompanyCam(jobId, project.id, controller.signal)
+      if (!mountedRef.current || controller.signal.aborted) return
       setProjectId(project.id)
       setProjectName(project.name)
       setResults(null)
-    } catch {
+    } catch (err) {
+      if (controller.signal.aborted) return
+      if (!mountedRef.current) return
       setError('Failed to link project.')
     } finally {
-      setIsSaving(false)
+      if (mountedRef.current) setIsSaving(false)
     }
   }
 
   async function handleUnlink() {
+    if (isSaving) return
     setIsSaving(true)
     setError(null)
+    const controller = freshAbortController()
 
     try {
-      await updateJobCompanyCam(jobId, null)
+      await updateJobCompanyCam(jobId, null, controller.signal)
+      if (!mountedRef.current || controller.signal.aborted) return
       setProjectId(null)
       setProjectName(null)
-    } catch {
+    } catch (err) {
+      if (controller.signal.aborted) return
+      if (!mountedRef.current) return
       setError('Failed to unlink project.')
     } finally {
-      setIsSaving(false)
+      if (mountedRef.current) setIsSaving(false)
     }
   }
 
