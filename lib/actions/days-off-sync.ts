@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { listCalendarEvents } from '@/lib/google-calendar'
+import { listCalendarEventsDebug } from '@/lib/google-calendar'
 
 /**
  * Sync the Days Off Google Calendar into the local `days_off` table.
@@ -34,6 +34,17 @@ export async function syncDaysOff(): Promise<{
   deleted: number
   skipped: boolean
   reason?: string
+  debug?: {
+    borrowedUserId: string | null
+    calendarId: string | null
+    windowStart: string
+    windowEnd: string
+    tokenPresent: boolean
+    httpStatus: number | null
+    googleError: string | null
+    rawItemCount: number
+    filteredItemCount: number
+  }
 }> {
   const supabase = createServiceClient()
   if (!supabase) {
@@ -82,12 +93,13 @@ export async function syncDaysOff(): Promise<{
   const windowEnd = new Date(now)
   windowEnd.setDate(windowEnd.getDate() + 90)
 
-  const events = await listCalendarEvents(
+  const debugResult = await listCalendarEventsDebug(
     calendarUserId,
     calendarId,
     windowStart.toISOString(),
     windowEnd.toISOString()
   )
+  const events = debugResult.events
 
   // 4. Normalize Google's start/end shape into plain YYYY-MM-DD dates.
   //    All-day events use `start.date` and `end.date` where end.date is
@@ -184,5 +196,20 @@ export async function syncDaysOff(): Promise<{
     }
   }
 
-  return { synced: syncedCount, deleted: deletedCount, skipped: false }
+  return {
+    synced: syncedCount,
+    deleted: deletedCount,
+    skipped: false,
+    debug: {
+      borrowedUserId: calendarUserId,
+      calendarId,
+      windowStart: windowStart.toISOString(),
+      windowEnd: windowEnd.toISOString(),
+      tokenPresent: debugResult.tokenPresent,
+      httpStatus: debugResult.httpStatus,
+      googleError: debugResult.googleError,
+      rawItemCount: debugResult.rawItemCount,
+      filteredItemCount: events.length,
+    },
+  }
 }

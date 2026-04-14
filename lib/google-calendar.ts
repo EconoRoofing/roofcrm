@@ -374,6 +374,105 @@ export async function listCalendarEvents(
 }
 
 /**
+ * Diagnostic variant of listCalendarEvents.
+ *
+ * Returns the same events plus structured debug info so callers can surface
+ * exactly why a sync came back empty. The regular `listCalendarEvents` swallows
+ * every failure mode into `[]` — great for the overlay render path (degrade
+ * gracefully), terrible for the cron sync (invisible `synced: 0`).
+ *
+ * This exists specifically to debug `syncDaysOff` returning zero with no log
+ * trail. Once the root cause is fixed, this can stay behind a debug flag or
+ * be removed entirely — see the "Fix Guide" plan in chat history.
+ */
+export async function listCalendarEventsDebug(
+  userId: string,
+  calendarId: string,
+  timeMin: string,
+  timeMax: string
+): Promise<{
+  events: OverlayEvent[]
+  tokenPresent: boolean
+  httpStatus: number | null
+  googleError: string | null
+  rawItemCount: number
+}> {
+  const accessToken = await getGoogleAccessToken(userId)
+  if (!accessToken) {
+    return {
+      events: [],
+      tokenPresent: false,
+      httpStatus: null,
+      googleError: 'getGoogleAccessToken returned null',
+      rawItemCount: 0,
+    }
+  }
+
+  const url = new URL(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`)
+  url.searchParams.set('timeMin', timeMin)
+  url.searchParams.set('timeMax', timeMax)
+  url.searchParams.set('singleEvents', 'true')
+  url.searchParams.set('orderBy', 'startTime')
+  url.searchParams.set('maxResults', '250')
+
+  let res: Response
+  try {
+    res = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  } catch (err) {
+    return {
+      events: [],
+      tokenPresent: true,
+      httpStatus: null,
+      googleError: `fetch threw: ${err instanceof Error ? err.message : String(err)}`,
+      rawItemCount: 0,
+    }
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '(unreadable response body)')
+    return {
+      events: [],
+      tokenPresent: true,
+      httpStatus: res.status,
+      googleError: errText.slice(0, 500),
+      rawItemCount: 0,
+    }
+  }
+
+  const json = (await res.json()) as {
+    items?: Array<{
+      id?: string
+      summary?: string
+      start?: { date?: string; dateTime?: string }
+      end?: { date?: string; dateTime?: string }
+    }>
+  }
+
+  const items = json.items ?? []
+  const events: OverlayEvent[] = items
+    .filter((e) => e.id && e.start && e.end)
+    .map((e) => ({
+      id: e.id as string,
+      summary: e.summary ?? '(no title)',
+      start: e.start as { date?: string; dateTime?: string },
+      end: e.end as { date?: string; dateTime?: string },
+    }))
+
+  return {
+    events,
+    tokenPresent: true,
+    httpStatus: res.status,
+    googleError: null,
+    rawItemCount: items.length,
+  }
+}
+
+/**
  * Delete a Google Calendar event.
  * Returns true on success, false on failure.
  */
