@@ -345,6 +345,45 @@ export async function updateProfile(
     throw new Error('Only owners can modify owner profiles')
   }
 
+  // Audit R2-#20: if the caller is trying to move the user to a different
+  // company, that target company must be one the caller actually owns.
+  // Previously the function verified the user currently belonged to the
+  // caller's company, but then passed `updates.primary_company_id` straight
+  // through, letting a manager "export" a user into any company UUID —
+  // effectively losing access to them, and in a multi-owner scenario,
+  // writing into a company they don't control.
+  if (
+    updates.primary_company_id !== undefined &&
+    updates.primary_company_id !== null &&
+    updates.primary_company_id !== companyId
+  ) {
+    // Owners can assign to any company they own; non-owners cannot change
+    // company at all.
+    if (callerRole !== 'owner') {
+      throw new Error('Only owners can change a profile\'s primary company')
+    }
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) throw new Error('Not authenticated')
+    const { data: ownedCompany } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', updates.primary_company_id)
+      .eq('owner_id', authUser.id)
+      .maybeSingle()
+    if (!ownedCompany) {
+      throw new Error('You do not own the target company')
+    }
+  }
+
   const { error } = await supabase.from('users').update(updates).eq('id', userId)
   if (error) throw new Error(error.message)
+
+  // Audit R2-#21: invalidate the cached role cookie when role changes.
+  // proxy.ts caches profile_role_<id> for 1 hour to avoid a DB hit on every
+  // root redirect; without this delete, a demoted user could land on the
+  // wrong home screen for up to an hour after a manager updates them.
+  if (updates.role !== undefined) {
+    const cookieStore = await cookies()
+    cookieStore.delete(`profile_role_${userId}`)
+  }
 }

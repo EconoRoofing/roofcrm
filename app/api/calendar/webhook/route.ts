@@ -58,14 +58,26 @@ async function getChannelOwner(channelId: string): Promise<ChannelOwner | null> 
     return null
   }
 
+  // Audit R2-#22: refuse to fall back to 'primary'. The previous behavior
+  // silently routed legacy watches (registered before the per-company calendar
+  // column existed) at the auth user's 'primary' calendar, which under our
+  // shared-Google-account model is a DIFFERENT company's calendar. That meant
+  // a push for company A could rewrite company B's job dates. Forcing a null
+  // here causes the caller to log + 200-ack the push and skip processing,
+  // which makes the bad watch visible in logs and forces re-registration via
+  // the daily renewal cron.
+  const calendarId = (user as { calendar_watch_calendar_id?: string | null })
+    .calendar_watch_calendar_id
+  if (!calendarId) {
+    console.warn('[calendar-webhook] legacy watch with no calendar_id, re-register required', channelId)
+    return null
+  }
+
   return {
     userId: user.id,
     refreshToken: user.google_refresh_token,
     watchToken: (user as { calendar_watch_token?: string | null }).calendar_watch_token ?? null,
-    // Fall back to 'primary' if no per-company calendar was registered (legacy)
-    calendarId:
-      (user as { calendar_watch_calendar_id?: string | null }).calendar_watch_calendar_id ??
-      'primary',
+    calendarId,
     syncToken: (user as { calendar_sync_token?: string | null }).calendar_sync_token ?? null,
   }
 }

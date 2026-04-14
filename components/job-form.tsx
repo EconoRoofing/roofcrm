@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createJob, updateJob } from '@/lib/actions/jobs'
 import { FormInput, FormTextarea, FormSelect, labelStyle, fieldStyle } from '@/components/ui/form-field'
@@ -44,17 +44,24 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
   const [notes, setNotes] = useState(existingJob?.notes ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Audit R2-#23: synchronous double-submit guard. setLoading is async, so a
+  // fast double-tap (or Enter-spam) on iPhone can fire two handleSubmit calls
+  // before React has a chance to disable the button. The ref flips
+  // synchronously and lets the second invocation early-return.
+  const submittingRef = useRef(false)
   const [isInsuranceClaim, setIsInsuranceClaim] = useState(existingJob?.insurance_claim ?? false)
   const [insuranceCompany, setInsuranceCompany] = useState(existingJob?.insurance_company ?? '')
   const [claimNumber, setClaimNumber] = useState(existingJob?.claim_number ?? '')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submittingRef.current) return
     setError(null)
 
     if (!companyId) { setError('Please select a company.'); return }
     if (!jobType) { setError('Please select a job type.'); return }
 
+    submittingRef.current = true
     setLoading(true)
     try {
       if (isEditing && existingJob) {
@@ -97,6 +104,7 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save job. Please try again.')
+      submittingRef.current = false
       setLoading(false)
     }
   }

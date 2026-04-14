@@ -52,11 +52,22 @@ export function SignaturePad({ onSave, onClear, label }: SignaturePadProps) {
     const ctx = canvas.getContext('2d')
     if (ctx) {
       ctx.scale(dpr, dpr)
-      // Restore previous strokes if any
+      // Audit R2-#25: previously we restored strokes by drawing the data URL
+      // directly onto the 2D context. That repaints the pixels but leaves
+      // react-signature-canvas's internal point list (`_data`) empty, so
+      //   - isEmpty() returns true even though strokes are visible,
+      //     making Confirm silently fail
+      //   - clear() wipes the visible pixels but the internal state was
+      //     already empty, so subsequent draws can stack on top of phantom
+      //     restored strokes in unexpected ways.
+      // fromDataURL re-hydrates BOTH the canvas AND the internal point list
+      // so isEmpty/clear/getCanvas all stay consistent.
       if (dataUrl) {
-        const img = new Image()
-        img.onload = () => ctx.drawImage(img, 0, 0, width, CANVAS_HEIGHT)
-        img.src = dataUrl
+        canvasRef.current.fromDataURL(dataUrl, {
+          ratio: dpr,
+          width,
+          height: CANVAS_HEIGHT,
+        })
       }
     }
   }, [])

@@ -383,9 +383,16 @@ async function executePostStatusEffects(
     }
   }
 
-  // Auto-calculate commission when job is sold (skip when no rep is assigned).
-  // All math in integer cents — commission is exact, no float drift.
-  if (newStatus === 'sold' && currentJob.rep_id) {
+  // Auto-calculate commission on both `sold` AND `in_progress → completed`.
+  // Audit R2-#19: a reopened job (completed → in_progress → completed) would
+  // carry stale commission_amount_cents from the FIRST completion. Now we
+  // re-stamp the commission on every transition into `completed` from
+  // `in_progress`, which picks up any total_amount changes made during the
+  // reopen. The `sold` path still runs for the initial auto-stamp.
+  const shouldStampCommission =
+    (newStatus === 'sold' || (newStatus === 'completed' && oldStatus === 'in_progress')) &&
+    currentJob.rep_id
+  if (shouldStampCommission) {
     try {
       const { data: repData } = await supabase
         .from('users')
@@ -408,8 +415,10 @@ async function executePostStatusEffects(
     } catch (commErr) {
       console.error('Commission calculation error:', commErr)
     }
+  }
 
-    // Auto-generate portal token for customer
+  // Auto-generate portal token for customer on the initial sale
+  if (newStatus === 'sold') {
     try {
       const { generatePortalToken } = await import('./portal')
       await generatePortalToken(jobId)

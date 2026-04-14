@@ -117,8 +117,12 @@ export async function getJobProfitability(jobId: string): Promise<{
   // ── Profit calculations — integer cents, then convert at the boundary ──
   const totalCostsCents = laborCostCents + materialCostCents + equipmentCostCents
   const grossProfitCents = paidCents - totalCostsCents
-  const rawMargin = paidCents > 0 ? (grossProfitCents / paidCents) * 100 : 0
-  const margin = Math.max(-999, Math.min(100, rawMargin))
+  // Real margin, no silly clamp. Audit R2-#17: the old code did
+  // `Math.max(-999, Math.min(100, rawMargin))` which hid extreme losses as
+  // a flat -999%. If a $100 job actually cost $50,000 to deliver, managers
+  // need to see -49,900% not a fake floor. The `paidCents > 0` guard already
+  // handles division-by-zero; everything else is just the real number.
+  const margin = paidCents > 0 ? (grossProfitCents / paidCents) * 100 : 0
 
   return {
     revenue: {

@@ -79,8 +79,14 @@ function getOrFetch(): Promise<UserCacheEntry> {
   return inFlight
 }
 
-// One global auth-state subscription, set up on first hook mount. Lives for
-// the entire tab session — not per-component — so we don't subscribe N times.
+// One global auth-state subscription. Audit R2-#24: this used to be set up
+// lazily on first useUser() mount, which left a race window between module
+// load and the first component mount — if a SIGNED_OUT event fired in that
+// window (e.g. tab restore where the cookie has already expired), we'd miss
+// it and serve a stale cached user until the next manual refetch. Calling
+// it at module load (right below the function) closes that window. The file
+// is `'use client'`, so this runs once per tab on first import — never on
+// the server.
 let authSubscribed = false
 function ensureAuthSubscription() {
   if (authSubscribed) return
@@ -98,6 +104,17 @@ function ensureAuthSubscription() {
       getOrFetch().catch(() => {})
     }
   })
+}
+
+// Subscribe at module load, not on first hook mount, so we never miss an
+// auth event that fires before any component has called useUser().
+if (typeof window !== 'undefined') {
+  try {
+    ensureAuthSubscription()
+  } catch {
+    // Defensive: if createClient throws during module init for any reason,
+    // fall back to lazy subscription on first hook mount below.
+  }
 }
 
 export function useUser(): UseUserReturn {

@@ -95,10 +95,14 @@ async function fetchDailyData(
   // Phase 1: Fetch company name and time entries in parallel (both independent)
   const [companyResult, timeEntriesResult] = await Promise.all([
     supabase.from('companies').select('name').eq('id', companyId).single(),
+    // Audit R2-#18: exclude payroll-excluded entries from daily reports.
+    // These can appear in customer-facing output (crew hours summary),
+    // so a fraudulent entry a manager rejected should NOT be shown.
     supabase
       .from('time_entries')
       .select('job_id, user_id, total_hours, clock_in, clock_out, jobs!inner(company_id)')
       .eq('jobs.company_id', companyId)
+      .eq('excluded_from_payroll', false)
       .gte('clock_in', `${date}T00:00:00`)
       .lt('clock_in', `${date}T23:59:59`),
   ])
