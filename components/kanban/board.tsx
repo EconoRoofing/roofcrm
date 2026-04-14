@@ -1,8 +1,18 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
+import {
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCorners,
+} from '@dnd-kit/core'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanColumn } from './column'
 import { formatCurrency } from '@/lib/utils'
@@ -45,6 +55,15 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
   const [localJobs, setLocalJobs] = useState<KanbanJob[]>(serverJobs)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
 
+  // Mirror serverJobs into a ref so handleMoveJob's rollback path can reach
+  // the latest snapshot WITHOUT taking serverJobs as a useCallback dep.
+  // Without this ref, every router.refresh() rebuilds handleMoveJob → new
+  // KanbanColumn props → React.memo defeated → entire board re-renders.
+  const serverJobsRef = useRef(serverJobs)
+  useEffect(() => {
+    serverJobsRef.current = serverJobs
+  }, [serverJobs])
+
   // Sync when server data changes (moved to useEffect to avoid render-time setState)
   useEffect(() => {
     if (pendingMoves.size === 0) {
@@ -80,7 +99,26 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
     return g
   }, [filteredJobs])
 
-  // Optimistic move handler — updates UI instantly, syncs in background
+  // ─── dnd-kit sensors ───────────────────────────────────────────────────────
+  // Three sensors so the kanban works on every input modality:
+  //   - PointerSensor: desktop mouse, requires 8px of movement before activating
+  //     so a click without drag still navigates to the job page.
+  //   - TouchSensor: iOS Safari + Android. 250ms press-delay so a quick tap
+  //     navigates instead of starting a drag. Mario's iPhone runs this path.
+  //   - KeyboardSensor: accessibility (space/enter to grab, arrows to move).
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
+    useSensor(KeyboardSensor),
+  )
+
+  // Optimistic move handler — updates UI instantly, syncs in background.
+  // Stable identity across server refreshes so React.memo on columns + cards
+  // actually does its job. Reads the latest serverJobs via ref on rollback.
   const handleMoveJob = useCallback(async (jobId: string, newStatus: JobStatus) => {
     // 1. Optimistic: move the card immediately in local state
     setLocalJobs(prev => prev.map(job =>
@@ -94,9 +132,9 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
       // 3. Success: refresh server data in background
       router.refresh()
     } catch (err) {
-      // 4. Rollback: snap card back to original position
+      // 4. Rollback: snap card back to the latest server snapshot via ref
       console.error('Failed to update job status:', err)
-      setLocalJobs(serverJobs)
+      setLocalJobs(serverJobsRef.current)
     } finally {
       setPendingMoves(prev => {
         const next = new Set(prev)
@@ -104,7 +142,24 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
         return next
       })
     }
-  }, [serverJobs, router])
+  }, [router])
+
+  // dnd-kit drop handler. `active.id` is the dragged card (job id),
+  // `over.id` is the column we landed on (status string). Skip if dropped
+  // outside any column or onto the source column.
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over) return
+    const jobId = String(active.id)
+    const newStatus = String(over.id) as JobStatus
+
+    // Find the dragged job in current local state. If status didn't change,
+    // skip the round trip entirely (dropping a card back onto its own column).
+    const currentJob = localJobs.find((j) => j.id === jobId)
+    if (!currentJob || currentJob.status === newStatus) return
+
+    handleMoveJob(jobId, newStatus)
+  }, [localJobs, handleMoveJob])
 
   // Revenue totals
   const { pendingRevenue, soldRevenue } = useMemo(() => ({
@@ -118,28 +173,35 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Scrollable columns area */}
-      <div
-        style={{
-          flex: 1,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          padding: '16px 24px',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'flex-start',
-        }}
+      {/* DndContext wraps the entire scrollable columns area. Touch & pointer
+          sensors are configured above so the same code works on Mario's
+          iPhone (where HTML5 drag never fired) and on desktop. */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragEnd={handleDragEnd}
       >
-        {COLUMN_ORDER.map((status) => (
-          <KanbanColumn
-            key={status}
-            status={status}
-            jobs={grouped[status]}
-            label={COLUMN_LABELS[status]}
-            onMoveJob={handleMoveJob}
-          />
-        ))}
-      </div>
+        <div
+          style={{
+            flex: 1,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            padding: '16px 24px',
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'flex-start',
+          }}
+        >
+          {COLUMN_ORDER.map((status) => (
+            <KanbanColumn
+              key={status}
+              status={status}
+              jobs={grouped[status]}
+              label={COLUMN_LABELS[status]}
+            />
+          ))}
+        </div>
+      </DndContext>
 
       {/* Revenue footer */}
       <div

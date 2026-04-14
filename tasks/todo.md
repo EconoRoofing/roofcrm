@@ -41,7 +41,56 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
-## Float → Integer Cents migration (current session)
+## Calendar webhook + iOS perf + iPhone kanban (current session)
+
+### Mario must run this in Supabase SQL Editor
+```sql
+-- supabase/migrations/028_calendar_webhook_hardening.sql
+-- Adds three columns to users:
+--   calendar_sync_token        — Google's incremental-sync cursor
+--   calendar_watch_token       — shared secret to verify push notifications
+--   calendar_watch_calendar_id — which per-company calendar this watch is for
+```
+Defensive migration, safe to re-run.
+
+### Google Calendar webhook hardening (3 audit items)
+- **Per-company calendar id** — webhook now queries the calendar id stored on the user record (`calendar_watch_calendar_id`), not always `'primary'`. Each company under econoroofing209@gmail.com can sync to its own calendar.
+- **Channel-token verification** — webhook verifies `X-Goog-Channel-Token` against the secret we registered with the watch. Forged POSTs without the secret return 401 instead of overwriting `scheduled_date`.
+- **Persistent syncToken** — webhook stores `nextSyncToken` from each `events.list` response and uses it on the next push for incremental sync. No more re-scanning a 1-hour window per notification. Handles Google's 410 Gone (expired sync token) by clearing and bootstrapping fresh.
+- Bonus: `event.start.dateTime` now parsed via `localDateString()` so a 9pm-PST event doesn't land on tomorrow's UTC date.
+- **NOTE for Mario**: this only takes effect for *future* watches. The next time you re-register a calendar watch (or run an admin "rotate watch" script if you have one), pass the new `token` and `calendarId` columns. Existing watches will continue to work but won't have the syncToken benefit until the user record is populated.
+
+### iOS / mobile bugs
+- **`100vh` → `100dvh`** in `column.tsx`, `job-list-table.tsx` (wizard.tsx, calendar-view.tsx already done in earlier session). Bottom nav and last cards no longer sit behind the iOS toolbar.
+- **Signature pad rewrite** — `setCanvasSize` now:
+  1. Skips if logical width didn't change (debounces iOS toolbar show/hide)
+  2. Uses `devicePixelRatio` (capped at 3) for sharp lines on Retina/iPhone
+  3. Snapshots existing strokes before resize and restores after
+  4. Resize handler debounced to 150ms so spurious events don't fire mid-stroke
+- **Kanban iPhone fix** — installed `@dnd-kit/core` and rewrote `card.tsx`/`column.tsx`/`board.tsx` to use `useDraggable`/`useDroppable`/`DndContext`. Three sensors:
+  1. `PointerSensor` (8px distance constraint) for desktop mouse
+  2. `TouchSensor` (250ms delay + 5px tolerance) for iPhone — quick taps still navigate
+  3. `KeyboardSensor` for accessibility
+  HTML5 drag-and-drop never fired on iOS Safari touch — Mario's primary device. The new code uses pointer events which work everywhere.
+
+### Performance — Mario's lag complaints
+- **Kanban re-render fix** — `handleMoveJob` no longer depends on `serverJobs`, so `router.refresh()` doesn't rebuild the callback. Latest `serverJobs` is read via a ref on rollback. `React.memo` on columns/cards now actually prevents re-renders.
+- **Photos page request coalescing** — module-level cache with two layers:
+  1. **In-flight dedup**: 10 components asking for the same projectId share ONE network call instead of 10
+  2. **60-second result cache**: navigating away from /photos and coming back is instant (no fetch)
+- **`useUser` hook caching** — module-level cache + listener pattern:
+  1. First mount kicks off a single fetch; subsequent mounts await the same Promise
+  2. Resolved entry served instantly to all listeners
+  3. ONE `onAuthStateChange` subscription per tab (not per-component)
+  4. Multi-component pages no longer multiply auth round-trips
+
+### Verification
+- `npx next build` clean across all 47 routes
+- 1 new high-severity npm audit warning (transitive in dnd-kit deps) — not directly exploitable in this codebase, will track in cleanup session
+
+---
+
+## Float → Integer Cents migration (previous session)
 
 ### Strategy
 Expand-and-contract: add `*_cents` BIGINT columns alongside legacy `*_amount` floats, backfill from existing values, deploy code that dual-writes both columns, then drop legacy columns in a follow-up after production soak.

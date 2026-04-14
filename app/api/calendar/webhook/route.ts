@@ -1,38 +1,79 @@
 /**
  * Google Calendar push notification webhook.
  *
- * NOTE: This endpoint requires a public HTTPS URL to receive push notifications.
- * For Phase 1, the endpoint is implemented but will only receive events after
- * deployment to Vercel (or another public host).
+ * Hardening (audit findings):
+ *   1. Verifies X-Goog-Channel-Token against the per-user shared secret we
+ *      stored when the watch was registered. Without this, anyone who
+ *      learns a channel id can POST and rewrite scheduled dates.
+ *   2. Queries the user's per-company calendar id (calendar_watch_calendar_id),
+ *      not always 'primary'. Each company under econoroofing209@gmail.com has
+ *      its own Google calendar — they all need to sync.
+ *   3. Uses persisted syncToken for incremental sync. Eliminates duplicate
+ *      processing across overlapping notifications and avoids re-scanning a
+ *      1-hour window every push.
  *
- * Google sends a POST request with:
- *   X-Goog-Channel-ID  — the watch channel ID we registered
- *   X-Goog-Resource-ID — the calendar resource ID
- *   X-Goog-Resource-State — "sync" (initial) or "exists" (change)
+ * Google sends a POST request with these headers:
+ *   X-Goog-Channel-ID    — the watch channel ID we registered
+ *   X-Goog-Resource-ID   — the calendar resource ID
+ *   X-Goog-Resource-State — "sync" (initial handshake) or "exists" (change)
+ *   X-Goog-Channel-Token — our shared secret, echoed back on every push
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { localDateString } from '@/lib/auth-helpers'
 
 const GOOGLE_CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3'
 
-async function getAccessTokenForChannel(channelId: string): Promise<string | null> {
-  // Look up which user owns this channel by checking our stored watch channels
-  // For Phase 1 we store the mapping in a simple env var or fall back to scanning users
+interface ChannelOwner {
+  userId: string
+  refreshToken: string
+  watchToken: string | null
+  calendarId: string
+  syncToken: string | null
+}
+
+interface CalendarEvent {
+  id: string
+  status: string
+  start?: { date?: string; dateTime?: string }
+}
+
+/**
+ * Look up the user who owns this watch channel and pull everything the
+ * webhook needs in a single query.
+ */
+async function getChannelOwner(channelId: string): Promise<ChannelOwner | null> {
   const supabase = await createClient()
 
-  // Query the user whose calendar_watch_channel_id matches
-  const { data: userData, error } = await supabase
+  const { data: user, error } = await supabase
     .from('users')
-    .select('id, google_refresh_token')
+    .select(
+      'id, google_refresh_token, calendar_watch_token, calendar_watch_calendar_id, calendar_sync_token'
+    )
     .eq('calendar_watch_channel_id', channelId)
     .single()
 
-  if (error || !userData?.google_refresh_token) {
-    // Fallback: the channel may not be stored — return null gracefully
+  if (error || !user?.google_refresh_token) {
     return null
   }
 
+  return {
+    userId: user.id,
+    refreshToken: user.google_refresh_token,
+    watchToken: (user as { calendar_watch_token?: string | null }).calendar_watch_token ?? null,
+    // Fall back to 'primary' if no per-company calendar was registered (legacy)
+    calendarId:
+      (user as { calendar_watch_calendar_id?: string | null }).calendar_watch_calendar_id ??
+      'primary',
+    syncToken: (user as { calendar_sync_token?: string | null }).calendar_sync_token ?? null,
+  }
+}
+
+/**
+ * Exchange the user's refresh token for a fresh access token.
+ */
+async function getAccessToken(refreshToken: string): Promise<string | null> {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
   if (!clientId || !clientSecret) return null
@@ -40,10 +81,12 @@ async function getAccessTokenForChannel(channelId: string): Promise<string | nul
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: userData.google_refresh_token,
+      refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
   })
@@ -53,31 +96,56 @@ async function getAccessTokenForChannel(channelId: string): Promise<string | nul
   return json.access_token ?? null
 }
 
+/**
+ * Pull events from the specific calendar the user's watch is registered for,
+ * using the persisted syncToken when available. Returns the events plus the
+ * NEW syncToken to persist for the next push.
+ *
+ * Google's syncToken protocol:
+ *   - First call: pass `updatedMin` to bootstrap the window
+ *   - Response includes `nextSyncToken`
+ *   - Subsequent calls: pass `syncToken` and Google returns ONLY changes since
+ *   - If syncToken is invalidated (410), reset and start fresh
+ */
 async function fetchChangedEvents(
   accessToken: string,
+  calendarId: string,
   syncToken: string | null
-): Promise<{ id: string; status: string; start?: { date?: string; dateTime?: string } }[]> {
+): Promise<{ events: CalendarEvent[]; newSyncToken: string | null; expired: boolean }> {
   const params = new URLSearchParams({ maxResults: '50' })
   if (syncToken) {
     params.set('syncToken', syncToken)
   } else {
-    // No sync token — fetch events updated in the last hour as a fallback
+    // No sync token yet — bootstrap with a 1-hour window
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     params.set('updatedMin', oneHourAgo)
+    params.set('singleEvents', 'true')
   }
 
-  const res = await fetch(
-    `${GOOGLE_CALENDAR_BASE}/calendars/primary/events?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  )
+  const url = `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params}`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  })
+
+  // 410 Gone = syncToken was invalidated (too old or scope changed). Caller
+  // should clear it and bootstrap fresh on the next push.
+  if (res.status === 410) {
+    return { events: [], newSyncToken: null, expired: true }
+  }
 
   if (!res.ok) {
-    console.error('Calendar webhook: failed to list events', res.status, await res.text())
-    return []
+    console.error('[calendar-webhook] events.list failed', res.status, await res.text())
+    return { events: [], newSyncToken: syncToken, expired: false }
   }
 
   const json = await res.json()
-  return json.items ?? []
+  return {
+    events: json.items ?? [],
+    newSyncToken: json.nextSyncToken ?? syncToken,
+    expired: false,
+  }
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -85,6 +153,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const channelId = req.headers.get('x-goog-channel-id')
   const resourceId = req.headers.get('x-goog-resource-id')
   const resourceState = req.headers.get('x-goog-resource-state')
+  const channelToken = req.headers.get('x-goog-channel-token')
 
   if (!channelId || !resourceId) {
     return NextResponse.json({ error: 'Missing required headers' }, { status: 400 })
@@ -95,27 +164,58 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return new NextResponse(null, { status: 200 })
   }
 
-  // Get an access token for the user who owns this channel
-  const accessToken = await getAccessTokenForChannel(channelId)
-  if (!accessToken) {
-    // Cannot process — acknowledge anyway so Google doesn't retry aggressively
-    console.warn('Calendar webhook: no access token for channel', channelId)
+  // Look up the channel owner BEFORE doing anything else — this also gives us
+  // the shared secret we need to verify the push
+  const owner = await getChannelOwner(channelId)
+  if (!owner) {
+    // Unknown channel — could be a stale watch or a forged request.
+    // Acknowledge with 200 so Google doesn't retry, but log for visibility.
+    console.warn('[calendar-webhook] unknown channel id', channelId)
     return new NextResponse(null, { status: 200 })
   }
 
-  // Fetch changed events (using sync token if we have it — simplified for Phase 1)
-  const events = await fetchChangedEvents(accessToken, null)
+  // SECURITY: verify X-Goog-Channel-Token matches the secret we registered.
+  // Google echoes whatever `token` we passed when calling watch(). Without
+  // this check, anyone who learns a channelId can POST forged notifications.
+  if (owner.watchToken && channelToken !== owner.watchToken) {
+    console.warn('[calendar-webhook] channel token mismatch', channelId)
+    return NextResponse.json({ error: 'Invalid channel token' }, { status: 401 })
+  }
+
+  // Get a fresh access token
+  const accessToken = await getAccessToken(owner.refreshToken)
+  if (!accessToken) {
+    console.warn('[calendar-webhook] no access token for user', owner.userId)
+    return new NextResponse(null, { status: 200 })
+  }
+
+  // Fetch changed events from the user's actual calendar (per-company), using
+  // the persisted syncToken for incremental sync
+  const { events, newSyncToken, expired } = await fetchChangedEvents(
+    accessToken,
+    owner.calendarId,
+    owner.syncToken
+  )
+
+  const supabase = await createClient()
+
+  // Persist the new syncToken (or clear it if expired)
+  if (expired || newSyncToken !== owner.syncToken) {
+    await supabase
+      .from('users')
+      .update({ calendar_sync_token: expired ? null : newSyncToken })
+      .eq('id', owner.userId)
+  }
 
   if (events.length === 0) {
     return new NextResponse(null, { status: 200 })
   }
 
-  const supabase = await createClient()
-
+  // Process each changed event idempotently — re-running this loop on the
+  // same event is a no-op because we only write when scheduled_date differs.
   for (const event of events) {
     if (!event.id) continue
 
-    // Look up the job with this calendar event ID
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .select('id, scheduled_date, calendar_deleted')
@@ -125,14 +225,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (jobError || !job) continue
 
     if (event.status === 'cancelled') {
-      // Calendar event was deleted externally — set the flag on the job
-      await supabase
-        .from('jobs')
-        .update({ calendar_deleted: true })
-        .eq('id', job.id)
+      // Calendar event deleted externally — flag it on the job (if not already)
+      if (!job.calendar_deleted) {
+        await supabase
+          .from('jobs')
+          .update({ calendar_deleted: true })
+          .eq('id', job.id)
+      }
     } else {
-      // Event updated — sync the date back to the job if it changed
-      const rawDate = event.start?.date ?? event.start?.dateTime?.slice(0, 10) ?? null
+      // Event updated — sync the date back if it changed.
+      // event.start.date is YYYY-MM-DD for all-day events; dateTime is ISO 8601.
+      // For dateTime, we need the LOCAL date, not the UTC slice (otherwise
+      // a 9pm-PST event on Apr 13 lands on Apr 14 in the DB).
+      let rawDate: string | null = null
+      if (event.start?.date) {
+        rawDate = event.start.date
+      } else if (event.start?.dateTime) {
+        rawDate = localDateString(new Date(event.start.dateTime))
+      }
       if (rawDate && rawDate !== job.scheduled_date) {
         await supabase
           .from('jobs')

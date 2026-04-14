@@ -183,7 +183,7 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: 'calc(100dvh - 56px)',
         backgroundColor: 'var(--bg-deep)',
         overflow: 'hidden',
       }}

@@ -7,6 +7,53 @@ import type { CompanyCamPhoto } from '@/lib/companycam'
 import { CameraIcon, ExternalLinkIcon } from '@/components/icons'
 import { formatPhotoDate } from '@/lib/utils'
 
+// ─── Module-level photo cache ─────────────────────────────────────────────────
+// Two layers:
+//   1. inFlight:  Promise dedup — concurrent components requesting the same
+//                 projectId share ONE network call instead of N.
+//   2. resolved:  Result cache — TTL'd so the next mount within 60s renders
+//                 instantly without a fetch (Mario opening Photos tab,
+//                 navigating away, coming back).
+//
+// Lives for the tab session. CompanyCam project photos rarely change between
+// page mounts, so 60s is conservative. Set to 0 to disable caching entirely.
+
+const inFlight = new Map<string, Promise<CompanyCamPhoto[]>>()
+const resolved = new Map<string, { data: CompanyCamPhoto[]; expiresAt: number }>()
+const PHOTO_CACHE_TTL_MS = 60 * 1000
+
+function fetchProjectPhotos(projectId: string): Promise<CompanyCamPhoto[]> {
+  // Cache hit (still fresh)
+  const cached = resolved.get(projectId)
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.data)
+  }
+
+  // In-flight dedup — every concurrent caller awaits the same Promise
+  const existing = inFlight.get(projectId)
+  if (existing) return existing
+
+  const promise = fetch(`/api/companycam/photos?projectId=${encodeURIComponent(projectId)}`)
+    .then((r) => r.json())
+    .then((data: CompanyCamPhoto[]) => {
+      const arr = Array.isArray(data) ? data : []
+      resolved.set(projectId, { data: arr, expiresAt: Date.now() + PHOTO_CACHE_TTL_MS })
+      return arr
+    })
+    .catch(() => {
+      // Cache empty result briefly so we don't hammer a failing endpoint
+      const empty: CompanyCamPhoto[] = []
+      resolved.set(projectId, { data: empty, expiresAt: Date.now() + 5000 })
+      return empty
+    })
+    .finally(() => {
+      inFlight.delete(projectId)
+    })
+
+  inFlight.set(projectId, promise)
+  return promise
+}
+
 type JobWithCompany = Job & {
   company: { id: string; name: string; color: string } | null
 }
@@ -122,16 +169,18 @@ function JobPhotoSection({ job }: { job: JobWithCompany }) {
   useEffect(() => {
     let cancelled = false
 
-    fetch(`/api/companycam/photos?projectId=${encodeURIComponent(projectId)}`)
-      .then((r) => r.json())
-      .then((data: CompanyCamPhoto[]) => {
-        if (!cancelled) setPhotos(Array.isArray(data) ? data : [])
+    fetchProjectPhotos(projectId)
+      .then((data) => {
+        if (!cancelled) {
+          setPhotos(data)
+          setLoading(false)
+        }
       })
       .catch(() => {
-        if (!cancelled) setPhotos([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setPhotos([])
+          setLoading(false)
+        }
       })
 
     return () => {

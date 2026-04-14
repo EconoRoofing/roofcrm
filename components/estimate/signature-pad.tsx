@@ -9,31 +9,75 @@ interface SignaturePadProps {
   label: string
 }
 
+const CANVAS_HEIGHT = 200
+
 export function SignaturePad({ onSave, onClear, label }: SignaturePadProps) {
   const canvasRef = useRef<SignatureCanvas>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Track the last applied logical width so we don't re-init on no-op resizes
+  // (iOS Safari fires window 'resize' events on EVERY toolbar show/hide,
+  // which would otherwise wipe the customer's signature mid-stroke).
+  const lastWidthRef = useRef<number>(0)
 
+  /**
+   * Resize the underlying <canvas>:
+   *   - Only if logical width actually changed
+   *   - Use devicePixelRatio so the line is crisp on Retina/iPhone
+   *   - Preserve existing strokes by snapshotting → resizing → restoring
+   *
+   * The DPR trick: the backing store is `width * dpr` pixels but the CSS
+   * size stays at `width` × `CANVAS_HEIGHT` logical pixels. Then we
+   * `ctx.scale(dpr, dpr)` so subsequent draws use the logical coordinate
+   * system and look identical regardless of pixel density.
+   */
   const setCanvasSize = useCallback(() => {
     if (!containerRef.current || !canvasRef.current) return
     const canvas = canvasRef.current.getCanvas()
     const width = containerRef.current.clientWidth
-    // Preserve existing drawing data
-    const dataUrl = canvas.toDataURL()
-    canvas.width = width
-    canvas.height = 200
-    // Restore drawing if there was content
+
+    // Skip if nothing actually changed (iOS toolbar show/hide → spurious resize)
+    if (width === lastWidthRef.current) return
+    lastWidthRef.current = width
+
+    // Snapshot current strokes
+    const wasEmpty = canvasRef.current.isEmpty()
+    const dataUrl = wasEmpty ? null : canvas.toDataURL()
+
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 3) : 1
+    canvas.width = Math.round(width * dpr)
+    canvas.height = Math.round(CANVAS_HEIGHT * dpr)
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${CANVAS_HEIGHT}px`
+
     const ctx = canvas.getContext('2d')
     if (ctx) {
-      const img = new Image()
-      img.onload = () => ctx.drawImage(img, 0, 0)
-      img.src = dataUrl
+      ctx.scale(dpr, dpr)
+      // Restore previous strokes if any
+      if (dataUrl) {
+        const img = new Image()
+        img.onload = () => ctx.drawImage(img, 0, 0, width, CANVAS_HEIGHT)
+        img.src = dataUrl
+      }
     }
   }, [])
 
   useEffect(() => {
     setCanvasSize()
-    window.addEventListener('resize', setCanvasSize)
-    return () => window.removeEventListener('resize', setCanvasSize)
+
+    // Debounce the resize handler so iOS Safari toolbar show/hide doesn't
+    // wipe the canvas mid-stroke. 150ms is below human reaction time but
+    // long enough to coalesce the toolbar animation events.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onResize = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(setCanvasSize, 150)
+    }
+
+    window.addEventListener('resize', onResize)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('resize', onResize)
+    }
   }, [setCanvasSize])
 
   function handleClear() {
@@ -65,7 +109,7 @@ export function SignaturePad({ onSave, onClear, label }: SignaturePadProps) {
         ref={containerRef}
         style={{
           width: '100%',
-          height: '200px',
+          height: `${CANVAS_HEIGHT}px`,
           border: '1px solid var(--border-subtle)',
           borderRadius: '8px',
           overflow: 'hidden',
@@ -80,7 +124,7 @@ export function SignaturePad({ onSave, onClear, label }: SignaturePadProps) {
           canvasProps={{
             style: {
               width: '100%',
-              height: '200px',
+              height: `${CANVAS_HEIGHT}px`,
               display: 'block',
             },
           }}

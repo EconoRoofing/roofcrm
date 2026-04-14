@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import { KanbanCard } from './card'
 import type { KanbanJob } from './card'
 import type { JobStatus } from '@/lib/types/database'
@@ -9,50 +10,34 @@ interface KanbanColumnProps {
   status: JobStatus
   jobs: KanbanJob[]
   label: string
-  onMoveJob: (jobId: string, newStatus: JobStatus) => void
+  // onMoveJob is no longer called from the column itself — the parent
+  // DndContext handles drop events globally. We keep the prop signature for
+  // memo-stability and to make the relationship between columns + parent
+  // explicit.
+  onMoveJob?: (jobId: string, newStatus: JobStatus) => void
 }
 
-export const KanbanColumn = React.memo(function KanbanColumn({ status, jobs, label, onMoveJob }: KanbanColumnProps) {
-  const [isDragOver, setIsDragOver] = useState(false)
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (!isDragOver) setIsDragOver(true)
-  }
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragOver(false)
-    }
-  }
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    setIsDragOver(false)
-
-    const jobId = e.dataTransfer.getData('jobId')
-    if (!jobId) return
-
-    // Optimistic — fires instantly, no await
-    onMoveJob(jobId, status)
-  }
+export const KanbanColumn = React.memo(function KanbanColumn({ status, jobs, label }: KanbanColumnProps) {
+  // Register this column as a droppable. The parent DndContext's onDragEnd
+  // reads `over.id` (the column status string) to determine where to drop.
+  const { isOver, setNodeRef } = useDroppable({
+    id: status,
+    data: { columnStatus: status },
+  })
 
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      ref={setNodeRef}
       style={{
         minWidth: '220px',
         width: '220px',
         display: 'flex',
         flexDirection: 'column',
-        border: isDragOver
+        border: isOver
           ? '1px solid var(--accent)'
           : '1px solid var(--border-subtle)',
         borderRadius: '20px',
-        backgroundColor: isDragOver ? 'var(--accent-dim)' : 'var(--bg-surface)',
+        backgroundColor: isOver ? 'var(--accent-dim)' : 'var(--bg-surface)',
         transition: 'border-color 100ms ease, background-color 100ms ease',
         flexShrink: 0,
         overflow: 'hidden',
@@ -108,7 +93,7 @@ export const KanbanColumn = React.memo(function KanbanColumn({ status, jobs, lab
           flexDirection: 'column',
           gap: '8px',
           minHeight: '120px',
-          maxHeight: 'calc(100vh - 220px)',
+          maxHeight: 'calc(100dvh - 220px)',
         }}
       >
         {jobs.map((job) => (

@@ -2,6 +2,8 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
+import { useDraggable } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 import { CompanyTag } from '@/components/company-tag'
 
 // Minimal shape — only the fields the Kanban board actually renders.
@@ -15,6 +17,7 @@ export interface KanbanJob {
   status: string
   job_type: string
   total_amount: number | null
+  total_amount_cents?: number | null
   created_at: string
   company: { id: string; name: string; color: string | null }[] | { id: string; name: string; color: string | null } | null
   rep: { id: string; name: string }[] | { id: string; name: string } | null
@@ -66,41 +69,54 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
   const company = normalizeJoin(job.company)
   const rep = normalizeJoin(job.rep)
 
-  const handleClick = () => {
+  // dnd-kit draggable. The sensors set up on the board enforce a press-delay
+  // before activation, so a quick tap navigates instead of starting a drag.
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: job.id,
+    data: { jobId: job.id, status: job.status },
+  })
+
+  const handleClick = (e: React.MouseEvent) => {
+    // Suppress the click if dnd-kit is currently mid-drag — without this,
+    // releasing on the same column triggers both a drag end AND a navigation.
+    if (isDragging) {
+      e.stopPropagation()
+      e.preventDefault()
+      return
+    }
     router.push(`/jobs/${job.id}`)
   }
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData('jobId', job.id)
-    e.dataTransfer.effectAllowed = 'move'
-  }
+  // Total amount: prefer cents, fall back to legacy float dollars.
+  // Format inline (no formatCurrency import to keep this file fast).
+  const totalCents = job.total_amount_cents ?? (job.total_amount != null ? Math.round(job.total_amount * 100) : 0)
+  const hasTotal = totalCents > 0
+  const totalDollars = totalCents / 100
 
   return (
     <div
-      draggable="true"
-      onDragStart={handleDragStart}
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
       onClick={handleClick}
       style={{
         backgroundColor: 'var(--bg-card)',
         ...borderStyle,
         borderRadius: '20px',
         padding: '12px',
-        cursor: 'pointer',
+        cursor: isDragging ? 'grabbing' : 'pointer',
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
-        transition: 'all 0.15s ease',
+        // dnd-kit `transform` applies the drag offset
+        transform: CSS.Translate.toString(transform),
+        // While dragging, lift visually + drop shadow
+        opacity: isDragging ? 0.5 : 1,
+        zIndex: isDragging ? 100 : 'auto',
+        transition: isDragging ? 'none' : 'all 0.15s ease',
         userSelect: 'none',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'
-        e.currentTarget.style.transform = 'translateY(-1px)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--bg-card)'
-        e.currentTarget.style.transform = 'translateY(0)'
-        e.currentTarget.style.borderColor = ''
+        // Disable iOS Safari's native touch behaviors that would interfere
+        touchAction: 'none',
       }}
     >
       {/* Top row: job number + company tag */}
@@ -155,7 +171,7 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
         >
           {rep ? rep.name : 'No rep'}
         </span>
-        {job.total_amount != null && job.total_amount > 0 && (
+        {hasTotal && (
           <span
             style={{
               fontFamily: 'var(--font-mono)',
@@ -164,7 +180,7 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
               color: 'var(--accent)',
             }}
           >
-            ${job.total_amount.toLocaleString()}
+            ${totalDollars.toLocaleString()}
           </span>
         )}
       </div>
