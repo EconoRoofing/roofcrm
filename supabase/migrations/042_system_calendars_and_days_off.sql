@@ -5,7 +5,7 @@
 --   5 company-scoped (estimates + jobs for Econo/Nushake, single for DeHart)
 --     → handled by migration 041
 --   2 cross-company utility calendars:
---     - "Admin/Payroll" → ops/payroll cycles, displayed in manager calendar
+--     - "Admin / Payroll" → ops/payroll cycles, displayed in manager calendar
 --     - "Days Off"      → crew-wide days off, displayed AND used as a
 --                          scheduling guardrail (warn on job scheduling)
 --
@@ -48,7 +48,7 @@ INSERT INTO public.system_calendars (key, calendar_id, label, color)
 VALUES
   ('admin_payroll',
    'd2cfd469d001fec2bb8422d5db980b7ad637adada05c8bf2a12a35d93f97327f@group.calendar.google.com',
-   'Admin/Payroll',
+   'Admin / Payroll',
    '#a78bfa'),
   ('days_off',
    'daddebeb0e580e266a8b7195d18113100b1f5effdd686e9fbd1bcb9dd27af93c@group.calendar.google.com',

@@ -118,7 +118,7 @@ function dateKeysForEvent(ev: OverlayEvent): string[] {
 }
 
 /**
- * Fetch overlay events (Admin/Payroll, Days Off, etc.) for a date window,
+ * Fetch overlay events (Admin / Payroll, Days Off, etc.) for a date window,
  * flattened into per-day entries ready for the manager calendar view.
  *
  * Runs all overlay calendar fetches in parallel. Each one is independently

@@ -15,7 +15,7 @@ type JobWithRelations = Job & {
 
 interface CalendarViewProps {
   jobs: JobWithRelations[]
-  // Overlay events (Admin/Payroll, Days Off) fetched server-side from
+  // Overlay events (Admin / Payroll, Days Off) fetched server-side from
   // Google Calendar via lib/actions/calendar-overlays. Already flattened
   // into per-day entries — a 3-day Days Off block arrives as 3 separate
   // entries with the same label but different dateKeys.
@@ -83,7 +83,7 @@ export function CalendarView({ jobs, overlays = [] }: CalendarViewProps) {
   }, [jobs])
 
   // Build overlay map in the same YYYY-MM-DD-keyed shape as jobMap. Each
-  // entry holds the overlay events (Admin/Payroll, Days Off) that fall on
+  // entry holds the overlay events (Admin / Payroll, Days Off) that fall on
   // that day. Overlays already arrive flattened per-day from the server
   // action so this is just a one-pass group-by.
   const overlayMap = useMemo(() => {
@@ -278,7 +278,7 @@ export function CalendarView({ jobs, overlays = [] }: CalendarViewProps) {
             const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
             const dayJobs = jobMap.get(dateKey) ?? []
             const dayOverlays = overlayMap.get(dateKey) ?? []
-            // Dedupe overlays by category key so two Admin/Payroll events on
+            // Dedupe overlays by category key so two Admin / Payroll events on
             // the same day render a single chip, not two stacked chips.
             const uniqueOverlayKeys = Array.from(new Set(dayOverlays.map((o) => o.key)))
             const overlayByKey = new Map(dayOverlays.map((o) => [o.key, o]))
@@ -336,7 +336,7 @@ export function CalendarView({ jobs, overlays = [] }: CalendarViewProps) {
                   {day}
                 </span>
 
-                {/* Overlay chips (Admin/Payroll, Days Off) — render above
+                {/* Overlay chips (Admin / Payroll, Days Off) — render above
                     the job dots so they don't compete for the bottom area.
                     One thin horizontal bar per category that has any event
                     that day, colored by system_calendars.color. */}
@@ -473,7 +473,7 @@ export function CalendarView({ jobs, overlays = [] }: CalendarViewProps) {
 
             {/* Overlay events section — renders above the job list since
                 overlays usually represent blockers (Days Off) or context
-                (Admin/Payroll) that should frame the jobs below. Each row
+                (Admin / Payroll) that should frame the jobs below. Each row
                 opens the event in Google Calendar on click — we don't have
                 a CRM detail page for non-job events. */}
             {selectedOverlays.length > 0 && (

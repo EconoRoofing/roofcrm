@@ -262,7 +262,7 @@ export interface OverlayEvent {
 /**
  * List events from a Google Calendar in a date window.
  *
- * Used by the manager calendar view to pull overlay events (Admin/Payroll,
+ * Used by the manager calendar view to pull overlay events (Admin / Payroll,
  * Days Off) from calendars that aren't tied to `jobs` rows. Also used by
  * the daily cron to mirror the Days Off calendar into the local `days_off`
  * table for the scheduling guardrail.

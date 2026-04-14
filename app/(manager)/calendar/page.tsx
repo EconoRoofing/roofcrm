@@ -20,7 +20,7 @@ export default async function CalendarPage() {
   // (~9 fields) instead of getJobs (~25 fields). Cuts RSC payload by
   // ~70% on a 2000-row window. See lib/actions/jobs.ts:getJobsForCalendar.
   //
-  // Calendar 041+042: overlays are the Admin/Payroll and Days Off
+  // Calendar 041+042: overlays are the Admin / Payroll and Days Off
   // calendars that aren't tied to `jobs` rows. We fetch them in parallel
   // with the job query so the two independent Google/Supabase fetches
   // don't serialize. `getOverlayEvents` returns [] on any failure, so
