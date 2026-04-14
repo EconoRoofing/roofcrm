@@ -140,9 +140,18 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
 
   // Fetch time entries with user info, scoped to company via jobs.
   // Exclude entries manually marked non-payroll (#33).
+  //
+  // Audit R4-#2: the join previously selected `users!inner(full_name, hourly_rate,
+  // hourly_rate_cents, ...)`. Two column-rename bugs in one line:
+  //   1. The column is `name` (per migration 001), never `full_name` — PostgREST
+  //      returned an error on every call, so every "Export Payroll to QuickBooks"
+  //      button press was silently erroring with `Failed to fetch time entries`.
+  //   2. `hourly_rate` (dollars) was dropped by migration 031, so even after
+  //      renaming to `name`, the legacy column would vanish and error.
+  // Fix: select `name` and cents-only.
   const { data: entries, error } = await supabase
     .from('time_entries')
-    .select('*, users!inner(full_name, hourly_rate, hourly_rate_cents, primary_company_id), jobs!inner(job_number, company_id)')
+    .select('*, users!inner(name, hourly_rate_cents, primary_company_id), jobs!inner(job_number, company_id)')
     .eq('users.primary_company_id', companyId)
     .eq('jobs.company_id', companyId)
     .eq('excluded_from_payroll', false)
@@ -166,8 +175,9 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
     const key = `${entry.user_id}|${dateKey}`
     const existing = byEmployeeDate.get(key) || []
     // Audit R3-#2 follow-up: cents-only post-031.
+    // Audit R4-#2: `user.full_name` → `user.name` (the actual column).
     const rateCents = Number(user.hourly_rate_cents ?? 0)
-    existing.push({ ...entry, _userName: user.full_name, _rateCents: rateCents })
+    existing.push({ ...entry, _userName: user.name, _rateCents: rateCents })
     byEmployeeDate.set(key, existing)
   }
 
