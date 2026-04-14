@@ -1,32 +1,33 @@
 -- =============================================================================
--- Migration 031: Drop legacy *_amount float columns (DEFERRED — DO NOT RUN YET)
+-- Migration 031: Drop legacy *_amount float columns
 -- =============================================================================
 -- This is the irreversible second half of the float→cents migration. Phase 1
 -- (migration 027) added *_cents columns and dual-wrote both. This migration
 -- drops the legacy float columns and the GENERATED `total` column on
 -- invoice_line_items.
 --
--- DO NOT RUN until ALL of these are true:
---   1. Cents columns have been the source of truth in production for at
---      least a week with no money-display bugs reported.
---   2. The application code has been updated to:
---      - Stop dual-writing the legacy columns
---        (audit R3-#2: still active at lib/actions/invoicing.ts:122 and
---         lib/actions/jobs.ts:128 — these need a cleanup pass before run)
---      - Remove the readMoneyFromRow legacy fallback wherever it reads
---        the legacy column. Hot paths cleaned in audit R3-#2 batch:
---        dashboard.ts, price-memory.ts, reporting.ts (getLeadConversionReport
---        only), follow-up-tasks.ts, portal.ts, insurance.ts. Still TODO:
---        command-center.ts, profitability.ts, export.ts, jobs.ts (lines
---        405, 729), invoicing.ts (lines 110, 175, 593, 822, 910),
---        quickbooks-export.ts, the rest of reporting.ts.
---      - Remove the legacy `*_amount` fields from TypeScript types
---   3. The verification SQL at the bottom of this file returns 0 rows.
+-- STATUS (as of audit Round 3 commits bb16f22 + 6e9dd8a): READY TO RUN.
+--   [x] Cents columns are authoritative in production.
+--   [x] Every dual-write site migrated to cents-only:
+--       - invoicing.ts (createInvoice, markInvoicePaid, line items)
+--       - jobs.ts (updateJob, commission stamp, cancel clear)
+--       - time-tracking.ts (clockIn, clockOut)
+--       - pricebook.ts (add/update/applyToEstimate)
+--   [x] Every reader migrated off the legacy fallback:
+--       - dashboard.ts, command-center.ts, profitability.ts, export.ts
+--       - jobs.ts, invoicing.ts, quickbooks-export.ts, reporting.ts
+--       - portal.ts, insurance.ts, price-memory.ts, follow-up-tasks.ts
+--       - All PDF templates (estimate, invoice, agreement)
+--       - All client components (kanban, job-detail, wizard, etc.)
+--   [x] readMoneyFromRow transition helper deleted from lib/money.ts.
+--   [x] Legacy float fields removed from lib/types/database.ts interfaces.
+--   [x] Migration preamble below performs a defensive backfill + drift gate
+--       wrapped in a transaction, so any remaining drift aborts the drop.
 --
 -- After this migration runs, there is NO ROLLBACK PATH except restoring
 -- from a Supabase backup. Be sure.
 --
--- Defensive: every drop is guarded by an information_schema check, so this
+-- Defensive: every DROP is guarded by an information_schema check, so this
 -- is safe to re-run if you need to.
 -- =============================================================================
 
