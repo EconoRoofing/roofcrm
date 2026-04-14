@@ -6,6 +6,7 @@ import type { Job } from '@/lib/types/database'
 import type { SpecsData } from './specs-form'
 import type { PricingData } from './pricing-form'
 import { formatCurrency, formatMoneyDisplay } from '@/lib/utils'
+import { dollarsToCents, centsToDollars, sumCents, halfCents } from '@/lib/money'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -175,11 +176,17 @@ export function ReviewScreen({ job, specs, pricing, onBack }: ReviewScreenProps)
   const [pdfUrl, setPdfUrl] = useState<string | null>(job.estimate_pdf_url ?? null)
   const [error, setError] = useState<string | null>(null)
 
-  const roof = pricing.roof_amount ?? 0
-  const gutters = pricing.gutters_amount ?? 0
-  const options = pricing.options_amount ?? 0
-  const total = roof + gutters + options
-  const deposit = total / 2
+  // Sum in integer cents so total + two 50/50 halves sum exactly
+  const roofCents = dollarsToCents(pricing.roof_amount)
+  const guttersCents = dollarsToCents(pricing.gutters_amount)
+  const optionsCents = dollarsToCents(pricing.options_amount)
+  const totalCents = sumCents([roofCents, guttersCents, optionsCents])
+  const depositCents = halfCents(totalCents)
+  const roof = centsToDollars(roofCents)
+  const gutters = centsToDollars(guttersCents)
+  const options = centsToDollars(optionsCents)
+  const total = centsToDollars(totalCents)
+  const deposit = centsToDollars(depositCents)
 
   async function handleGeneratePdf() {
     setGenerating(true)

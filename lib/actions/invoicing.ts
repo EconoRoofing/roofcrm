@@ -3,8 +3,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { createPaymentLink } from '@/lib/stripe'
-import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName, localDateString } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
+import {
+  dollarsToCents,
+  centsToDollars,
+  readMoneyFromRow,
+  multiplyCents,
+  formatCents,
+} from '@/lib/money'
 
 /** Ensure a URL starts with https:// before embedding in HTML */
 const safeUrl = (url: string) => url.startsWith('https://') ? url : '#'
@@ -28,8 +35,14 @@ interface Invoice {
 export interface CreateInvoiceData {
   job_id: string
   type?: 'standard' | 'deposit' | 'supplement' | 'change_order'
-  amount: number
-  total_amount: number
+  /** @deprecated pass amount_cents instead — will be converted if provided */
+  amount?: number
+  /** @deprecated pass total_amount_cents instead */
+  total_amount?: number
+  /** Integer cents — authoritative */
+  amount_cents?: number
+  /** Integer cents — authoritative */
+  total_amount_cents?: number
   due_date: string
   notes?: string
 }
@@ -48,14 +61,21 @@ export async function createInvoice(data: CreateInvoiceData) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  if (data.amount <= 0) throw new Error('Invoice amount must be greater than zero')
+  // Normalize to cents. Callers may still pass legacy `amount` dollars during
+  // the migration; we convert to cents once and do all validation in integer.
+  const amountCents =
+    data.amount_cents != null ? data.amount_cents : dollarsToCents(data.amount ?? 0)
+  const totalAmountCentsInput =
+    data.total_amount_cents != null ? data.total_amount_cents : dollarsToCents(data.total_amount ?? 0)
 
-  // Validate due_date
+  if (amountCents <= 0) throw new Error('Invoice amount must be greater than zero')
+
+  // Validate due_date (compare against local-today, not UTC-today)
   const dueDate = new Date(data.due_date)
   if (isNaN(dueDate.getTime())) {
     throw new Error('Invalid due date format')
   }
-  if (dueDate < new Date(new Date().toISOString().split('T')[0])) {
+  if (data.due_date < localDateString()) {
     console.warn(`[invoicing] Invoice created with past due date: ${data.due_date}`)
   }
 
@@ -76,8 +96,13 @@ export async function createInvoice(data: CreateInvoiceData) {
   const jobNum = job.job_number || 'JOB'
   const invoiceNumber = `INV-${jobNum}-${crypto.randomUUID().slice(0, 8)}`
 
-  // Use job's total_amount if not specified
-  const totalAmount = data.total_amount || job.total_amount || data.amount
+  // Total defaults to: caller's total → job's total → this invoice's amount.
+  // All three coerce to integer cents before comparison/store.
+  const jobTotalCents = readMoneyFromRow(
+    (job as { total_amount_cents?: number | null }).total_amount_cents,
+    job.total_amount
+  )
+  const totalAmountCents = totalAmountCentsInput || jobTotalCents || amountCents
 
   const { data: invoice, error } = await supabase
     .from('invoices')
@@ -86,8 +111,10 @@ export async function createInvoice(data: CreateInvoiceData) {
       job_id: data.job_id,
       invoice_number: invoiceNumber,
       type: data.type || 'standard',
-      amount: data.amount,
-      total_amount: totalAmount,
+      amount: centsToDollars(amountCents),              // legacy dual-write
+      total_amount: centsToDollars(totalAmountCents),   // legacy dual-write
+      amount_cents: amountCents,
+      total_amount_cents: totalAmountCents,
       due_date: data.due_date,
       status: 'draft',
       notes: data.notes,
@@ -110,11 +137,12 @@ export async function createInvoice(data: CreateInvoiceData) {
     } catch {}
   }
 
-  // Generate Stripe payment link if configured
+  // Generate Stripe payment link if configured. createPaymentLink expects
+  // dollars — convert from cents at this boundary.
   if (invoice) {
     const paymentLink = await createPaymentLink(
       invoice.id,
-      data.amount,
+      centsToDollars(amountCents),
       job.job_number,
       invoiceNumber
     )
@@ -131,26 +159,28 @@ export async function createInvoice(data: CreateInvoiceData) {
 }
 
 export async function createInvoiceFromEstimate(jobId: string) {
-  const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
   const job = await verifyJobOwnership(jobId, companyId)
 
-  const amount = job.total_amount
-  if (!amount || amount <= 0) {
+  const amountCents = readMoneyFromRow(
+    (job as { total_amount_cents?: number | null }).total_amount_cents,
+    job.total_amount
+  )
+  if (amountCents <= 0) {
     throw new Error('Job has no estimate amount to convert')
   }
 
-  // Default due date: 30 days from now
+  // Default due date: 30 days from now (local tz, not UTC)
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 30)
 
   return createInvoice({
     job_id: jobId,
     type: 'standard',
-    amount,
-    total_amount: amount,
-    due_date: dueDate.toISOString().split('T')[0],
+    amount_cents: amountCents,
+    total_amount_cents: amountCents,
+    due_date: localDateString(dueDate),
     notes: 'Created from estimate',
   })
 }
@@ -180,7 +210,9 @@ export async function markInvoicePaid(
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  if (paid_amount <= 0) throw new Error('Payment amount must be greater than zero')
+  // Normalize caller-supplied dollars → cents at the boundary
+  const paidCents = dollarsToCents(paid_amount)
+  if (paidCents <= 0) throw new Error('Payment amount must be greater than zero')
 
   // Fetch invoice with job join to verify company ownership
   const { data: existing } = await supabase
@@ -198,8 +230,9 @@ export async function markInvoicePaid(
     .from('invoices')
     .update({
       status: 'paid',
-      paid_date: new Date().toISOString().split('T')[0],
-      paid_amount: paid_amount,
+      paid_date: localDateString(),
+      paid_amount: centsToDollars(paidCents),  // legacy dual-write
+      paid_amount_cents: paidCents,
       payment_method: payment_method,
       updated_at: new Date().toISOString(),
     })
@@ -344,13 +377,20 @@ export async function addLineItem(
   if (!invoice) throw new Error('Invoice not found')
   if ((invoice as any).jobs.company_id !== companyId) throw new Error('Access denied')
 
+  // Store unit price in integer cents. `total_cents` used to be a Postgres
+  // GENERATED column; now computed here so we can do it in integer math.
+  const unitPriceCents = dollarsToCents(unitPrice)
+  const totalCents = multiplyCents(unitPriceCents, quantity)
+
   const { data, error } = await supabase
     .from('invoice_line_items')
     .insert({
       invoice_id: invoiceId,
       description: description.trim(),
       quantity,
-      unit_price: unitPrice,
+      unit_price: centsToDollars(unitPriceCents),     // legacy dual-write
+      unit_price_cents: unitPriceCents,
+      total_cents: totalCents,
     })
     .select()
     .single()
@@ -428,12 +468,17 @@ export async function updateLineItem(
   if (!lineItem) throw new Error('Line item not found')
   if ((lineItem as any).invoices.jobs.company_id !== companyId) throw new Error('Access denied')
 
+  const unitPriceCents = dollarsToCents(unitPrice)
+  const totalCents = multiplyCents(unitPriceCents, quantity)
+
   const { data, error } = await supabase
     .from('invoice_line_items')
     .update({
       description: description.trim(),
       quantity,
-      unit_price: unitPrice,
+      unit_price: centsToDollars(unitPriceCents),  // legacy dual-write
+      unit_price_cents: unitPriceCents,
+      total_cents: totalCents,
     })
     .eq('id', lineItemId)
     .select()
@@ -523,15 +568,19 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  // Prefer cents, fall back to legacy dollar column
+  const invoiceTotalCents = readMoneyFromRow(
+    (invoice as { total_amount_cents?: number | null }).total_amount_cents,
+    invoice.total_amount
+  )
+  const invoiceTotalDisplay = formatCents(invoiceTotalCents)
 
   const dueDate = invoice.due_date
     ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'Upon receipt'
 
   const paymentSection = invoice.payment_link
-    ? `<p style="margin-top:20px;"><a href="${safeUrl(invoice.payment_link)}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now — ${formatCurrency(invoice.total_amount)}</a></p>`
+    ? `<p style="margin-top:20px;"><a href="${safeUrl(invoice.payment_link)}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Pay Now — ${invoiceTotalDisplay}</a></p>`
     : ''
 
   const pdfSection = pdfUrl
@@ -541,7 +590,7 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
   await resend.emails.send({
     from: `${companyName} <${fromEmail}>`,
     to: job.email,
-    subject: `Invoice ${safeInvoiceNumber} from ${companyName} — ${formatCurrency(invoice.total_amount)} due ${dueDate}`,
+    subject: `Invoice ${safeInvoiceNumber} from ${companyName} — ${invoiceTotalDisplay} due ${dueDate}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111;">
         <div style="background:#1a1a1a;padding:24px;border-radius:8px 8px 0 0;">
@@ -562,7 +611,7 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
             </tr>
             <tr style="border-bottom:2px solid #1a1a1a;">
               <td style="padding:10px 0;font-weight:700;">Amount Due</td>
-              <td style="padding:10px 0;font-weight:700;font-size:20px;text-align:right;">${formatCurrency(invoice.total_amount)}</td>
+              <td style="padding:10px 0;font-weight:700;font-size:20px;text-align:right;">${invoiceTotalDisplay}</td>
             </tr>
           </table>
           ${paymentSection}
@@ -696,7 +745,7 @@ function inferLastTierFromDays(daysPastDue: number, lastReminderAt: string | nul
 export async function processInvoiceReminders(): Promise<{ sent: number }> {
   const supabase = await createClient()
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateString()
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
 
   // Find overdue invoices: past due, not paid, no reminder in last 3 days
@@ -717,9 +766,6 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
 
   const resend = new Resend(resendKey)
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
-
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 
   let sent = 0
 
@@ -752,7 +798,11 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
       ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : 'a past date'
 
-    const amount = formatCurrency(invoice.total_amount)
+    const invoiceCents = readMoneyFromRow(
+      (invoice as { total_amount_cents?: number | null }).total_amount_cents,
+      invoice.total_amount
+    )
+    const amount = formatCents(invoiceCents)
 
     const subject = tier.buildSubject(safeInvoiceNumber, daysPastDue, amount)
     const bodyContent = tier.buildBody(safeCustomerName, safeInvoiceNumber, amount, dueDate, daysPastDue, safeCompanyName)
@@ -836,8 +886,11 @@ export async function sendInvoiceEmail(invoice_id: string) {
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  const invoiceCents = readMoneyFromRow(
+    (invoice as { total_amount_cents?: number | null }).total_amount_cents,
+    invoice.total_amount
+  )
+  const invoiceTotalDisplay = formatCents(invoiceCents)
 
   const dueDate = invoice.due_date
     ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -856,7 +909,7 @@ export async function sendInvoiceEmail(invoice_id: string) {
           <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Invoice #</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">${safeInvoiceNumber}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Job #</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${safeJobNumber}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Type</td><td style="padding: 8px; border-bottom: 1px solid #eee; text-transform: capitalize;">${escapeHtml(invoice.type || '')}</td></tr>
-          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount Due</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 18px;">${formatCurrency(invoice.total_amount)}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount Due</td><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 18px;">${invoiceTotalDisplay}</td></tr>
           <tr><td style="padding: 8px; color: #666;">Due Date</td><td style="padding: 8px;">${dueDate}</td></tr>
         </table>
         ${invoice.notes ? `<p style="color: #666; font-size: 14px;">Notes: ${escapeHtml(String(invoice.notes))}</p>` : ''}

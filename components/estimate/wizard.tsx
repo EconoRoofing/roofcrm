@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { updateJob } from '@/lib/actions/jobs'
 import { getPreviousJobAtAddress } from '@/lib/actions/price-memory'
+import { dollarsToCents, centsToDollars, readMoneyFromRow, sumCents } from '@/lib/money'
 import { ChevronLeftNavIcon } from '@/components/icons'
 import { SpecsForm } from './specs-form'
 import type { Job } from '@/lib/types/database'
@@ -89,11 +90,25 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
       warranty_manufacturer_years: (p.warranty_manufacturer_years as number | null) ?? prev.warranty_manufacturer_years,
       warranty_workmanship_years: (p.warranty_workmanship_years as number | null) ?? prev.warranty_workmanship_years,
     }))
+    // Prefer *_cents from the previous job's pricing memory; fall back to
+    // legacy dollar fields if cents are missing (un-migrated row).
+    const prevRoofCents = readMoneyFromRow(
+      p.roof_amount_cents as number | null | undefined,
+      p.roof_amount as number | null | undefined
+    )
+    const prevGuttersCents = readMoneyFromRow(
+      p.gutters_amount_cents as number | null | undefined,
+      p.gutters_amount as number | null | undefined
+    )
+    const prevOptionsCents = readMoneyFromRow(
+      p.options_amount_cents as number | null | undefined,
+      p.options_amount as number | null | undefined
+    )
     setPricing((prev) => ({
       ...prev,
-      roof_amount: (p.roof_amount as number | null) ?? prev.roof_amount,
-      gutters_amount: (p.gutters_amount as number | null) ?? prev.gutters_amount,
-      options_amount: (p.options_amount as number | null) ?? prev.options_amount,
+      roof_amount: prevRoofCents > 0 ? centsToDollars(prevRoofCents) : prev.roof_amount,
+      gutters_amount: prevGuttersCents > 0 ? centsToDollars(prevGuttersCents) : prev.gutters_amount,
+      options_amount: prevOptionsCents > 0 ? centsToDollars(prevOptionsCents) : prev.options_amount,
     }))
     setShowPrevBanner(false)
   }
@@ -120,10 +135,13 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
     }
   })
 
+  // Pricing UI state is in dollars (form inputs are dollars), but we source
+  // from the authoritative `*_amount_cents` columns. Falls back to legacy
+  // dollar columns if cents are still 0 from an un-migrated row.
   const [pricing, setPricing] = useState<PricingData>(() => ({
-    roof_amount: job.roof_amount,
-    gutters_amount: job.gutters_amount,
-    options_amount: job.options_amount,
+    roof_amount: centsToDollars(readMoneyFromRow(job.roof_amount_cents, job.roof_amount)) || null,
+    gutters_amount: centsToDollars(readMoneyFromRow(job.gutters_amount_cents, job.gutters_amount)) || null,
+    options_amount: centsToDollars(readMoneyFromRow(job.options_amount_cents, job.options_amount)) || null,
     notes: job.notes,
   }))
 
@@ -173,10 +191,13 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
         other_structures: estimateSpecsRaw.other_structures,
       }
 
-      const roof = pricing.roof_amount ?? 0
-      const gutters = pricing.gutters_amount ?? 0
-      const options = pricing.options_amount ?? 0
-      const total = roof + gutters + options
+      // Convert form dollars → integer cents at the save boundary.
+      // All arithmetic (total = roof + gutters + options) happens in cents
+      // so there's no float drift between the sum and the displayed parts.
+      const roofCents = dollarsToCents(pricing.roof_amount)
+      const guttersCents = dollarsToCents(pricing.gutters_amount)
+      const optionsCents = dollarsToCents(pricing.options_amount)
+      const totalCents = sumCents([roofCents, guttersCents, optionsCents])
 
       await updateJob(job.id, {
         // Specs fields
@@ -191,11 +212,12 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
         gutter_color: gutter_color ?? null,
         downspout_color: downspout_color ?? null,
         estimate_specs: estimateSpecs,
-        // Pricing fields
-        roof_amount: pricing.roof_amount ?? null,
-        gutters_amount: pricing.gutters_amount ?? null,
-        options_amount: pricing.options_amount ?? null,
-        total_amount: total > 0 ? total : null,
+        // Pricing fields — pass ONLY cents. updateJob's normalizer dual-writes
+        // the legacy `*_amount` columns derived from these cents values.
+        roof_amount_cents: roofCents || null,
+        gutters_amount_cents: guttersCents || null,
+        options_amount_cents: optionsCents || null,
+        total_amount_cents: totalCents > 0 ? totalCents : null,
         notes: pricing.notes ?? null,
       })
       setStep(s => s + 1)
@@ -214,7 +236,7 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
       style={{
         maxWidth: '560px',
         margin: '0 auto',
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         flexDirection: 'column',
       }}

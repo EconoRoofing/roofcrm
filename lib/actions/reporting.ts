@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
+import { centsToDollars, readMoneyFromRow } from '@/lib/money'
 
 export async function getRevenueReport(
   startDate: string,
@@ -13,7 +14,7 @@ export async function getRevenueReport(
 
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('total_amount, completed_date, status')
+    .select('total_amount, total_amount_cents, completed_date, status')
     .eq('company_id', companyId)
     .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
     .gte('completed_date', startDate)
@@ -22,8 +23,8 @@ export async function getRevenueReport(
 
   if (!jobs?.length) return []
 
-  // Group by period
-  const periodMap = new Map<string, { revenue: number; jobCount: number }>()
+  // Group by period — sum in integer cents
+  const periodMap = new Map<string, { revenueCents: number; jobCount: number }>()
 
   for (const job of jobs) {
     const date = new Date(job.completed_date)
@@ -42,8 +43,11 @@ export async function getRevenueReport(
       periodKey = job.completed_date.slice(0, 7) // YYYY-MM
     }
 
-    const existing = periodMap.get(periodKey) ?? { revenue: 0, jobCount: 0 }
-    existing.revenue += job.total_amount ?? 0
+    const existing = periodMap.get(periodKey) ?? { revenueCents: 0, jobCount: 0 }
+    existing.revenueCents += readMoneyFromRow(
+      (job as { total_amount_cents?: number | null }).total_amount_cents,
+      job.total_amount
+    )
     existing.jobCount += 1
     periodMap.set(periodKey, existing)
   }
@@ -51,9 +55,9 @@ export async function getRevenueReport(
   return Array.from(periodMap.entries())
     .map(([period, data]) => ({
       period,
-      revenue: data.revenue,
+      revenue: centsToDollars(data.revenueCents),
       jobCount: data.jobCount,
-      avgDealSize: data.jobCount > 0 ? Math.round(data.revenue / data.jobCount) : 0,
+      avgDealSize: data.jobCount > 0 ? centsToDollars(Math.round(data.revenueCents / data.jobCount)) : 0,
     }))
     .sort((a, b) => a.period.localeCompare(b.period))
 }
@@ -140,7 +144,7 @@ export async function getCrewProductivityReport(startDate: string, endDate: stri
 
   const { data: entries } = await supabase
     .from('time_entries')
-    .select('user_id, job_id, total_hours, overtime_hours, doubletime_hours, total_cost')
+    .select('user_id, job_id, total_hours, overtime_hours, doubletime_hours, total_cost, total_cost_cents')
     .in('job_id', jobIds)
     .gte('clock_in', startDate)
     .lte('clock_in', endDate)
@@ -157,10 +161,10 @@ export async function getCrewProductivityReport(startDate: string, endDate: stri
 
   const userMap = new Map((users ?? []).map((u) => [u.id, u.name]))
 
-  // Aggregate per user
+  // Aggregate per user — cost in integer cents
   const crewMap = new Map<
     string,
-    { name: string; hours: number; overtime: number; jobs: Set<string>; revenue: number; cost: number }
+    { name: string; hours: number; overtime: number; jobs: Set<string>; costCents: number }
   >()
 
   for (const entry of entries) {
@@ -170,34 +174,47 @@ export async function getCrewProductivityReport(startDate: string, endDate: stri
       hours: 0,
       overtime: 0,
       jobs: new Set<string>(),
-      revenue: 0,
-      cost: 0,
+      costCents: 0,
     }
     existing.hours += Number(entry.total_hours) || 0
     existing.overtime += (Number(entry.overtime_hours) || 0) + (Number(entry.doubletime_hours) || 0)
     existing.jobs.add(entry.job_id)
-    existing.cost += Number(entry.total_cost) || 0
+    existing.costCents += readMoneyFromRow(
+      (entry as { total_cost_cents?: number | null }).total_cost_cents,
+      entry.total_cost
+    )
     crewMap.set(uid, existing)
   }
 
-  // Get job revenue for revenue-per-hour calc
+  // Get job revenue for revenue-per-hour calc — in cents
   const completedJobIds = [...new Set(entries.map((e) => e.job_id))]
   const { data: completedJobs } = await supabase
     .from('jobs')
-    .select('id, total_amount')
+    .select('id, total_amount, total_amount_cents')
     .in('id', completedJobIds)
 
-  const jobRevenueMap = new Map((completedJobs ?? []).map((j) => [j.id, j.total_amount ?? 0]))
+  const jobRevenueCentsMap = new Map(
+    (completedJobs ?? []).map((j) => [
+      j.id,
+      readMoneyFromRow(
+        (j as { total_amount_cents?: number | null }).total_amount_cents,
+        j.total_amount
+      ),
+    ])
+  )
 
   return Array.from(crewMap.entries()).map(([, data]) => {
     const jobCount = data.jobs.size
-    const jobRevenue = Array.from(data.jobs).reduce((sum, jid) => sum + (jobRevenueMap.get(jid) ?? 0), 0)
+    const jobRevenueCents = Array.from(data.jobs).reduce(
+      (sum, jid) => sum + (jobRevenueCentsMap.get(jid) ?? 0),
+      0
+    )
     return {
       crewMember: data.name,
       hoursWorked: Math.round(data.hours * 10) / 10,
       jobsCompleted: jobCount,
       avgHoursPerJob: jobCount > 0 ? Math.round((data.hours / jobCount) * 10) / 10 : 0,
-      revenuePerHour: data.hours > 0 ? Math.round(jobRevenue / data.hours) : 0,
+      revenuePerHour: data.hours > 0 ? centsToDollars(Math.round(jobRevenueCents / data.hours)) : 0,
       overtimePercentage: data.hours > 0 ? Math.round((data.overtime / data.hours) * 100) : 0,
     }
   }).sort((a, b) => b.hoursWorked - a.hoursWorked)
@@ -209,7 +226,7 @@ export async function getJobTypeReport(startDate: string, endDate: string) {
 
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('job_type, total_amount, status')
+    .select('job_type, total_amount, total_amount_cents, status')
     .eq('company_id', companyId)
     .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
     .gte('created_at', startDate)
@@ -217,25 +234,34 @@ export async function getJobTypeReport(startDate: string, endDate: string) {
 
   if (!jobs?.length) return []
 
-  const typeMap = new Map<string, { count: number; revenue: number }>()
+  const typeMap = new Map<string, { count: number; revenueCents: number }>()
 
   for (const job of jobs) {
     const type = job.job_type ?? 'other'
-    const existing = typeMap.get(type) ?? { count: 0, revenue: 0 }
+    const existing = typeMap.get(type) ?? { count: 0, revenueCents: 0 }
     existing.count += 1
-    existing.revenue += job.total_amount ?? 0
+    existing.revenueCents += readMoneyFromRow(
+      (job as { total_amount_cents?: number | null }).total_amount_cents,
+      job.total_amount
+    )
     typeMap.set(type, existing)
   }
 
-  const totalRevenue = jobs.reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
+  const totalRevenueCents = jobs.reduce(
+    (sum, j) => sum + readMoneyFromRow(
+      (j as { total_amount_cents?: number | null }).total_amount_cents,
+      j.total_amount
+    ),
+    0
+  )
 
   return Array.from(typeMap.entries())
     .map(([type, data]) => ({
       type,
       count: data.count,
-      revenue: data.revenue,
-      avgDealSize: data.count > 0 ? Math.round(data.revenue / data.count) : 0,
-      revenueShare: totalRevenue > 0 ? Math.round((data.revenue / totalRevenue) * 100) : 0,
+      revenue: centsToDollars(data.revenueCents),
+      avgDealSize: data.count > 0 ? centsToDollars(Math.round(data.revenueCents / data.count)) : 0,
+      revenueShare: totalRevenueCents > 0 ? Math.round((data.revenueCents / totalRevenueCents) * 100) : 0,
     }))
     .sort((a, b) => b.revenue - a.revenue)
 }
@@ -246,7 +272,7 @@ export async function getSourceROIReport(startDate: string, endDate: string) {
 
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('referred_by, total_amount, status')
+    .select('referred_by, total_amount, total_amount_cents, status')
     .eq('company_id', companyId)
     .gte('created_at', startDate)
     .lte('created_at', endDate)
@@ -255,16 +281,19 @@ export async function getSourceROIReport(startDate: string, endDate: string) {
 
   const sourceMap = new Map<
     string,
-    { count: number; converted: number; revenue: number }
+    { count: number; converted: number; revenueCents: number }
   >()
 
   for (const job of jobs) {
     const source = job.referred_by?.trim() || 'Direct'
-    const existing = sourceMap.get(source) ?? { count: 0, converted: 0, revenue: 0 }
+    const existing = sourceMap.get(source) ?? { count: 0, converted: 0, revenueCents: 0 }
     existing.count += 1
     if (['sold', 'scheduled', 'in_progress', 'completed'].includes(job.status)) {
       existing.converted += 1
-      existing.revenue += job.total_amount ?? 0
+      existing.revenueCents += readMoneyFromRow(
+        (job as { total_amount_cents?: number | null }).total_amount_cents,
+        job.total_amount
+      )
     }
     sourceMap.set(source, existing)
   }
@@ -274,8 +303,8 @@ export async function getSourceROIReport(startDate: string, endDate: string) {
       source,
       leadCount: data.count,
       conversionRate: data.count > 0 ? Math.round((data.converted / data.count) * 100) : 0,
-      totalRevenue: data.revenue,
-      avgDealSize: data.converted > 0 ? Math.round(data.revenue / data.converted) : 0,
+      totalRevenue: centsToDollars(data.revenueCents),
+      avgDealSize: data.converted > 0 ? centsToDollars(Math.round(data.revenueCents / data.converted)) : 0,
       costPerLead: 0, // Requires marketing spend tracking — placeholder
     }))
     .sort((a, b) => b.totalRevenue - a.totalRevenue)

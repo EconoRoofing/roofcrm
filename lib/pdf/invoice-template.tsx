@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer'
 import type { Company } from '@/lib/types/database'
+import { formatCents, readMoneyFromRow, sumCents, applyPercentCents } from '@/lib/money'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -14,8 +15,14 @@ export interface LineItem {
   id: string
   description: string
   quantity: number
+  /** @deprecated legacy dollars */
   unit_price: number
+  /** @deprecated legacy dollars */
   total: number
+  /** Integer cents — preferred */
+  unit_price_cents?: number | null
+  /** Integer cents — preferred */
+  total_cents?: number | null
 }
 
 export interface InvoiceProps {
@@ -23,8 +30,14 @@ export interface InvoiceProps {
   invoice: {
     invoice_number: string
     type: string
+    /** @deprecated legacy dollars */
     amount: number
+    /** @deprecated legacy dollars */
     total_amount: number
+    /** Integer cents — preferred */
+    amount_cents?: number | null
+    /** Integer cents — preferred */
+    total_amount_cents?: number | null
     status: string
     due_date: string | null
     notes: string | null
@@ -45,18 +58,16 @@ export interface InvoiceProps {
   taxRate?: number // e.g. 0.0875 for 8.75%
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
-}
-
 function formatDate(dateStr: string): string {
   return new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00')).toLocaleDateString(
     'en-US',
     { month: 'long', day: 'numeric', year: 'numeric' }
   )
 }
+
+// Money values in this template are integer cents. formatCents() returns
+// a properly-formatted USD string regardless of input magnitude.
+const formatMoney = (cents: number) => formatCents(cents)
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
@@ -310,12 +321,16 @@ const s = StyleSheet.create({
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: InvoiceProps) {
-  const subtotal = lineItems.length > 0
-    ? lineItems.reduce((sum, item) => sum + item.total, 0)
-    : invoice.amount
+  // All totals computed in integer cents, then formatted for display once.
+  const invoiceAmountCents = readMoneyFromRow(invoice.amount_cents, invoice.amount)
+  const invoiceTotalCents = readMoneyFromRow(invoice.total_amount_cents, invoice.total_amount)
 
-  const taxAmount = taxRate ? subtotal * taxRate : 0
-  const totalDue = lineItems.length > 0 ? subtotal + taxAmount : invoice.total_amount
+  const subtotalCents = lineItems.length > 0
+    ? sumCents(lineItems.map((item) => readMoneyFromRow(item.total_cents, item.total)))
+    : invoiceAmountCents
+
+  const taxAmountCents = taxRate ? applyPercentCents(subtotalCents, taxRate * 100) : 0
+  const totalDueCents = lineItems.length > 0 ? subtotalCents + taxAmountCents : invoiceTotalCents
 
   const customerAddress = [job.address, job.city, job.state, job.zip]
     .filter(Boolean)
@@ -385,22 +400,26 @@ export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: I
         </View>
 
         {lineItems.length > 0 ? (
-          lineItems.map((item, idx) => (
-            <View key={item.id} style={idx % 2 === 0 ? s.tableRow : s.tableRowAlt}>
-              <Text style={[s.cellText, s.colDesc]}>{item.description}</Text>
-              <Text style={[s.cellTextRight, s.colQty]}>{item.quantity}</Text>
-              <Text style={[s.cellTextRight, s.colUnit]}>{formatMoney(item.unit_price)}</Text>
-              <Text style={[s.cellTextRight, s.colTotal]}>{formatMoney(item.total)}</Text>
-            </View>
-          ))
+          lineItems.map((item, idx) => {
+            const unitCents = readMoneyFromRow(item.unit_price_cents, item.unit_price)
+            const totalCents = readMoneyFromRow(item.total_cents, item.total)
+            return (
+              <View key={item.id} style={idx % 2 === 0 ? s.tableRow : s.tableRowAlt}>
+                <Text style={[s.cellText, s.colDesc]}>{item.description}</Text>
+                <Text style={[s.cellTextRight, s.colQty]}>{item.quantity}</Text>
+                <Text style={[s.cellTextRight, s.colUnit]}>{formatMoney(unitCents)}</Text>
+                <Text style={[s.cellTextRight, s.colTotal]}>{formatMoney(totalCents)}</Text>
+              </View>
+            )
+          })
         ) : (
           <View style={s.tableRow}>
             <Text style={[s.cellText, s.colDesc]}>
               {invoiceType} — {job.customer_name} ({job.job_number})
             </Text>
             <Text style={[s.cellTextRight, s.colQty]}>1</Text>
-            <Text style={[s.cellTextRight, s.colUnit]}>{formatMoney(invoice.amount)}</Text>
-            <Text style={[s.cellTextRight, s.colTotal]}>{formatMoney(invoice.amount)}</Text>
+            <Text style={[s.cellTextRight, s.colUnit]}>{formatMoney(invoiceAmountCents)}</Text>
+            <Text style={[s.cellTextRight, s.colTotal]}>{formatMoney(invoiceAmountCents)}</Text>
           </View>
         )}
 
@@ -409,19 +428,19 @@ export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: I
           {lineItems.length > 0 && (
             <View style={s.totalsRow}>
               <Text style={s.totalsLabel}>Subtotal</Text>
-              <Text style={s.totalsValue}>{formatMoney(subtotal)}</Text>
+              <Text style={s.totalsValue}>{formatMoney(subtotalCents)}</Text>
             </View>
           )}
           {taxRate && taxRate > 0 ? (
             <View style={s.totalsRow}>
               <Text style={s.totalsLabel}>Tax ({(taxRate * 100).toFixed(2)}%)</Text>
-              <Text style={s.totalsValue}>{formatMoney(taxAmount)}</Text>
+              <Text style={s.totalsValue}>{formatMoney(taxAmountCents)}</Text>
             </View>
           ) : null}
           <View style={s.totalsDivider} />
           <View style={s.grandTotalRow}>
             <Text style={s.grandTotalLabel}>TOTAL DUE</Text>
-            <Text style={s.grandTotalValue}>{formatMoney(totalDue)}</Text>
+            <Text style={s.grandTotalValue}>{formatMoney(totalDueCents)}</Text>
           </View>
         </View>
 

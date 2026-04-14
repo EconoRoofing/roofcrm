@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
+import { centsToDollars, readMoneyFromRow } from '@/lib/money'
 
 export interface CommandCenterData {
   // Today
@@ -99,7 +100,7 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     // Revenue this month (sold/scheduled/in_progress/completed)
     supabase
       .from('jobs')
-      .select('total_amount')
+      .select('total_amount, total_amount_cents')
       .eq('company_id', companyId)
       .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
       .gte('created_at', monthStart),
@@ -107,7 +108,7 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     // Pipeline value
     supabase
       .from('jobs')
-      .select('total_amount')
+      .select('total_amount, total_amount_cents')
       .eq('company_id', companyId)
       .in('status', ['lead', 'estimate_scheduled', 'pending', 'sold', 'scheduled', 'in_progress']),
 
@@ -134,12 +135,27 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
   const dueFollowUpCount = dueFollowUpsResult.count ?? 0
   const dueFollowUps = (dueFollowUpsResult.data ?? []) as unknown as CommandCenterData['dueFollowUps']
 
-  const revenueThisMonth = (revenueResult.data ?? []).reduce(
-    (sum, j) => sum + (Number(j.total_amount) || 0), 0
+  // Sums in integer cents, return as dollars at the wire boundary
+  const revenueThisMonthCents = (revenueResult.data ?? []).reduce(
+    (sum, j) =>
+      sum +
+      readMoneyFromRow(
+        (j as { total_amount_cents?: number | null }).total_amount_cents,
+        j.total_amount
+      ),
+    0
   )
-  const pipelineValue = (pipelineResult.data ?? []).reduce(
-    (sum, j) => sum + (Number(j.total_amount) || 0), 0
+  const pipelineValueCents = (pipelineResult.data ?? []).reduce(
+    (sum, j) =>
+      sum +
+      readMoneyFromRow(
+        (j as { total_amount_cents?: number | null }).total_amount_cents,
+        j.total_amount
+      ),
+    0
   )
+  const revenueThisMonth = centsToDollars(revenueThisMonthCents)
+  const pipelineValue = centsToDollars(pipelineValueCents)
 
   const yesterdayCompletedCount = yesterdayResult.count ?? 0
   const openIncidentCount = incidentResult.count ?? 0

@@ -63,6 +63,7 @@ export async function generateMaterialList(jobId: string): Promise<MaterialList>
         items,
         waste_factor: input.waste_factor ?? 0.10,
         total_estimated_cost: 0,
+        total_estimated_cost_cents: 0,
       })
       .select()
       .single()

@@ -3,6 +3,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
 import { checkGeofence } from '@/lib/geo'
+import {
+  readMoneyFromRow,
+  multiplyCents,
+  sumCents,
+  centsToDollars,
+} from '@/lib/money'
 import type { TimeEntry, GeofenceResult } from '@/lib/types/time-tracking'
 
 // ---------------------------------------------------------------------------
@@ -125,11 +131,12 @@ export async function clockIn(
   const supabase = await createClient()
   const { userId, companyId } = await getUserWithCompany()
 
-  // Run dup-check, job fetch, and user pay data in parallel — all independent
+  // Run dup-check, job fetch, and user pay data in parallel — all independent.
+  // Select both legacy float + new cents pay-rate columns; we prefer cents.
   const [existingResult, jobResult, userDataResult] = await Promise.all([
     supabase.from('time_entries').select('id').eq('user_id', userId).is('clock_out', null).maybeSingle(),
     supabase.from('jobs').select('lat, lng, city, status, job_type, company_id').eq('id', jobId).single(),
-    supabase.from('users').select('pay_type, hourly_rate, day_rate').eq('id', userId).single(),
+    supabase.from('users').select('pay_type, hourly_rate, day_rate, hourly_rate_cents, day_rate_cents').eq('id', userId).single(),
   ])
 
   if (existingResult.data) throw new Error('Already clocked in. Clock out first.')
@@ -164,6 +171,18 @@ export async function clockIn(
     ? `Clock-in at unusual hour: ${clockInTime.toLocaleTimeString()}`
     : null
 
+  // Snapshot the user's pay rates onto the time entry. Dual-write cents +
+  // legacy dollar columns so both sides of the migration work. Cents is
+  // the source of truth for payroll math at clock-out.
+  const hourlyRateCents = readMoneyFromRow(
+    (userData as { hourly_rate_cents?: number | null }).hourly_rate_cents,
+    userData.hourly_rate
+  )
+  const dayRateCents = readMoneyFromRow(
+    (userData as { day_rate_cents?: number | null }).day_rate_cents,
+    userData.day_rate
+  )
+
   // Create time entry
   const { data: entry, error: insertError } = await supabase
     .from('time_entries')
@@ -176,8 +195,10 @@ export async function clockIn(
       clock_in_distance_ft: distanceFt,
       clock_in_photo_url: photoUrl ?? null,
       pay_type: userData.pay_type ?? 'hourly',
-      hourly_rate: userData.hourly_rate ?? 0,
-      day_rate: userData.day_rate ?? 0,
+      hourly_rate: centsToDollars(hourlyRateCents), // legacy dual-write
+      day_rate: centsToDollars(dayRateCents),       // legacy dual-write
+      hourly_rate_cents: hourlyRateCents,
+      day_rate_cents: dayRateCents,
       weather_conditions: weatherConditions,
       cost_code: costCode ?? 'labor',
       flagged,
@@ -319,10 +340,20 @@ export async function clockOut(
   const elapsedHours = (clockOutMs - clockInMs) / 1000 / 3600
   const workingHours = Math.max(0, elapsedHours - totalBreakMinutes / 60)
 
-  // Cost calculation
+  // Cost calculation — prefer cents, fall back to legacy float dollars.
+  // All pay math stays in integer cents until the final write.
   const payType = entry.pay_type as string
-  const hourlyRate = Number(entry.hourly_rate ?? 0)
-  const dayRate = Number(entry.day_rate ?? 0)
+  const hourlyRateCents = readMoneyFromRow(
+    (entry as { hourly_rate_cents?: number | null }).hourly_rate_cents,
+    Number(entry.hourly_rate ?? 0)
+  )
+  const dayRateCents = readMoneyFromRow(
+    (entry as { day_rate_cents?: number | null }).day_rate_cents,
+    Number(entry.day_rate ?? 0)
+  )
+  // Legacy dollar values for any remaining legacy code paths
+  const hourlyRate = centsToDollars(hourlyRateCents)
+  const dayRate = centsToDollars(dayRateCents)
 
   // Pre-compute day/week boundary variables needed for parallel queries
   const clockInDate = new Date(entry.clock_in as string)
@@ -415,15 +446,22 @@ export async function clockOut(
     doubletimeHours = base.doubletimeHours
   }
 
-  let totalCost: number
+  // Payroll math in integer cents:
+  //   regular = rate × hours
+  //   OT      = rate × 1.5 × hours   (time-and-a-half)
+  //   DT      = rate × 2   × hours   (double time)
+  // `multiplyCents(cents, factor)` rounds each leg to the nearest cent.
+  let totalCostCents: number
   if (payType === 'day_rate') {
-    totalCost = dayRate
+    totalCostCents = dayRateCents
   } else {
-    totalCost =
-      regularHours * hourlyRate +
-      overtimeHours * hourlyRate * 1.5 +
-      doubletimeHours * hourlyRate * 2.0
+    totalCostCents = sumCents([
+      multiplyCents(hourlyRateCents, regularHours),
+      multiplyCents(hourlyRateCents, overtimeHours * 1.5),
+      multiplyCents(hourlyRateCents, doubletimeHours * 2.0),
+    ])
   }
+  let totalCost = centsToDollars(totalCostCents)
 
   if (workingHours > 12) {
     flagged = true
@@ -474,13 +512,16 @@ export async function clockOut(
     breakPremiumHours = mealsMissed + restsMissed
 
     if (breakPremiumHours > 0) {
-      const premiumPay = breakPremiumHours * hourlyRate
-      totalCost = totalCost + premiumPay
+      // Break premium: each missed period = 1 hour at the regular rate
+      const premiumCents = multiplyCents(hourlyRateCents, breakPremiumHours)
+      totalCostCents = sumCents([totalCostCents, premiumCents])
+      totalCost = centsToDollars(totalCostCents)
+      const premiumPay = centsToDollars(premiumCents)
 
       const reasons = []
       if (mealsMissed > 0) reasons.push(`${mealsMissed} missed meal period(s)`)
       if (restsMissed > 0) reasons.push(`${restsMissed} missed rest period(s)`)
-      breakPremiumReason = `Break premium: ${reasons.join(', ')} — ${breakPremiumHours}hr at $${hourlyRate}/hr = $${premiumPay.toFixed(2)}`
+      breakPremiumReason = `Break premium: ${reasons.join(', ')} — ${breakPremiumHours}hr at $${hourlyRate.toFixed(2)}/hr = $${premiumPay.toFixed(2)}`
 
       flagged = true
       flagReason = (flagReason ? flagReason + '; ' : '') + breakPremiumReason
@@ -503,7 +544,8 @@ export async function clockOut(
       overtime_hours: overtimeHours,
       doubletime_hours: doubletimeHours,
       total_hours: parseFloat(workingHours.toFixed(4)),
-      total_cost: parseFloat(totalCost.toFixed(2)),
+      total_cost: centsToDollars(totalCostCents),   // legacy dual-write, derived from cents
+      total_cost_cents: totalCostCents,             // authoritative
       flagged,
       flag_reason: flagReason,
       ...(updatedNotes !== undefined ? { notes: updatedNotes } : {}),
@@ -622,7 +664,7 @@ export async function getClockedInEntries(): Promise<TimeEntry[]> {
 
   const { data, error } = await supabase
     .from('time_entries')
-    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
+    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, total_cost_cents, cost_code, pay_type, hourly_rate, day_rate, hourly_rate_cents, day_rate_cents, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
     .eq('job.company_id', companyId)
     .is('clock_out', null)
     .order('clock_in', { ascending: false })
@@ -633,7 +675,9 @@ export async function getClockedInEntries(): Promise<TimeEntry[]> {
 
 export async function getJobLaborCost(jobId: string): Promise<{
   totalHours: number
+  /** @deprecated use totalCostCents */
   totalCost: number
+  totalCostCents: number
   entries: TimeEntry[]
 }> {
   const { companyId } = await getUserWithCompany()
@@ -642,7 +686,7 @@ export async function getJobLaborCost(jobId: string): Promise<{
 
   const { data, error } = await supabase
     .from('time_entries')
-    .select('id, total_hours, total_cost')
+    .select('id, total_hours, total_cost, total_cost_cents')
     .eq('job_id', jobId)
     .order('clock_in', { ascending: true })
 
@@ -650,11 +694,20 @@ export async function getJobLaborCost(jobId: string): Promise<{
 
   const entries = (data ?? []) as TimeEntry[]
   const totalHours = entries.reduce((sum, e) => sum + (e.total_hours ?? 0), 0)
-  const totalCost = entries.reduce((sum, e) => sum + (e.total_cost ?? 0), 0)
+  // Sum in integer cents, prefer cents column, fall back to legacy float
+  const totalCostCents = sumCents(
+    entries.map((e) =>
+      readMoneyFromRow(
+        (e as { total_cost_cents?: number | null }).total_cost_cents,
+        e.total_cost
+      )
+    )
+  )
 
   return {
     totalHours: parseFloat(totalHours.toFixed(4)),
-    totalCost: parseFloat(totalCost.toFixed(2)),
+    totalCost: centsToDollars(totalCostCents),
+    totalCostCents,
     entries,
   }
 }

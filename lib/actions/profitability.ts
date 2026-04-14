@@ -2,6 +2,11 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
+import {
+  centsToDollars,
+  readMoneyFromRow,
+  sumCents,
+} from '@/lib/money'
 
 // ─── Job-Level Profitability ─────────────────────────────────────────────────
 
@@ -20,99 +25,120 @@ export async function getJobProfitability(jobId: string): Promise<{
   const { companyId } = await getUserWithCompany()
   await verifyJobOwnership(jobId, companyId)
 
-  // ── Revenue: sum all invoices for this job ──
+  // ── Revenue: sum all invoices for this job — in cents, exact ──
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('total_amount, paid_amount, status')
+    .select('total_amount, total_amount_cents, paid_amount, paid_amount_cents, status')
     .eq('job_id', jobId)
 
-  let invoiced = 0
-  let paid = 0
-  for (const inv of invoices ?? []) {
-    if (inv.status !== 'cancelled') {
-      invoiced += Number(inv.total_amount ?? 0)
-    }
-    if (inv.status === 'paid') {
-      paid += Number(inv.paid_amount ?? 0)
-    }
-  }
-  const outstanding = invoiced - paid
+  const invoicedCents = sumCents(
+    (invoices ?? [])
+      .filter((inv) => inv.status !== 'cancelled')
+      .map((inv) => readMoneyFromRow(
+        (inv as { total_amount_cents?: number | null }).total_amount_cents,
+        inv.total_amount
+      ))
+  )
+  const paidCents = sumCents(
+    (invoices ?? [])
+      .filter((inv) => inv.status === 'paid')
+      .map((inv) => readMoneyFromRow(
+        (inv as { paid_amount_cents?: number | null }).paid_amount_cents,
+        inv.paid_amount
+      ))
+  )
+  const outstandingCents = invoicedCents - paidCents
 
-  // ── Labor costs: sum time_entries total_cost for this job ──
+  // ── Labor costs: sum time_entries total_cost_cents for this job ──
   const { data: timeEntries } = await supabase
     .from('time_entries')
-    .select('total_hours, total_cost, hourly_rate')
+    .select('total_hours, total_cost, total_cost_cents, hourly_rate, hourly_rate_cents')
     .eq('job_id', jobId)
     .not('clock_out', 'is', null)
 
-  let laborCost = 0
+  const laborCostCents = sumCents(
+    (timeEntries ?? []).map((te) =>
+      readMoneyFromRow(
+        (te as { total_cost_cents?: number | null }).total_cost_cents,
+        te.total_cost
+      )
+    )
+  )
   let laborHours = 0
-  let rateSum = 0
+  let rateSumCents = 0
   let rateCount = 0
   for (const te of timeEntries ?? []) {
-    laborCost += Number(te.total_cost ?? 0)
     laborHours += Number(te.total_hours ?? 0)
-    rateSum += Number(te.hourly_rate ?? 0)
+    rateSumCents += readMoneyFromRow(
+      (te as { hourly_rate_cents?: number | null }).hourly_rate_cents,
+      te.hourly_rate
+    )
     rateCount++
   }
-  const avgLaborRate = rateCount > 0 ? rateSum / rateCount : 0
+  const avgLaborRateCents = rateCount > 0 ? Math.round(rateSumCents / rateCount) : 0
 
   // ── Material costs: from material_lists + purchase_orders ──
   const [{ data: materialLists }, { data: purchaseOrders }] = await Promise.all([
     supabase
       .from('material_lists')
-      .select('total_estimated_cost')
+      .select('total_estimated_cost, total_estimated_cost_cents')
       .eq('job_id', jobId),
     supabase
       .from('purchase_orders')
-      .select('total_estimated_cost, status')
+      .select('total_estimated_cost, total_estimated_cost_cents, status')
       .eq('job_id', jobId),
   ])
 
-  let materialCost = 0
-  for (const ml of materialLists ?? []) {
-    materialCost += Number(ml.total_estimated_cost ?? 0)
-  }
-  // Add purchase orders that aren't drafts (actual orders placed)
-  for (const po of purchaseOrders ?? []) {
-    if (po.status !== 'draft') {
-      materialCost += Number(po.total_estimated_cost ?? 0)
-    }
-  }
+  const materialListsCents = sumCents(
+    (materialLists ?? []).map((ml) =>
+      readMoneyFromRow(
+        (ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
+        ml.total_estimated_cost
+      )
+    )
+  )
+  const poCents = sumCents(
+    (purchaseOrders ?? [])
+      .filter((po) => po.status !== 'draft')
+      .map((po) =>
+        readMoneyFromRow(
+          (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
+          po.total_estimated_cost
+        )
+      )
+  )
+  const materialCostCents = materialListsCents + poCents
 
-  // ── Equipment costs: count checkout days from equipment_logs ──
-  // Equipment_logs don't have a cost field, so we estimate based on checkout duration.
-  // For now, equipment cost = 0 since the schema has no daily_rate on equipment.
-  // This is a placeholder for future enhancement when equipment rental rates are added.
-  const equipmentCost = 0
+  // Equipment costs — placeholder (schema has no rental rates)
+  const equipmentCostCents = 0
 
-  // ── Profit calculations ──
-  const totalCosts = laborCost + materialCost + equipmentCost
-  const grossProfit = paid - totalCosts
-  const rawMargin = paid > 0 ? (grossProfit / paid) * 100 : 0
-  const margin = Math.max(-999, Math.min(100, rawMargin)) // Clamp to reasonable range
+  // ── Profit calculations — integer cents, then convert at the boundary ──
+  const totalCostsCents = laborCostCents + materialCostCents + equipmentCostCents
+  const grossProfitCents = paidCents - totalCostsCents
+  const rawMargin = paidCents > 0 ? (grossProfitCents / paidCents) * 100 : 0
+  const margin = Math.max(-999, Math.min(100, rawMargin))
 
   return {
     revenue: {
-      invoiced: round2(invoiced),
-      paid: round2(paid),
-      outstanding: round2(outstanding),
+      invoiced: centsToDollars(invoicedCents),
+      paid: centsToDollars(paidCents),
+      outstanding: centsToDollars(outstandingCents),
     },
     costs: {
-      labor: round2(laborCost),
-      materials: round2(materialCost),
-      equipment: round2(equipmentCost),
-      total: round2(totalCosts),
+      labor: centsToDollars(laborCostCents),
+      materials: centsToDollars(materialCostCents),
+      equipment: centsToDollars(equipmentCostCents),
+      total: centsToDollars(totalCostsCents),
     },
     profit: {
-      gross: round2(grossProfit),
+      gross: centsToDollars(grossProfitCents),
       margin: round2(margin),
     },
     breakdown: {
       laborHours: round2(laborHours),
-      laborRate: round2(avgLaborRate),
-      materialCost: round2(materialCost),
-      equipmentCost: round2(equipmentCost),
+      laborRate: centsToDollars(avgLaborRateCents),
+      materialCost: centsToDollars(materialCostCents),
+      equipmentCost: centsToDollars(equipmentCostCents),
     },
   }
 }
@@ -154,7 +180,7 @@ export async function getCompanyProfitSummary(): Promise<{
 
   const jobIds = jobs.map((j) => j.id)
 
-  // Batch-fetch all invoices, time entries, material lists, and POs for company jobs
+  // Batch-fetch — pull both cents + legacy dollar columns
   const [
     { data: allInvoices },
     { data: allTimeEntries },
@@ -163,80 +189,95 @@ export async function getCompanyProfitSummary(): Promise<{
   ] = await Promise.all([
     supabase
       .from('invoices')
-      .select('job_id, total_amount, paid_amount, status')
+      .select('job_id, total_amount, total_amount_cents, paid_amount, paid_amount_cents, status')
       .in('job_id', jobIds),
     supabase
       .from('time_entries')
-      .select('job_id, total_cost')
+      .select('job_id, total_cost, total_cost_cents')
       .in('job_id', jobIds)
       .not('clock_out', 'is', null),
     supabase
       .from('material_lists')
-      .select('job_id, total_estimated_cost')
+      .select('job_id, total_estimated_cost, total_estimated_cost_cents')
       .in('job_id', jobIds),
     supabase
       .from('purchase_orders')
-      .select('job_id, total_estimated_cost, status')
+      .select('job_id, total_estimated_cost, total_estimated_cost_cents, status')
       .in('job_id', jobIds),
   ])
 
-  // Build per-job maps
+  // Per-job maps, all in integer cents
   const revenueMap = new Map<string, number>()
   const costMap = new Map<string, number>()
 
   // Revenue per job (paid invoices only)
   for (const inv of allInvoices ?? []) {
     if (inv.status === 'paid') {
-      revenueMap.set(inv.job_id, (revenueMap.get(inv.job_id) ?? 0) + Number(inv.paid_amount ?? 0))
+      const cents = readMoneyFromRow(
+        (inv as { paid_amount_cents?: number | null }).paid_amount_cents,
+        inv.paid_amount
+      )
+      revenueMap.set(inv.job_id, (revenueMap.get(inv.job_id) ?? 0) + cents)
     }
   }
 
   // Labor costs per job
   for (const te of allTimeEntries ?? []) {
-    costMap.set(te.job_id, (costMap.get(te.job_id) ?? 0) + Number(te.total_cost ?? 0))
+    const cents = readMoneyFromRow(
+      (te as { total_cost_cents?: number | null }).total_cost_cents,
+      te.total_cost
+    )
+    costMap.set(te.job_id, (costMap.get(te.job_id) ?? 0) + cents)
   }
 
   // Material costs per job
   for (const ml of allMaterialLists ?? []) {
-    costMap.set(ml.job_id, (costMap.get(ml.job_id) ?? 0) + Number(ml.total_estimated_cost ?? 0))
+    const cents = readMoneyFromRow(
+      (ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
+      ml.total_estimated_cost
+    )
+    costMap.set(ml.job_id, (costMap.get(ml.job_id) ?? 0) + cents)
   }
 
   // Purchase order costs per job (non-draft)
   for (const po of allPurchaseOrders ?? []) {
     if (po.status !== 'draft') {
-      costMap.set(po.job_id, (costMap.get(po.job_id) ?? 0) + Number(po.total_estimated_cost ?? 0))
+      const cents = readMoneyFromRow(
+        (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
+        po.total_estimated_cost
+      )
+      costMap.set(po.job_id, (costMap.get(po.job_id) ?? 0) + cents)
     }
   }
 
-  // Calculate per-job profitability
+  // Calculate per-job profitability — all math in cents
   type JobProfit = { jobNumber: string; customerName: string; profit: number; margin: number }
   const jobProfits: JobProfit[] = []
-  let totalRevenue = 0
-  let totalCosts = 0
+  let totalRevenueCents = 0
+  let totalCostsCents = 0
 
   for (const job of jobs) {
-    const rev = revenueMap.get(job.id) ?? 0
-    const cost = costMap.get(job.id) ?? 0
+    const revCents = revenueMap.get(job.id) ?? 0
+    const costCents = costMap.get(job.id) ?? 0
 
-    // Only include jobs that have revenue or costs
-    if (rev === 0 && cost === 0) continue
+    if (revCents === 0 && costCents === 0) continue
 
-    const profit = rev - cost
-    const margin = rev > 0 ? (profit / rev) * 100 : 0
+    const profitCents = revCents - costCents
+    const margin = revCents > 0 ? (profitCents / revCents) * 100 : 0
 
-    totalRevenue += rev
-    totalCosts += cost
+    totalRevenueCents += revCents
+    totalCostsCents += costCents
 
     jobProfits.push({
       jobNumber: job.job_number ?? '',
       customerName: job.customer_name ?? '',
-      profit: round2(profit),
+      profit: centsToDollars(profitCents),
       margin: round2(margin),
     })
   }
 
-  const grossProfit = totalRevenue - totalCosts
-  const averageMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
+  const grossProfitCents = totalRevenueCents - totalCostsCents
+  const averageMargin = totalRevenueCents > 0 ? (grossProfitCents / totalRevenueCents) * 100 : 0
 
   // Sort for top/bottom 5
   const sorted = [...jobProfits].sort((a, b) => b.profit - a.profit)
@@ -244,9 +285,9 @@ export async function getCompanyProfitSummary(): Promise<{
   const bottomJobs = sorted.slice(-5).reverse()
 
   return {
-    totalRevenue: round2(totalRevenue),
-    totalCosts: round2(totalCosts),
-    grossProfit: round2(grossProfit),
+    totalRevenue: centsToDollars(totalRevenueCents),
+    totalCosts: centsToDollars(totalCostsCents),
+    grossProfit: centsToDollars(grossProfitCents),
     averageMargin: round2(averageMargin),
     jobCount: jobProfits.length,
     topJobs,
@@ -272,10 +313,10 @@ export async function getRepCommissions(
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  // Fetch sold/completed jobs for the company
+  // Fetch sold/completed jobs for the company — pull cents + legacy dollars
   let query = supabase
     .from('jobs')
-    .select('id, rep_id, total_amount, commission_amount, status, completed_date')
+    .select('id, rep_id, total_amount, total_amount_cents, commission_amount, commission_amount_cents, status, completed_date')
     .eq('company_id', companyId)
     .in('status', ['sold', 'completed'])
 
@@ -285,21 +326,27 @@ export async function getRepCommissions(
   const { data: jobs, error } = await query
   if (error) throw new Error('Failed to fetch jobs for commissions')
 
-  // Group by rep
+  // Group by rep — all sums in integer cents
   const repMap = new Map<
     string,
-    { totalRevenue: number; commissionAmount: number; jobCount: number }
+    { totalRevenueCents: number; commissionAmountCents: number; jobCount: number }
   >()
 
   for (const job of jobs ?? []) {
     if (!job.rep_id) continue
     const existing = repMap.get(job.rep_id) ?? {
-      totalRevenue: 0,
-      commissionAmount: 0,
+      totalRevenueCents: 0,
+      commissionAmountCents: 0,
       jobCount: 0,
     }
-    existing.totalRevenue += Number(job.total_amount ?? 0)
-    existing.commissionAmount += Number(job.commission_amount ?? 0)
+    existing.totalRevenueCents += readMoneyFromRow(
+      (job as { total_amount_cents?: number | null }).total_amount_cents,
+      job.total_amount
+    )
+    existing.commissionAmountCents += readMoneyFromRow(
+      (job as { commission_amount_cents?: number | null }).commission_amount_cents,
+      job.commission_amount
+    )
     existing.jobCount++
     repMap.set(job.rep_id, existing)
   }
@@ -318,13 +365,14 @@ export async function getRepCommissions(
 
   const results = repIds.map((repId) => {
     const d = repMap.get(repId)!
+    const avgDealSizeCents = d.jobCount > 0 ? Math.round(d.totalRevenueCents / d.jobCount) : 0
     return {
       repId,
       repName: nameMap.get(repId) ?? 'Unknown',
-      totalRevenue: round2(d.totalRevenue),
-      commissionAmount: round2(d.commissionAmount),
+      totalRevenue: centsToDollars(d.totalRevenueCents),
+      commissionAmount: centsToDollars(d.commissionAmountCents),
       jobCount: d.jobCount,
-      avgDealSize: round2(d.jobCount > 0 ? d.totalRevenue / d.jobCount : 0),
+      avgDealSize: centsToDollars(avgDealSizeCents),
     }
   })
 
@@ -366,11 +414,11 @@ export async function getCommissionDetail(
   const repCompany = rep.primary_company_id ?? rep.company_id
   if (repCompany !== companyId) throw new Error('Rep does not belong to your company')
 
-  // Fetch jobs for this rep
+  // Fetch jobs for this rep — pull cents + legacy
   let query = supabase
     .from('jobs')
     .select(
-      'job_number, customer_name, total_amount, commission_amount, commission_rate, status, completed_date'
+      'job_number, customer_name, total_amount, total_amount_cents, commission_amount, commission_amount_cents, commission_rate, status, completed_date'
     )
     .eq('company_id', companyId)
     .eq('rep_id', repId)
@@ -382,18 +430,24 @@ export async function getCommissionDetail(
   const { data: jobs, error } = await query.order('completed_date', { ascending: false })
   if (error) throw new Error('Failed to fetch commission details')
 
-  let totalRevenue = 0
-  let totalCommission = 0
+  let totalRevenueCents = 0
+  let totalCommissionCents = 0
   let rateSum = 0
   let rateCount = 0
 
   const mapped = (jobs ?? []).map((j) => {
-    const total = Number(j.total_amount ?? 0)
-    const commission = Number(j.commission_amount ?? 0)
+    const totalCents = readMoneyFromRow(
+      (j as { total_amount_cents?: number | null }).total_amount_cents,
+      j.total_amount
+    )
+    const commissionCents = readMoneyFromRow(
+      (j as { commission_amount_cents?: number | null }).commission_amount_cents,
+      j.commission_amount
+    )
     const rate = Number(j.commission_rate ?? 0)
 
-    totalRevenue += total
-    totalCommission += commission
+    totalRevenueCents += totalCents
+    totalCommissionCents += commissionCents
     if (rate > 0) {
       rateSum += rate
       rateCount++
@@ -402,8 +456,8 @@ export async function getCommissionDetail(
     return {
       jobNumber: j.job_number ?? '',
       customerName: j.customer_name ?? '',
-      totalAmount: round2(total),
-      commissionAmount: round2(commission),
+      totalAmount: centsToDollars(totalCents),
+      commissionAmount: centsToDollars(commissionCents),
       status: j.status ?? '',
       completedDate: j.completed_date ?? null,
     }
@@ -412,8 +466,8 @@ export async function getCommissionDetail(
   return {
     jobs: mapped,
     totals: {
-      totalRevenue: round2(totalRevenue),
-      totalCommission: round2(totalCommission),
+      totalRevenue: centsToDollars(totalRevenueCents),
+      totalCommission: centsToDollars(totalCommissionCents),
       avgCommissionRate: round2(rateCount > 0 ? rateSum / rateCount : 0),
     },
   }

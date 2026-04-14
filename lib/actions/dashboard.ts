@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
+import { centsToDollars, readMoneyFromRow } from '@/lib/money'
 
 export interface DashboardData {
   // Pipeline KPIs
@@ -43,7 +44,7 @@ export async function getDashboardData(filters?: {
   let jobQuery = supabase
     .from('jobs')
     .select(
-      'id, status, total_amount, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount'
+      'id, status, total_amount, total_amount_cents, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount, commission_amount_cents'
     )
     .eq('company_id', companyId)
   if (filters?.startDate) {
@@ -68,10 +69,23 @@ export async function getDashboardData(filters?: {
 
   // ── Pipeline KPIs ──────────────────────────────────────────────────────────
 
+  // Helper: per-job total in integer cents (prefer cents, fall back to legacy)
+  const jobTotalCents = (j: typeof jobs[number]): number =>
+    readMoneyFromRow(
+      (j as { total_amount_cents?: number | null }).total_amount_cents,
+      j.total_amount
+    )
+  const jobCommissionCents = (j: typeof jobs[number]): number =>
+    readMoneyFromRow(
+      (j as { commission_amount_cents?: number | null }).commission_amount_cents,
+      (j as { commission_amount?: number | null }).commission_amount
+    )
+
   const pipelineStatuses = ['pending', 'sold', 'estimate_scheduled', 'lead', 'scheduled', 'in_progress']
-  const pipelineValue = jobs
+  const pipelineValueCents = jobs
     .filter((j) => pipelineStatuses.includes(j.status))
-    .reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
+    .reduce((sum, j) => sum + jobTotalCents(j), 0)
+  const pipelineValue = centsToDollars(pipelineValueCents)
 
   const totalEstimates = jobs.filter((j) =>
     ['pending', 'sold', 'scheduled', 'in_progress', 'completed', 'cancelled'].includes(j.status)
@@ -83,14 +97,15 @@ export async function getDashboardData(filters?: {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
 
-  const revenueThisMonth = jobs
+  const revenueThisMonthCents = jobs
     .filter(
       (j) =>
         ['sold', 'scheduled', 'in_progress', 'completed'].includes(j.status) &&
         j.created_at >= monthStart &&
         j.created_at <= monthEnd
     )
-    .reduce((sum, j) => sum + (j.total_amount ?? 0), 0)
+    .reduce((sum, j) => sum + jobTotalCents(j), 0)
+  const revenueThisMonth = centsToDollars(revenueThisMonthCents)
 
   const jobsCompletedThisMonth = jobs.filter(
     (j) =>
@@ -120,37 +135,52 @@ export async function getDashboardData(filters?: {
 
   // ── Revenue by Rep ─────────────────────────────────────────────────────────
 
-  const repMap = new Map<string, { repName: string; revenue: number; jobCount: number; commission: number }>()
+  // Per-rep totals — sum in integer cents, convert for the wire format
+  const repCentsMap = new Map<string, { repName: string; revenueCents: number; jobCount: number; commissionCents: number }>()
   for (const job of jobs) {
     if (!['sold', 'scheduled', 'in_progress', 'completed'].includes(job.status)) continue
     const repId = job.rep_id ?? 'unknown'
     const repName = job.rep_id ? (userMap.get(job.rep_id)?.name ?? 'Unknown Rep') : 'Unassigned'
-    const existing = repMap.get(repId) ?? { repName, revenue: 0, jobCount: 0, commission: 0 }
-    existing.revenue += job.total_amount ?? 0
+    const existing = repCentsMap.get(repId) ?? { repName, revenueCents: 0, jobCount: 0, commissionCents: 0 }
+    existing.revenueCents += jobTotalCents(job)
     existing.jobCount += 1
-    existing.commission += (job as { commission_amount?: number | null }).commission_amount ?? 0
-    repMap.set(repId, existing)
+    existing.commissionCents += jobCommissionCents(job)
+    repCentsMap.set(repId, existing)
   }
-  const revenueByRep = Array.from(repMap.values()).sort((a, b) => b.revenue - a.revenue)
+  const revenueByRep = Array.from(repCentsMap.values())
+    .map((r) => ({
+      repName: r.repName,
+      revenue: centsToDollars(r.revenueCents),
+      jobCount: r.jobCount,
+      commission: centsToDollars(r.commissionCents),
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
 
   // ── Revenue by Company ─────────────────────────────────────────────────────
 
-  const coMap = new Map<string, { companyName: string; companyColor: string; revenue: number; jobCount: number }>()
+  const coCentsMap = new Map<string, { companyName: string; companyColor: string; revenueCents: number; jobCount: number }>()
   for (const job of jobs) {
     if (!['sold', 'scheduled', 'in_progress', 'completed'].includes(job.status)) continue
     const co = companyMap.get(job.company_id)
     if (!co) continue
-    const existing = coMap.get(job.company_id) ?? {
+    const existing = coCentsMap.get(job.company_id) ?? {
       companyName: co.name,
       companyColor: co.color,
-      revenue: 0,
+      revenueCents: 0,
       jobCount: 0,
     }
-    existing.revenue += job.total_amount ?? 0
+    existing.revenueCents += jobTotalCents(job)
     existing.jobCount += 1
-    coMap.set(job.company_id, existing)
+    coCentsMap.set(job.company_id, existing)
   }
-  const revenueByCompany = Array.from(coMap.values()).sort((a, b) => b.revenue - a.revenue)
+  const revenueByCompany = Array.from(coCentsMap.values())
+    .map((c) => ({
+      companyName: c.companyName,
+      companyColor: c.companyColor,
+      revenue: centsToDollars(c.revenueCents),
+      jobCount: c.jobCount,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
 
   // ── Lead Sources ───────────────────────────────────────────────────────────
 
@@ -170,16 +200,16 @@ export async function getDashboardData(filters?: {
 
   // ── Job Type Breakdown ─────────────────────────────────────────────────────
 
-  const typeMap = new Map<string, { count: number; revenue: number }>()
+  const typeCentsMap = new Map<string, { count: number; revenueCents: number }>()
   for (const job of jobs) {
     const t = job.job_type ?? 'other'
-    const existing = typeMap.get(t) ?? { count: 0, revenue: 0 }
+    const existing = typeCentsMap.get(t) ?? { count: 0, revenueCents: 0 }
     existing.count += 1
-    existing.revenue += job.total_amount ?? 0
-    typeMap.set(t, existing)
+    existing.revenueCents += jobTotalCents(job)
+    typeCentsMap.set(t, existing)
   }
-  const jobsByType = Array.from(typeMap.entries())
-    .map(([type, data]) => ({ type, ...data }))
+  const jobsByType = Array.from(typeCentsMap.entries())
+    .map(([type, data]) => ({ type, count: data.count, revenue: centsToDollars(data.revenueCents) }))
     .sort((a, b) => b.revenue - a.revenue)
 
   // ── Time Tracking KPIs ─────────────────────────────────────────────────────
@@ -209,7 +239,7 @@ export async function getDashboardData(filters?: {
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')
-        .select('total_cost')
+        .select('total_cost, total_cost_cents')
         .in('job_id', companyJobIds)
         .gte('clock_in', monthStart)
         .lte('clock_in', monthEnd)
@@ -234,10 +264,14 @@ export async function getDashboardData(filters?: {
       avgHoursPerJob = uniqueJobCount > 0 ? Math.round((totalHoursAll / uniqueJobCount) * 10) / 10 : 0
     }
 
-    totalLaborCostThisMonth = (monthlyLaborResult.data ?? []).reduce(
-      (sum, e) => sum + (e.total_cost ?? 0),
+    const totalLaborCostCents = (monthlyLaborResult.data ?? []).reduce(
+      (sum, e) => sum + readMoneyFromRow(
+        (e as { total_cost_cents?: number | null }).total_cost_cents,
+        e.total_cost
+      ),
       0
     )
+    totalLaborCostThisMonth = centsToDollars(totalLaborCostCents)
 
     overtimeHoursThisWeek = (weeklyOTResult.data ?? []).reduce(
       (sum, e) => sum + (e.overtime_hours ?? 0) + (e.doubletime_hours ?? 0),
@@ -253,10 +287,10 @@ export async function getDashboardData(filters?: {
 
   let jobQueryForTrend = supabase
     .from('jobs')
-    .select('job_number, total_amount, completed_date')
+    .select('job_number, total_amount, total_amount_cents, completed_date')
     .eq('status', 'completed')
-    .not('total_amount', 'is', null)
-    .gt('total_amount', 0)
+    .not('total_amount_cents', 'is', null)
+    .gt('total_amount_cents', 0)
     .order('completed_date', { ascending: false })
     .limit(20)
 
@@ -266,7 +300,12 @@ export async function getDashboardData(filters?: {
 
   const profitabilityTrend = (trendJobs ?? []).map((j) => ({
     jobNumber: j.job_number ?? '',
-    contractAmount: j.total_amount ?? 0,
+    contractAmount: centsToDollars(
+      readMoneyFromRow(
+        (j as { total_amount_cents?: number | null }).total_amount_cents,
+        j.total_amount
+      )
+    ),
     completedDate: j.completed_date ?? '',
   }))
 

@@ -41,7 +41,74 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
-## Audit fix sweep — items 1–18 (current session)
+## Float → Integer Cents migration (current session)
+
+### Strategy
+Expand-and-contract: add `*_cents` BIGINT columns alongside legacy `*_amount` floats, backfill from existing values, deploy code that dual-writes both columns, then drop legacy columns in a follow-up after production soak.
+
+### Mario must run this in Supabase SQL Editor BEFORE the deploy lands
+```sql
+-- supabase/migrations/027_cents_migration.sql
+-- Adds cents columns to 9 tables, backfills from existing dollar columns,
+-- and creates the unique partial index for time_entries one-open-per-user.
+```
+Open the file at `supabase/migrations/027_cents_migration.sql`, copy the contents into Supabase Dashboard → SQL Editor → New Query → Run.
+
+### Code changes — all dual-write cents + legacy
+- **New `lib/money.ts`** — single source of truth: `dollarsToCents`, `centsToDollars`, `formatCents`, `formatCentsCompact`, `formatCentsForPdf`, `parseUserInputToCents`, `applyPercentCents`, `multiplyCents`, `sumCents`, `splitCents`, `halfCents`, `readMoneyFromRow`. All money math now flows through these.
+- **Types** — added `*_cents` fields alongside legacy `*_amount` on `Job`, `User`, `MaterialList`, `TimeEntry`, `OvertimeBreakdown`. Legacy fields marked `@deprecated`.
+- **Server actions normalized to integer cents** for all writes and arithmetic, while preserving legacy dollar columns for backwards-compat:
+  - `lib/actions/jobs.ts` — added `requireJobEditor` + `normalizeJobMoneyFields()` helper, `updateJob` dual-writes, `updateJobStatus` uses `applyPercentCents` for commission, `getSalesStats` sums in cents, `getJobs` pulls cents columns.
+  - `lib/actions/invoicing.ts` — `createInvoice` normalizes to cents at the boundary, `markInvoicePaid` parses dollars→cents, `addLineItem`/`updateLineItem` compute `total_cents = multiplyCents(unit_price_cents, qty)` (replaces the dropped GENERATED column), all email templates use `formatCents` from cents columns.
+  - `lib/actions/time-tracking.ts` — `clockIn` snapshots `hourly_rate_cents`/`day_rate_cents` from the user, `clockOut` does ALL payroll math in integer cents (regular + 1.5× OT + 2× DT + break premium), dual-writes `total_cost` + `total_cost_cents`. `getJobLaborCost` returns both.
+  - `lib/actions/pricebook.ts` — line totals computed via `multiplyCents`, job total summed via `sumCents`, dual-writes pricebook + jobs.
+  - `lib/actions/profitability.ts` — every rollup (`getJobProfitability`, `getCompanyProfitSummary`, `getRepCommissions`, `getCommissionDetail`) sums in cents.
+  - `lib/actions/dashboard.ts` — pipeline value, monthly revenue, per-rep, per-company, per-type rollups, monthly labor cost — all cents.
+  - `lib/actions/reporting.ts` — revenue report, crew productivity, job-type, source ROI — all cents.
+  - `lib/actions/command-center.ts` — pipeline + monthly revenue summed in cents.
+  - `lib/actions/quickbooks-export.ts` — invoice IIF, payroll CSV, expense CSV — all formatted via `formatCentsForPdf` from cents totals; payroll math uses `multiplyCents`.
+  - `lib/actions/export.ts` — payroll CSV, jobs CSV, invoice IIF — same treatment.
+  - `lib/actions/insurance.ts`, `lib/actions/subcontractors.ts`, `lib/actions/materials.ts`, `lib/actions/price-memory.ts` — all writes dual-write cents.
+- **Forms / wizard** — `components/estimate/wizard.tsx`, `pricing-form.tsx`, `review-screen.tsx`: source from `*_cents` on init, sum + 50/50 split via `halfCents` so $10,001 → $5,000.50/$5,000.50 (exact), pass `*_cents` to `updateJob` at save. Also fixed `100vh → 100dvh` in wizard.
+- **PDF templates** — `lib/pdf/invoice-template.tsx` computes subtotal/tax/total in cents, props accept both legacy + cents. `lib/pdf/agreement-template.tsx` uses `halfCents` for the deposit calc so `numberToWords` on the dollar value is exact.
+- **Display sites** — `components/job-detail.tsx`: new `fmtMoney(centsCol, dollarCol)` helper, totals + 50/50 split + commission row all read cents.
+
+### What's still on legacy (deferred to post-soak cleanup)
+Most read-only display components (`kanban/card.tsx`, `kpi-cards.tsx`, `command-center.tsx`, `today-view.tsx`, `daily-time-report.tsx`, `job-cost-card.tsx`, `job-list-table.tsx`, `pipeline-list.tsx`, `digest.ts`, `app/portal/[token]/page.tsx`) still call `formatCurrency(jobOrInvoice.total_amount)` with legacy float dollars. They will continue to display the SAME values as before because:
+1. Every write site dual-writes the legacy column from the cents column.
+2. `formatCurrency()` accepts a `number` and produces a USD string — same shape, no breakage.
+
+The follow-up cleanup session will swap these to `formatCents(*_cents)` and then drop the legacy columns via Migration 028.
+
+### Verification
+- `npx next build` passes clean — TypeScript types validated across all 47 routes.
+- Build output unchanged; no new bundle warnings.
+
+### What Mario verifies on production after deploy
+1. **Run the migration first** (Supabase SQL Editor, `027_cents_migration.sql`).
+2. Open an existing job — financials display the same dollar values as before.
+3. Create a new estimate with line items that sum to an odd cent (e.g. $10,001.00) — confirm the 50/50 split shows $5,000.50 / $5,000.50, not $5,000.50 / $5,000.50 with a $0.01 mismatch.
+4. Generate a new estimate PDF — dollar amounts on the agreement should match.
+5. Mark a time entry complete (clock out) — verify `total_cost_cents` populated and matches `total_cost * 100`.
+6. Run a payroll CSV export — totals should match the dashboard.
+
+### Verification SQL (run after the migration)
+```sql
+-- Drift check: each row's cents column should equal ROUND(legacy * 100)
+SELECT count(*) AS jobs_with_drift FROM jobs
+  WHERE ABS(total_amount_cents - ROUND(COALESCE(total_amount, 0) * 100)::BIGINT) > 0;
+
+SELECT count(*) AS invoices_with_drift FROM invoices
+  WHERE ABS(total_amount_cents - ROUND(COALESCE(total_amount, 0) * 100)::BIGINT) > 0;
+
+SELECT count(*) AS time_entries_with_drift FROM time_entries
+  WHERE ABS(total_cost_cents - ROUND(COALESCE(total_cost, 0) * 100)::BIGINT) > 0;
+```
+All three queries should return `0`.
+
+---
+
+## Audit fix sweep — items 1–18 (previous session)
 
 ### Critical (security + data corruption)
 - [x] **#1** Server-side role gates on `createJob` / `updateJob` / `updateJobStatus` / `deleteJob` via new `requireJobEditor()`. Crew is fully blocked; sales is blocked from job mutations (estimates only).

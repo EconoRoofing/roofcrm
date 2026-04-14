@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer'
 import type { Job, Company, EstimateSpecs } from '@/lib/types/database'
 import { formatMoneyPdf } from '@/lib/utils'
+import { readMoneyFromRow, centsToDollars, halfCents } from '@/lib/money'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -474,8 +475,16 @@ function SpecYNRow({
 
 export function RoofingAgreement({ company, job, repSignature, customerSignature, signedDate }: AgreementProps) {
   const specs: EstimateSpecs = job.estimate_specs ?? {}
-  const total = job.total_amount ?? 0
-  const deposit = total / 2
+  // Total comes from *_cents when available, falls back to legacy float dollars.
+  // Deposit is computed in cents so the 50/50 split sums exactly to the total
+  // (halfCents([$100.01]) → [$50.01, $50.00] not $50.005/$50.005).
+  const totalCents = readMoneyFromRow(
+    (job as { total_amount_cents?: number | null }).total_amount_cents,
+    job.total_amount
+  )
+  const depositCents = halfCents(totalCents)
+  const total = centsToDollars(totalCents)
+  const deposit = centsToDollars(depositCents)
   const companyName = company.name || 'ROOFING CO'
 
   // Parse company address into lines

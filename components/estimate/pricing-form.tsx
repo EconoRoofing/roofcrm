@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { formatNumericInput } from '@/lib/utils'
+import { dollarsToCents, centsToDollars, sumCents, halfCents } from '@/lib/money'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -171,11 +172,17 @@ function TotalRow({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function PricingForm({ data, onChange }: PricingFormProps) {
-  const roof = data.roof_amount ?? 0
-  const gutters = data.gutters_amount ?? 0
-  const options = data.options_amount ?? 0
-  const total = roof + gutters + options
-  const deposit = total / 2
+  // Sum in integer cents, then derive the 50/50 deposit split with
+  // `halfCents` so $10,001.00 → $5,000.50 + $5,000.50 sum exactly to the
+  // total. Then convert back to dollars only for display props.
+  const totalCents = sumCents([
+    dollarsToCents(data.roof_amount),
+    dollarsToCents(data.gutters_amount),
+    dollarsToCents(data.options_amount),
+  ])
+  const depositCents = halfCents(totalCents)
+  const total = centsToDollars(totalCents)
+  const deposit = centsToDollars(depositCents)
 
   const [notesFocused, setNotesFocused] = useState(false)
 

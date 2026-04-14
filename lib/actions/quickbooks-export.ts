@@ -2,6 +2,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
+import {
+  centsToDollars,
+  readMoneyFromRow,
+  multiplyCents,
+  formatCentsForPdf,
+} from '@/lib/money'
 
 // ---------------------------------------------------------------------------
 // QuickBooks-compatible CSV exports
@@ -64,26 +70,49 @@ export async function exportInvoicesToQBO(startDate?: string, endDate?: string) 
     lineItemMap.set(li.invoice_id, existing)
   }
 
-  // Build CSV
+  // Build CSV — dollar amounts are emitted as "1234.56" (2 decimals, no $) so
+  // QuickBooks imports them correctly. All internal math stays in cents.
   const header = '*InvoiceNo,*Customer,*InvoiceDate,*DueDate,*Amount,*ItemDescription,*ItemAmount,Terms,Memo,Class'
   const rows: string[] = [header]
-  let totalAmount = 0
+  let totalAmountCents = 0
 
   for (const inv of invoices) {
     const job = (inv as any).jobs
     const items = lineItemMap.get(inv.id)
-    totalAmount += Number(inv.total_amount) || Number(inv.amount) || 0
+    const invoiceTotalCents =
+      readMoneyFromRow(
+        (inv as { total_amount_cents?: number | null }).total_amount_cents,
+        inv.total_amount
+      ) ||
+      readMoneyFromRow(
+        (inv as { amount_cents?: number | null }).amount_cents,
+        inv.amount
+      )
+    totalAmountCents += invoiceTotalCents
+    const invoiceTotalStr = formatCentsForPdf(invoiceTotalCents)
 
     if (items && items.length > 0) {
       for (const item of items) {
+        const itemCents =
+          readMoneyFromRow(
+            (item as { total_cents?: number | null }).total_cents,
+            item.total
+          ) ||
+          multiplyCents(
+            readMoneyFromRow(
+              (item as { unit_price_cents?: number | null }).unit_price_cents,
+              item.unit_price
+            ),
+            Number(item.quantity)
+          )
         rows.push(csvRow([
           inv.invoice_number,
           job.customer_name,
           formatDate(inv.created_at),
           formatDate(inv.due_date),
-          inv.total_amount ?? inv.amount,
+          invoiceTotalStr,
           item.description,
-          item.total ?? (Number(item.quantity) * Number(item.unit_price)),
+          formatCentsForPdf(itemCents),
           'Net 30',
           inv.notes,
           '',
@@ -96,9 +125,9 @@ export async function exportInvoicesToQBO(startDate?: string, endDate?: string) 
         job.customer_name,
         formatDate(inv.created_at),
         formatDate(inv.due_date),
-        inv.total_amount ?? inv.amount,
+        invoiceTotalStr,
         inv.type ?? 'Roofing Services',
-        inv.total_amount ?? inv.amount,
+        invoiceTotalStr,
         'Net 30',
         inv.notes,
         '',
@@ -109,7 +138,7 @@ export async function exportInvoicesToQBO(startDate?: string, endDate?: string) 
   return {
     csv: rows.join('\n'),
     count: invoices.length,
-    totalAmount,
+    totalAmount: centsToDollars(totalAmountCents),
   }
 }
 
@@ -124,7 +153,7 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
   // Fetch time entries with user info, scoped to company via jobs
   const { data: entries, error } = await supabase
     .from('time_entries')
-    .select('*, users!inner(full_name, hourly_rate, primary_company_id), jobs!inner(job_number, company_id)')
+    .select('*, users!inner(full_name, hourly_rate, hourly_rate_cents, primary_company_id), jobs!inner(job_number, company_id)')
     .eq('users.primary_company_id', companyId)
     .eq('jobs.company_id', companyId)
     .gte('clock_in', startDate)
@@ -138,14 +167,19 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
     return { csv: '', employeeCount: 0, totalHours: 0, totalPay: 0 }
   }
 
-  // Group entries by employee + date for daily OT calculation
+  // Group entries by employee + date for daily OT calculation.
+  // Rate is captured in integer cents so payroll multiplication is exact.
   const byEmployeeDate = new Map<string, any[]>()
   for (const entry of entries) {
     const user = (entry as any).users
     const dateKey = new Date(entry.clock_in).toISOString().split('T')[0]
     const key = `${entry.user_id}|${dateKey}`
     const existing = byEmployeeDate.get(key) || []
-    existing.push({ ...entry, _userName: user.full_name, _rate: Number(user.hourly_rate) || 0 })
+    const rateCents = readMoneyFromRow(
+      user.hourly_rate_cents,
+      Number(user.hourly_rate) || 0
+    )
+    existing.push({ ...entry, _userName: user.full_name, _rateCents: rateCents })
     byEmployeeDate.set(key, existing)
   }
 
@@ -156,7 +190,7 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
   const rows: string[] = [header]
   const uniqueEmployees = new Set<string>()
   let grandTotalHours = 0
-  let grandTotalPay = 0
+  let grandTotalPayCents = 0
 
   for (const [key, dayEntries] of Array.from(byEmployeeDate.entries())) {
     const [userId, dateStr] = key.split('|')
@@ -197,14 +231,15 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
 
     weeklyHours.set(weekKey, newWeeklyTotal)
 
-    const rate = dayEntries[0]._rate
-    const regularPay = +(regularHours * rate).toFixed(2)
-    const overtimePay = +(overtimeHours * rate * 1.5).toFixed(2)
-    const totalPay = regularPay + overtimePay
+    // All pay math in integer cents — multiplyCents rounds once per leg.
+    const rateCents = dayEntries[0]._rateCents as number
+    const regularPayCents = multiplyCents(rateCents, regularHours)
+    const overtimePayCents = multiplyCents(rateCents, overtimeHours * 1.5)
+    const totalPayCents = regularPayCents + overtimePayCents
 
     uniqueEmployees.add(userId)
     grandTotalHours += dailyTotal
-    grandTotalPay += totalPay
+    grandTotalPayCents += totalPayCents
 
     const jobNumber = (dayEntries[0] as any).jobs?.job_number ?? ''
 
@@ -213,9 +248,9 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
       dateStr,
       regularHours.toFixed(2),
       overtimeHours.toFixed(2),
-      regularPay.toFixed(2),
-      overtimePay.toFixed(2),
-      totalPay.toFixed(2),
+      formatCentsForPdf(regularPayCents),
+      formatCentsForPdf(overtimePayCents),
+      formatCentsForPdf(totalPayCents),
       '', // cost code — not tracked on time_entries currently
       jobNumber,
     ]))
@@ -225,7 +260,7 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
     csv: rows.join('\n'),
     employeeCount: uniqueEmployees.size,
     totalHours: +grandTotalHours.toFixed(2),
-    totalPay: +grandTotalPay.toFixed(2),
+    totalPay: centsToDollars(grandTotalPayCents),
   }
 }
 
@@ -253,17 +288,20 @@ export async function exportExpensesToCSV(startDate?: string, endDate?: string) 
 
   const header = '*Vendor,*Date,*Amount,*Account,Description,JobNumber'
   const rows: string[] = [header]
-  let totalAmount = 0
+  let totalAmountCents = 0
 
   for (const po of orders) {
-    const amount = Number(po.total_estimated_cost) || 0
-    totalAmount += amount
+    const amountCents = readMoneyFromRow(
+      (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
+      po.total_estimated_cost
+    )
+    totalAmountCents += amountCents
     const job = (po as any).jobs
 
     rows.push(csvRow([
       po.supplier_name,
       formatDate(po.created_at),
-      amount.toFixed(2),
+      formatCentsForPdf(amountCents),
       'Cost of Goods Sold',
       po.notes ?? po.order_text,
       job.job_number ?? '',
@@ -273,6 +311,6 @@ export async function exportExpensesToCSV(startDate?: string, endDate?: string) 
   return {
     csv: rows.join('\n'),
     count: orders.length,
-    totalAmount: +totalAmount.toFixed(2),
+    totalAmount: centsToDollars(totalAmountCents),
   }
 }

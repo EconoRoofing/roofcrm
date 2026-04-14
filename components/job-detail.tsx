@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { formatCurrency, formatJobType } from '@/lib/utils'
+import { readMoneyFromRow, centsToDollars, halfCents, formatCents } from '@/lib/money'
 import type { Job, Company, User } from '@/lib/types/database'
 import { StatusBadge } from '@/components/status-badge'
 import { JobActions } from '@/components/job-actions'
@@ -271,6 +272,16 @@ function fmt(amount: number | null): string {
   return formatCurrency(amount)
 }
 
+/** Format a row's money column, preferring the `*_cents` column. */
+function fmtMoney(
+  centsValue: number | bigint | null | undefined,
+  legacyDollars: number | null | undefined
+): string {
+  const cents = readMoneyFromRow(centsValue, legacyDollars)
+  if (cents === 0 && legacyDollars == null && centsValue == null) return '—'
+  return formatCents(cents)
+}
+
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   if (!value && value !== 0) return null
   return (
@@ -348,9 +359,15 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const fullAddress = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(fullAddress)}`
 
-  const hasFinancials = (job.total_amount ?? 0) > 0
-
-  const split50 = job.total_amount != null ? job.total_amount / 2 : null
+  // Total in integer cents (prefer cents, fall back to legacy float dollars)
+  const totalCents = readMoneyFromRow(
+    (job as { total_amount_cents?: number | null }).total_amount_cents,
+    job.total_amount
+  )
+  const hasFinancials = totalCents > 0
+  // 50/50 split in cents — exact, no $0.005 rounding artifacts
+  const split50Cents = totalCents > 0 ? halfCents(totalCents) : null
+  const split50 = split50Cents != null ? centsToDollars(split50Cents) : null
 
   const companyColor = company?.color
 
@@ -546,30 +563,30 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             Financials
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {job.roof_amount != null && (
+            {(job.roof_amount != null || (job as { roof_amount_cents?: number | null }).roof_amount_cents != null) && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Roof</span>
-                <span style={styles.financialMonoValue}>{fmt(job.roof_amount)}</span>
+                <span style={styles.financialMonoValue}>{fmtMoney((job as { roof_amount_cents?: number | null }).roof_amount_cents, job.roof_amount)}</span>
               </div>
             )}
-            {job.gutters_amount != null && (
+            {(job.gutters_amount != null || (job as { gutters_amount_cents?: number | null }).gutters_amount_cents != null) && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Gutters</span>
-                <span style={styles.financialMonoValue}>{fmt(job.gutters_amount)}</span>
+                <span style={styles.financialMonoValue}>{fmtMoney((job as { gutters_amount_cents?: number | null }).gutters_amount_cents, job.gutters_amount)}</span>
               </div>
             )}
-            {job.options_amount != null && (
+            {(job.options_amount != null || (job as { options_amount_cents?: number | null }).options_amount_cents != null) && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Options</span>
-                <span style={styles.financialMonoValue}>{fmt(job.options_amount)}</span>
+                <span style={styles.financialMonoValue}>{fmtMoney((job as { options_amount_cents?: number | null }).options_amount_cents, job.options_amount)}</span>
               </div>
             )}
             <div style={styles.divider} />
             <div style={styles.financialRow}>
               <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)', fontWeight: '700' }}>Total</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: 'var(--accent)', fontWeight: '700' }}>{fmt(job.total_amount)}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: 'var(--accent)', fontWeight: '700' }}>{formatCents(totalCents)}</span>
             </div>
-            {split50 != null && (
+            {split50Cents != null && (
               <div
                 style={{
                   display: 'flex',
@@ -582,10 +599,10 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                 }}
               >
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', fontWeight: '500' }}>50/50 Split</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(split50)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '500' }}>{formatCents(split50Cents)}</span>
               </div>
             )}
-            {isManager && (job.commission_rate ?? 0) > 0 && (job.total_amount ?? 0) > 0 && (
+            {isManager && (job.commission_rate ?? 0) > 0 && totalCents > 0 && (
               <div
                 style={{
                   display: 'flex',
@@ -601,7 +618,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                   Commission ({job.commission_rate}%)
                 </span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent)', fontWeight: '500' }}>
-                  {fmt(job.commission_amount ?? null)}
+                  {fmtMoney((job as { commission_amount_cents?: number | null }).commission_amount_cents, job.commission_amount)}
                 </span>
               </div>
             )}
@@ -612,7 +629,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
       {/* Profitability Card (manager only) */}
       {isManager && (
         <JobCostCard
-          contractAmount={job.total_amount}
+          contractAmount={centsToDollars(totalCents)}
           materialCost={null}
           laborCost={laborCost}
           laborHours={laborHours}

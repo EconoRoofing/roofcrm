@@ -2,6 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, localDateString, requireJobEditor } from '@/lib/auth-helpers'
+import {
+  dollarsToCents,
+  centsToDollars,
+  readMoneyFromRow,
+  applyPercentCents,
+  sumCents,
+} from '@/lib/money'
 import { logActivity } from '@/lib/actions/activity'
 import {
   createCalendarEvent,
@@ -75,10 +82,20 @@ interface UpdateJobData {
   gutter_size?: string | null
   gutter_color?: string | null
   downspout_color?: string | null
+  // Money fields — callers may pass EITHER legacy dollars OR the new cents
+  // counterpart. `updateJob` normalizes to cents and dual-writes both columns.
+  /** @deprecated pass *_cents instead */
   roof_amount?: number | null
+  /** @deprecated pass *_cents instead */
   gutters_amount?: number | null
+  /** @deprecated pass *_cents instead */
   options_amount?: number | null
+  /** @deprecated pass *_cents instead */
   total_amount?: number | null
+  roof_amount_cents?: number | null
+  gutters_amount_cents?: number | null
+  options_amount_cents?: number | null
+  total_amount_cents?: number | null
   warranty_manufacturer_years?: number | null
   warranty_workmanship_years?: number | null
   estimate_specs?: EstimateSpecs | null
@@ -90,6 +107,34 @@ interface UpdateJobData {
   review_received?: boolean | null
   review_date?: string | null
   do_not_text?: boolean | null
+}
+
+/**
+ * Given an UpdateJobData payload that may use either legacy dollar fields or
+ * new cents fields, produce a normalized write payload that dual-writes BOTH
+ * columns so reports on the legacy column keep working during the migration.
+ * Authoritative source is always cents; legacy dollars is derived from cents.
+ */
+function normalizeJobMoneyFields(data: UpdateJobData): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...data }
+  const pairs: Array<[keyof UpdateJobData, keyof UpdateJobData]> = [
+    ['roof_amount_cents', 'roof_amount'],
+    ['gutters_amount_cents', 'gutters_amount'],
+    ['options_amount_cents', 'options_amount'],
+    ['total_amount_cents', 'total_amount'],
+  ]
+  for (const [centsKey, dollarsKey] of pairs) {
+    const centsProvided = data[centsKey] !== undefined
+    const dollarsProvided = data[dollarsKey] !== undefined
+    if (!centsProvided && !dollarsProvided) continue
+    // Prefer cents when supplied; otherwise derive from dollars.
+    const cents = centsProvided
+      ? (data[centsKey] as number | null)
+      : dollarsToCents(data[dollarsKey] as number | null)
+    out[centsKey] = cents
+    out[dollarsKey] = cents == null ? null : centsToDollars(cents)
+  }
+  return out
 }
 
 interface JobFilters {
@@ -175,9 +220,13 @@ export async function updateJob(id: string, data: UpdateJobData) {
   // Verify job belongs to user's company — also returns the full job row
   const currentJob = await verifyJobOwnership(id, companyId)
 
+  // Normalize money fields: prefer cents, dual-write legacy dollars for
+  // backward compat during the float→cents migration.
+  const normalized = normalizeJobMoneyFields(data)
+
   const { data: job, error } = await supabase
     .from('jobs')
-    .update(data)
+    .update(normalized)
     .eq('id', id)
     .eq('company_id', companyId)
     .select()
@@ -308,7 +357,8 @@ async function executePostStatusEffects(
     }
   }
 
-  // Auto-calculate commission when job is sold (skip when no rep is assigned)
+  // Auto-calculate commission when job is sold (skip when no rep is assigned).
+  // All math in integer cents — commission is exact, no float drift.
   if (newStatus === 'sold' && currentJob.rep_id) {
     try {
       const { data: repData } = await supabase
@@ -317,11 +367,16 @@ async function executePostStatusEffects(
         .eq('id', currentJob.rep_id)
         .single()
 
-      if (repData?.commission_rate && currentJob.total_amount) {
-        const commissionAmount = currentJob.total_amount * (repData.commission_rate / 100)
+      const totalCents = readMoneyFromRow(
+        currentJob.total_amount_cents,
+        currentJob.total_amount
+      )
+      if (repData?.commission_rate && totalCents > 0) {
+        const commissionCents = applyPercentCents(totalCents, Number(repData.commission_rate))
         await supabase.from('jobs').update({
           commission_rate: repData.commission_rate,
-          commission_amount: commissionAmount,
+          commission_amount_cents: commissionCents,
+          commission_amount: centsToDollars(commissionCents), // legacy dual-write
         }).eq('id', jobId)
       }
     } catch (commErr) {
@@ -486,7 +541,7 @@ export async function getJobs(filters?: JobFilters & { scheduled_from?: string; 
 
   let query = supabase
     .from('jobs')
-    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, schedule_duration_days, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, total_amount_cents, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, schedule_duration_days, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
     .limit(filters?.limit ?? 2000)
@@ -520,7 +575,7 @@ export async function getJobsForPipeline(filters?: { company_id?: string }) {
   // Always use authenticated user's companyId — ignore client-supplied value
   const query = supabase
     .from('jobs')
-    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, total_amount_cents, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .eq('company_id', companyId)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
@@ -566,7 +621,9 @@ export async function getJobsByDate(date: string, userId: string, role: UserRole
 
 export async function getSalesStats(repId: string): Promise<{
   pendingCount: number
+  /** @deprecated use monthlyRevenueCents */
   monthlyRevenue: number
+  monthlyRevenueCents: number
   staleJobs: Array<{ id: string; job_number: string; customer_name: string; job_type: string; created_at: string; company: { name: string; color: string } | null }>
 }> {
   const { companyId } = await getUserWithCompany()
@@ -589,17 +646,26 @@ export async function getSalesStats(repId: string): Promise<{
   const [pendingResult, revenueResult, staleResult] = await Promise.all([
     // Count pending/lead/estimate_scheduled (lightweight count-only query)
     supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead', 'estimate_scheduled']),
-    // Monthly revenue from sold jobs
-    supabase.from('jobs').select('total_amount').eq('rep_id', repId).eq('company_id', companyId).eq('status', 'sold').gte('created_at', monthStart),
+    // Monthly revenue from sold jobs — fetch both cents and legacy dollars
+    supabase.from('jobs').select('total_amount, total_amount_cents').eq('rep_id', repId).eq('company_id', companyId).eq('status', 'sold').gte('created_at', monthStart),
     // Stale leads: pending/lead, older than 14 days
     supabase.from('jobs').select('id, job_number, customer_name, job_type, created_at, company:companies(name, color)').eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead']).lt('created_at', fourteenDaysAgo.toISOString()).order('created_at', { ascending: true }),
   ])
 
   const pendingCount = pendingResult.count ?? 0
-  const monthlyRevenue = (revenueResult.data ?? []).reduce((sum, j) => sum + (Number(j.total_amount) ?? 0), 0)
+  // Sum in integer cents, then convert for the return type. Exact totals.
+  const monthlyRevenueCents = sumCents(
+    (revenueResult.data ?? []).map((j) =>
+      readMoneyFromRow(
+        (j as { total_amount_cents?: number | null }).total_amount_cents,
+        (j as { total_amount?: number | null }).total_amount
+      )
+    )
+  )
+  const monthlyRevenue = centsToDollars(monthlyRevenueCents)
   const staleJobs = (staleResult.data ?? []) as any
 
-  return { pendingCount, monthlyRevenue, staleJobs }
+  return { pendingCount, monthlyRevenue, monthlyRevenueCents, staleJobs }
 }
 
 export async function deleteJob(id: string) {

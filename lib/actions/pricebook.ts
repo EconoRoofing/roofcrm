@@ -2,6 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
+import {
+  dollarsToCents,
+  centsToDollars,
+  readMoneyFromRow,
+  multiplyCents,
+  sumCents,
+} from '@/lib/money'
 
 export async function getPricebookItems(category?: string) {
   const supabase = await createClient()
@@ -45,6 +52,9 @@ export async function addPricebookItem(data: {
   if (data.base_price < 0) throw new Error('Price must be zero or greater')
   if (!data.name?.trim()) throw new Error('Name is required')
 
+  const basePriceCents = dollarsToCents(data.base_price)
+  const costCents = data.cost != null ? dollarsToCents(data.cost) : null
+
   const { data: item, error } = await supabase
     .from('pricebook_items')
     .insert({
@@ -53,8 +63,10 @@ export async function addPricebookItem(data: {
       category: data.category?.trim() || 'general',
       description: data.description?.trim() || null,
       unit: data.unit?.trim() || 'each',
-      base_price: data.base_price,
-      cost: data.cost ?? null,
+      base_price: centsToDollars(basePriceCents), // legacy dual-write
+      base_price_cents: basePriceCents,
+      cost: costCents == null ? null : centsToDollars(costCents),
+      cost_cents: costCents,
       sort_order: data.sort_order ?? 0,
     })
     .select()
@@ -93,8 +105,16 @@ export async function updatePricebookItem(
   if (data.category !== undefined) updates.category = data.category.trim()
   if (data.description !== undefined) updates.description = data.description?.trim() || null
   if (data.unit !== undefined) updates.unit = data.unit.trim()
-  if (data.base_price !== undefined) updates.base_price = data.base_price
-  if (data.cost !== undefined) updates.cost = data.cost
+  if (data.base_price !== undefined) {
+    const cents = dollarsToCents(data.base_price)
+    updates.base_price = centsToDollars(cents)
+    updates.base_price_cents = cents
+  }
+  if (data.cost !== undefined) {
+    const cents = data.cost == null ? null : dollarsToCents(data.cost)
+    updates.cost = cents == null ? null : centsToDollars(cents)
+    updates.cost_cents = cents
+  }
   if (data.sort_order !== undefined) updates.sort_order = data.sort_order
 
   const { data: item, error } = await supabase
@@ -184,26 +204,38 @@ export async function applyPricebookToEstimate(
   // Build a quantity lookup
   const qtyMap = new Map(itemIds.map((i) => [i.id, i.quantity]))
 
-  // Calculate total
-  let total = 0
+  // Calculate line totals and job total in integer cents. Each line is
+  // `multiplyCents(unitPriceCents, qty)`, rounded once per line, so the
+  // job total is the exact sum of displayed line totals (no float drift).
+  const lineTotalsCents: number[] = []
   const lineItems = items.map((item) => {
     const qty = qtyMap.get(item.id) ?? 1
-    const lineTotal = qty * Number(item.base_price)
-    total += lineTotal
+    const unitPriceCents = readMoneyFromRow(
+      (item as { base_price_cents?: number | null }).base_price_cents,
+      Number(item.base_price)
+    )
+    const lineTotalCents = multiplyCents(unitPriceCents, qty)
+    lineTotalsCents.push(lineTotalCents)
     return {
       pricebook_item_id: item.id,
       name: item.name,
       unit: item.unit,
-      unit_price: Number(item.base_price),
+      unit_price: centsToDollars(unitPriceCents),
+      unit_price_cents: unitPriceCents,
       quantity: qty,
-      line_total: lineTotal,
+      line_total: centsToDollars(lineTotalCents),
+      line_total_cents: lineTotalCents,
     }
   })
+  const totalCents = sumCents(lineTotalsCents)
 
-  // Update job total_amount
+  // Update job total_amount (dual-write cents + legacy dollars)
   const { error: updateError } = await supabase
     .from('jobs')
-    .update({ total_amount: total })
+    .update({
+      total_amount: centsToDollars(totalCents),
+      total_amount_cents: totalCents,
+    })
     .eq('id', jobId)
 
   if (updateError) {
@@ -211,5 +243,5 @@ export async function applyPricebookToEstimate(
     throw new Error('Failed to apply pricebook to estimate')
   }
 
-  return { total, lineItems }
+  return { total: centsToDollars(totalCents), totalCents, lineItems }
 }

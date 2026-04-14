@@ -15,13 +15,22 @@ export interface TimeEntry {
   clock_out_lng: number | null
   clock_out_photo_url: string | null
   pay_type: PayType
+  /** @deprecated legacy float dollars — use hourly_rate_cents */
   hourly_rate: number
+  /** @deprecated legacy float dollars — use day_rate_cents */
   day_rate: number
+  /** Integer cents — authoritative */
+  hourly_rate_cents: number
+  /** Integer cents — authoritative */
+  day_rate_cents: number
   regular_hours: number
   overtime_hours: number
   doubletime_hours: number
   total_hours: number
+  /** @deprecated legacy float dollars — use total_cost_cents */
   total_cost: number
+  /** Integer cents — authoritative */
+  total_cost_cents: number
   weather_conditions: string | null
   notes: string | null
   flagged: boolean
@@ -49,5 +58,8 @@ export interface OvertimeBreakdown {
   regularHours: number
   overtimeHours: number
   doubletimeHours: number
+  /** @deprecated use totalCostCents */
   totalCost: number
+  /** Integer cents — authoritative */
+  totalCostCents: number
 }

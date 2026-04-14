@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
+import { dollarsToCents, centsToDollars } from '@/lib/money'
 
 // ─── Subcontractor CRUD ─────────────────────────────────────────────────────
 
@@ -102,13 +103,16 @@ export async function assignSubToJob(
 
   if (subError || !sub) throw new Error('Subcontractor not found or access denied')
 
+  const agreedAmountCents = agreedAmount != null ? dollarsToCents(agreedAmount) : null
+
   const { data: assignment, error } = await supabase
     .from('job_subcontractors')
     .insert({
       job_id: jobId,
       subcontractor_id: subId,
       scope_of_work: scopeOfWork ?? null,
-      agreed_amount: agreedAmount ?? null,
+      agreed_amount: agreedAmountCents == null ? null : centsToDollars(agreedAmountCents),
+      agreed_amount_cents: agreedAmountCents,
     })
     .select()
     .single()

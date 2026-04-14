@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
+import { dollarsToCents, centsToDollars } from '@/lib/money'
 
 export type ClaimStatus = 'filed' | 'inspection' | 'approved' | 'supplement' | 'done'
 
@@ -172,11 +173,15 @@ export async function updateSupplementAmount(job_id: string, amount: number) {
   if (amount <= 0) throw new Error('Supplement amount must be greater than zero')
   if (amount > 500000) throw new Error('Supplement amount exceeds maximum ($500,000)')
 
+  const amountCents = dollarsToCents(amount)
   const supabase = await createClient()
 
   const { data: job, error } = await supabase
     .from('jobs')
-    .update({ supplement_amount: amount })
+    .update({
+      supplement_amount: centsToDollars(amountCents),
+      supplement_amount_cents: amountCents,
+    })
     .eq('id', job_id)
     .eq('company_id', companyId)
     .select()
@@ -313,6 +318,7 @@ export async function addSupplementRound(
   if (amount <= 0) throw new Error('Supplement amount must be greater than zero')
   if (amount > 500000) throw new Error('Supplement amount exceeds maximum ($500,000)')
 
+  const amountCents = dollarsToCents(amount)
   const supabase = await createClient()
 
   // Determine next round number
@@ -330,7 +336,8 @@ export async function addSupplementRound(
     .insert({
       job_id: jobId,
       round_number: nextRound,
-      amount,
+      amount: centsToDollars(amountCents),
+      amount_cents: amountCents,
       status: 'submitted',
       notes: notes ?? null,
       created_by: userId,
