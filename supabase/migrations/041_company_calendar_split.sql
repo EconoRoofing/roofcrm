@@ -6,8 +6,8 @@
 -- ALL events for a given company to that one calendar. Mario's actual Google
 -- Calendar setup has 5 company-scoped calendars with an asymmetric split:
 --
---   Econo Roofing    → "Econo Roofing estimates" + "Econo Roofing jobs"
---   Nushake Roofing  → "Nushake roofing estimates" + "Nushake Roofing Jobs"
+--   Econo Roofing    → "Econo Roofing Estimates" + "Econo Roofing Jobs"
+--   Nushake Roofing  → "Nushake Roofing Estimates" + "Nushake Roofing Jobs"
 --   DeHart Roofing   → "DeHart Roofing" (single calendar, no split)
 --
 -- Adding two nullable columns lets Econo/Nushake specialize while DeHart
