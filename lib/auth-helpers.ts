@@ -104,9 +104,70 @@ export function safeError(prefix: string, error: { message?: string } | null): E
   return new Error(prefix)
 }
 
-/** Sanitize a string for use in email headers (strip control chars that could inject headers) */
+/**
+ * Sanitize a string for use in email headers.
+ *
+ * Audit R4-#5: previously only stripped control chars, but the `from:`
+ * header in lib/actions/invoicing.ts is built as
+ * `${companyName} <${fromEmail}>` — an RFC-5322 display-name + angle-addr
+ * pair. A company name containing `<`, `>`, or `"` can break the parse
+ * and cause mail transfer agents / Resend to interpret the string as a
+ * different email address. Example exploit: a company name of
+ * `Acme <hacker@evil.com>` produces the header
+ * `From: Acme <hacker@evil.com> <onboarding@resend.dev>` — the outer
+ * angle-addr takes precedence on some parsers and the envelope From
+ * becomes hacker@evil.com.
+ *
+ * Strip everything that has any meaning in an email header: control
+ * chars (newline-based header injection), angle brackets (angle-addr
+ * delimiters), double-quotes (display-name quoting), semicolon and
+ * comma (address-list separators), and colon (header delimiter).
+ */
 export function sanitizeEmailName(name: string): string {
-  return name.replace(/[\r\n\t\x00-\x1f]/g, '').trim()
+  return name.replace(/[\r\n\t\x00-\x1f<>"';,:]/g, '').trim()
+}
+
+/**
+ * Sanitize a string for use in an email subject line or other header
+ * field value where multi-line injection is the primary concern. Unlike
+ * sanitizeEmailName, this preserves characters that are legal in a
+ * subject line (angle brackets, commas, colons) but still strips
+ * newline-based injection vectors.
+ *
+ * Audit R4-#6: invoice numbers flowed into the Subject: header via
+ * `subject: \`Invoice ${safeInvoiceNumber}...\``. escapeHtml was applied
+ * but does not strip `\r\n`. A user-set invoice number containing
+ * `INV-1\r\nBcc: leak@x.com` would inject a BCC header. Applied at every
+ * Subject: interpolation site in lib/actions/invoicing.ts.
+ */
+export function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n\x00-\x1f]/g, '').trim()
+}
+
+/**
+ * Sanitize a single template variable interpolated into an SMS body.
+ *
+ * Audit R4-#8: customer names and company names flowed raw into SMS
+ * templates in lib/actions/messages.ts and lib/actions/post-job.ts.
+ * User-controlled newlines and control chars in those fields cause:
+ *   - Display garbling on the recipient's phone (brand-tanking)
+ *   - SMS segmentation into multiple billed messages
+ *   - Some carriers dropping the message as spam (silent failure,
+ *     Twilio reports success)
+ *   - Template line-count assumptions breaking if the template
+ *     uses \n-delimited sections
+ *
+ * Strip CR/LF + control chars + collapse any run of whitespace (including
+ * tabs and Unicode space chars) into a single regular space. Preserves
+ * the semantic content while making the field safe for one-line-per-field
+ * template assumptions.
+ */
+export function sanitizeSmsField(value: string | null | undefined): string {
+  if (!value) return ''
+  return value
+    .replace(/[\r\n\x00-\x1f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /** Get today's date as YYYY-MM-DD in local timezone (not UTC) */

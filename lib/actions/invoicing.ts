@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { createPaymentLink } from '@/lib/stripe'
-import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName, localDateString, requireEstimateEditor, requireManager } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, escapeHtml, sanitizeEmailName, sanitizeHeaderValue, localDateString, requireEstimateEditor, requireManager } from '@/lib/auth-helpers'
 import { logActivity } from '@/lib/actions/activity'
 import {
   dollarsToCents,
@@ -570,6 +570,10 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
   const safeCompanyName = escapeHtml(companyName)
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
+  // Audit R4-#6: header-safe version of invoice_number for the Subject:
+  // line. escapeHtml doesn't strip newlines; a user-set invoice number
+  // like "INV-1\r\nBcc: leak@x.com" would inject a BCC header.
+  const headerInvoiceNumber = sanitizeHeaderValue(invoice.invoice_number || '')
 
   // Audit R3-#2 follow-up: cents-only post-031.
   const invoiceTotalCents = Number(
@@ -592,7 +596,7 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
   await resend.emails.send({
     from: `${companyName} <${fromEmail}>`,
     to: job.email,
-    subject: `Invoice ${safeInvoiceNumber} from ${companyName} — ${invoiceTotalDisplay} due ${dueDate}`,
+    subject: `Invoice ${headerInvoiceNumber} from ${companyName} — ${invoiceTotalDisplay} due ${dueDate}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111;">
         <div style="background:#1a1a1a;padding:24px;border-radius:8px 8px 0 0;">
@@ -806,7 +810,12 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
     )
     const amount = formatCents(invoiceCents)
 
-    const subject = tier.buildSubject(safeInvoiceNumber, daysPastDue, amount)
+    // Audit R4-#6: subject built with header-safe invoice number. Passing
+    // `safeInvoiceNumber` (which is escapeHtml'd but still contains any
+    // user-set newlines) into tier.buildSubject would inject headers.
+    // buildBody still receives the HTML-safe form for template interpolation.
+    const headerInvoiceNumber = sanitizeHeaderValue(invoice.invoice_number || '')
+    const subject = tier.buildSubject(headerInvoiceNumber, daysPastDue, amount)
     const bodyContent = tier.buildBody(safeCustomerName, safeInvoiceNumber, amount, dueDate, daysPastDue, safeCompanyName)
 
     const paymentSection = invoice.payment_link
@@ -887,6 +896,8 @@ export async function sendInvoiceEmail(invoice_id: string) {
   const safeCompanyName = escapeHtml(companyName)
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
+  // Audit R4-#6: header-safe version of invoice_number for the Subject: line.
+  const headerInvoiceNumber = sanitizeHeaderValue(invoice.invoice_number || '')
 
   // Audit R3-#2 follow-up: cents-only post-031.
   const invoiceCents = Number(
@@ -901,7 +912,7 @@ export async function sendInvoiceEmail(invoice_id: string) {
   await resend.emails.send({
     from: `${companyName} <${fromEmail}>`,
     to: job.email,
-    subject: `Invoice ${safeInvoiceNumber} from ${companyName}`,
+    subject: `Invoice ${headerInvoiceNumber} from ${companyName}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Invoice from ${safeCompanyName}</h2>

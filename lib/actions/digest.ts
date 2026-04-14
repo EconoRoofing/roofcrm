@@ -3,6 +3,7 @@
 import { createClient as _createClient } from '@/lib/supabase/server'
 import { getDashboardData } from './dashboard'
 import { formatCents, dollarsToCents } from '@/lib/money'
+import { escapeHtml } from '@/lib/auth-helpers'
 
 // Local wrapper: digest values come from getDashboardData() which still
 // returns dollar floats. Pipe them through cents at the display boundary.
@@ -27,6 +28,11 @@ export async function sendDailyDigest(): Promise<boolean> {
 
   const data = await getDashboardData()
 
+  // Audit R4-#7: every user-controlled string that interpolates into
+  // the HTML body below goes through escapeHtml. Rep names in particular
+  // come from users.name, which is a free-text field — without escaping,
+  // a rep renaming themselves to `<img src=x onerror=...>` would inject
+  // script into the manager's inbox on every daily digest.
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0f1117; color: #f0f2f5; padding: 24px; border-radius: 12px;">
       <h2 style="color: #00e676; margin-top: 0;">RoofCRM Daily Digest</h2>
@@ -52,7 +58,7 @@ export async function sendDailyDigest(): Promise<boolean> {
       <h3 style="color: #f0f2f5; margin-top: 24px;">Revenue by Rep</h3>
       ${data.revenueByRep.map((r, i) => `
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e2430;">
-          <span>${i + 1}. ${r.repName}</span>
+          <span>${i + 1}. ${escapeHtml(r.repName ?? '')}</span>
           <span style="font-weight: bold;">${fmt(r.revenue)} (${r.jobCount} jobs)</span>
         </div>
       `).join('')}

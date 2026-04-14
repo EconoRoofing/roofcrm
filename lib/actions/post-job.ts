@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
+import { sanitizeSmsField } from '@/lib/auth-helpers'
 
 // CRON-ONLY: Should only be called from the cron route handler which verifies CRON_SECRET.
 // No user auth context is available in cron jobs.
@@ -48,7 +49,10 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
     )
 
     const company = job.company as unknown as { name: string; google_review_link?: string }
-    const companyName = company?.name ?? 'your roofer'
+    // Audit R4-#8: sanitize user-controlled fields before SMS template
+    // interpolation. See lib/auth-helpers.ts:sanitizeSmsField for rationale.
+    const companyName = sanitizeSmsField(company?.name ?? 'your roofer')
+    const customerName = sanitizeSmsField(job.customer_name)
 
     // Look up pre-fetched bodies — no per-job DB query
     const bodies = messagesByJob.get(job.id) ?? []
@@ -59,7 +63,7 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
       const reviewText = reviewLink
         ? `We'd love your feedback! Leave us a review: ${reviewLink}`
         : `We'd love your feedback!`
-      const msg = `Hi ${job.customer_name}, how was your experience with ${companyName}? ${reviewText}`
+      const msg = `Hi ${customerName}, how was your experience with ${companyName}? ${reviewText}`
       const result = await sendSMS(job.phone, msg)
       await supabase.from('messages').insert({
         job_id: job.id, direction: 'outbound', channel: 'sms',
@@ -71,7 +75,7 @@ export async function processPostJobAutomation(): Promise<{ sent: number }> {
 
     // Day 7: Referral ask
     if (daysSinceCompleted >= 7 && !bodies.some(b => b.includes('refer') || b.includes('Refer'))) {
-      const msg = `Hi ${job.customer_name}, know someone who needs a new roof? Refer them to ${companyName} — we appreciate the word of mouth!`
+      const msg = `Hi ${customerName}, know someone who needs a new roof? Refer them to ${companyName} — we appreciate the word of mouth!`
       const result = await sendSMS(job.phone, msg)
       await supabase.from('messages').insert({
         job_id: job.id, direction: 'outbound', channel: 'sms',

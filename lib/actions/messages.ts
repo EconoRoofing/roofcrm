@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
-import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
+import { getUserWithCompany, verifyJobOwnership, sanitizeSmsField } from '@/lib/auth-helpers'
 
 // Auto-text templates by status
 const STATUS_TEMPLATES: Record<string, (vars: TemplateVars) => string> = {
@@ -95,7 +95,12 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
     repRaw && typeof repRaw === 'object' && 'name' in repRaw
       ? String((repRaw as { name: unknown }).name)
       : 'your rep'
-  const jobType = (job.job_type as string).replace(/_/g, ' ')
+  // Audit R4-#14: job_type is nullable in the schema; the previous
+  // `as string` cast lied about runtime and crashed the status SMS
+  // flow with `Cannot read properties of null` on jobs created without
+  // a job_type (edge but real — insurance claims, lead captures from
+  // forms that skip the field).
+  const jobType = (job.job_type ?? 'roofing').replace(/_/g, ' ')
   const address = [job.address, job.city].filter(Boolean).join(', ')
   const date = job.scheduled_date
     ? new Date(job.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', {
@@ -112,15 +117,21 @@ export async function sendStatusUpdateSMS(jobId: string, newStatus: string): Pro
     ? String((job as { warranty_manufacturer_years: number }).warranty_manufacturer_years)
     : '25'
 
+  // Audit R4-#8: sanitize every user-controlled field before it hits the
+  // SMS template. Fields like customer_name / company name can legitimately
+  // contain any Unicode text, but newlines and control chars break template
+  // line-count assumptions, garble the display on the recipient's phone,
+  // split the message into extra billed segments, and can trip carrier
+  // spam filters.
   const vars: TemplateVars = {
-    customerName: job.customer_name,
-    companyName,
-    repName,
-    jobType,
-    address,
-    date,
-    officePhone,
-    warrantyYears,
+    customerName: sanitizeSmsField(job.customer_name),
+    companyName: sanitizeSmsField(companyName),
+    repName: sanitizeSmsField(repName),
+    jobType: sanitizeSmsField(jobType),
+    address: sanitizeSmsField(address),
+    date: sanitizeSmsField(date),
+    officePhone: sanitizeSmsField(officePhone),
+    warrantyYears: sanitizeSmsField(warrantyYears),
   }
 
   const body = template(vars)
