@@ -33,6 +33,60 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=auth`)
   }
 
+  // Calendar fix (2026-04): persist Google's refresh token onto
+  // public.users.google_refresh_token. Without this, every sign-in
+  // silently dropped Google's refresh token and Calendar sync relied on
+  // a grandfathered token that was manually seeded via SQL. When
+  // `invalid_grant` finally cleared that grandfathered row, Calendar
+  // sync went permanently silent with nothing in the UI to recover it.
+  //
+  // provider_refresh_token is only present on first consent AND on
+  // subsequent sign-ins that use `prompt: 'consent'` + `access_type:
+  // 'offline'` — both of which lib/auth-client.ts sets. On the rare
+  // response where Google omits it (network retry, edge case), we
+  // preserve whatever is already in the DB instead of blanking it.
+  //
+  // Uses the service-role client because the just-exchanged session
+  // cookie hasn't been set on this response yet, so the anon client's
+  // auth.uid() evaluation can't see the user. Same pattern as
+  // lib/google-calendar.ts and lib/actions/days-off-sync.ts.
+  const providerRefreshToken = data.session.provider_refresh_token
+  if (providerRefreshToken && data.session.user?.id) {
+    try {
+      const { createServiceClient } = await import('@/lib/supabase/service')
+      const svc = createServiceClient()
+      if (svc) {
+        const { error: updateErr } = await svc
+          .from('users')
+          .update({ google_refresh_token: providerRefreshToken })
+          .eq('id', data.session.user.id)
+        if (updateErr) {
+          console.error(
+            `Auth callback: failed to persist google_refresh_token for user ${data.session.user.id}:`,
+            updateErr
+          )
+        } else {
+          console.log(
+            `Auth callback: persisted google_refresh_token for user ${data.session.user.id}`
+          )
+        }
+      } else {
+        console.error(
+          'Auth callback: SUPABASE_SERVICE_ROLE_KEY not configured — cannot persist google_refresh_token'
+        )
+      }
+    } catch (err) {
+      // Never block sign-in on a calendar token write failure —
+      // the user can still use the app, Calendar sync just won't work
+      // until the next successful sign-in.
+      console.error('Auth callback: unexpected error persisting google_refresh_token:', err)
+    }
+  } else if (!providerRefreshToken) {
+    console.warn(
+      `Auth callback: no provider_refresh_token in session for user ${data.session.user?.id ?? 'unknown'} — Calendar sync will not work until next sign-in with consent prompt`
+    )
+  }
+
   // Redirect to profile selector — the user will pick their profile there
   const response = NextResponse.redirect(`${origin}/select-profile`)
 
