@@ -150,7 +150,13 @@ export function QuickPhoto({ jobId, userId, onPhotoCaptured, onVideoCaptured }: 
 
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('estimates').getPublicUrl(path)
+      // Audit R5-#2: same private-bucket story as the photo branch.
+      // Sign for 1 hour for the preview + success toast. photo-gallery
+      // re-signs on its own fetch.
+      const { data: signed } = await supabase.storage
+        .from('estimates')
+        .createSignedUrl(path, 60 * 60)
+      const signedUrl = signed?.signedUrl ?? ''
 
       // Store metadata — mark as video via notes column
       const { error: metaError } = await supabase.from('job_photos').insert({
@@ -164,8 +170,8 @@ export function QuickPhoto({ jobId, userId, onPhotoCaptured, onVideoCaptured }: 
       })
       if (metaError) console.warn('[quick-photo] video metadata insert failed:', metaError.message)
 
-      setSuccessUrl(publicUrl)
-      onVideoCaptured?.(publicUrl, category, gps?.lat, gps?.lng)
+      setSuccessUrl(signedUrl)
+      onVideoCaptured?.(signedUrl, category, gps?.lat, gps?.lng)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Video upload failed')
     } finally {
@@ -257,7 +263,15 @@ export function QuickPhoto({ jobId, userId, onPhotoCaptured, onVideoCaptured }: 
 
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('estimates').getPublicUrl(path)
+      // Audit R5-#2: was getPublicUrl() — bucket is now private
+      // (migration 039) so public URLs 400. createSignedUrl with a
+      // 1-hour TTL is enough for the success toast + the callback
+      // consumer that briefly displays the just-uploaded photo.
+      // photo-gallery.tsx re-signs on its own read path.
+      const { data: signed } = await supabase.storage
+        .from('estimates')
+        .createSignedUrl(path, 60 * 60)
+      const signedUrl = signed?.signedUrl ?? ''
 
       // Store photo metadata for querying by category/GPS
       const { error: metaError } = await supabase.from('job_photos').insert({
@@ -271,8 +285,8 @@ export function QuickPhoto({ jobId, userId, onPhotoCaptured, onVideoCaptured }: 
       if (metaError) console.warn('[quick-photo] metadata insert failed:', metaError.message)
 
       stopCamera()
-      setSuccessUrl(publicUrl)
-      onPhotoCaptured?.(publicUrl, category, gps?.lat, gps?.lng)
+      setSuccessUrl(signedUrl)
+      onPhotoCaptured?.(signedUrl, category, gps?.lat, gps?.lng)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {

@@ -40,9 +40,19 @@ export function PhotoGallery({ jobId }: PhotoGalleryProps) {
   const [showComparison, setShowComparison] = useState(false)
   const [generatingReport, setGeneratingReport] = useState(false)
 
+  // Audit R5-#2: was a sync `getPublicUrl` helper that returned
+  // `.../object/public/estimates/...` URLs. The estimates bucket is
+  // now private (migration 039) so those URLs 400. Photos load as a
+  // single DB fetch, then a single batch `createSignedUrls` round-trip
+  // to Supabase Storage populates this path→signedUrl map. Consumers
+  // read from the map via `getSignedUrl(path)` which is sync (falls
+  // back to empty string for unsigned paths — the RealPhoto/VideoCard
+  // components already handle broken image sources gracefully).
+  const [signedUrlMap, setSignedUrlMap] = useState<Map<string, string>>(new Map())
+
   const supabase = createClient()
 
-  // Fetch photos
+  // Fetch photos AND their signed URLs in one effect
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -53,15 +63,43 @@ export function PhotoGallery({ jobId }: PhotoGalleryProps) {
         .eq('job_id', jobId)
         .order('created_at', { ascending: false })
 
-      if (!cancelled) {
-        if (error) {
-          console.warn('[photo-gallery] fetch failed:', error.message)
-          setPhotos([])
-        } else {
-          setPhotos((data ?? []) as JobPhoto[])
-        }
+      if (cancelled) return
+      if (error) {
+        console.warn('[photo-gallery] fetch failed:', error.message)
+        setPhotos([])
+        setSignedUrlMap(new Map())
         setLoading(false)
+        return
       }
+
+      const rows = (data ?? []) as JobPhoto[]
+      setPhotos(rows)
+
+      // Batch-sign every storage_path in one round-trip. 1-hour TTL is
+      // enough for a gallery session; subsequent mounts re-sign. Keeps
+      // URLs from lingering in browser history / referer headers.
+      if (rows.length > 0) {
+        const paths = rows.map((p) => p.storage_path)
+        const ONE_HOUR = 60 * 60
+        const { data: signedBatch } = await supabase.storage
+          .from('estimates')
+          .createSignedUrls(paths, ONE_HOUR)
+
+        if (cancelled) return
+        const map = new Map<string, string>()
+        if (signedBatch) {
+          for (const entry of signedBatch) {
+            if (entry.signedUrl && entry.path) {
+              map.set(entry.path, entry.signedUrl)
+            }
+          }
+        }
+        setSignedUrlMap(map)
+      } else {
+        setSignedUrlMap(new Map())
+      }
+
+      setLoading(false)
     }
     load()
     return () => { cancelled = true }
@@ -78,18 +116,20 @@ export function PhotoGallery({ jobId }: PhotoGalleryProps) {
     counts[cat] = photos.filter((p) => p.category === cat).length
   }
 
-  // Public URL helper
-  const getPublicUrl = useCallback((storagePath: string) => {
-    const { data } = supabase.storage.from('estimates').getPublicUrl(storagePath)
-    return data.publicUrl
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Sync accessor into the signed-URL map. Returns '' for missing
+  // entries — the downstream img tags have an onError handler that
+  // shows a placeholder when the src fails to load.
+  const getSignedUrl = useCallback(
+    (storagePath: string): string => signedUrlMap.get(storagePath) ?? '',
+    [signedUrlMap]
+  )
 
   // Before/After comparison data
   const hasBeforeAndAfter = counts['Before'] > 0 && counts['After'] > 0
   const comparisonPhotos = photos
     .filter((p) => p.category === 'Before' || p.category === 'After')
     .map((p) => ({
-      url: getPublicUrl(p.storage_path),
+      url: getSignedUrl(p.storage_path),
       category: p.category,
       created_at: p.created_at,
     }))
@@ -391,7 +431,7 @@ export function PhotoGallery({ jobId }: PhotoGalleryProps) {
             <PhotoCard
               key={photo.id}
               photo={photo}
-              publicUrl={getPublicUrl(photo.storage_path)}
+              publicUrl={getSignedUrl(photo.storage_path)}
               onClick={() => openLightbox(idx)}
             />
           ))}
@@ -402,7 +442,7 @@ export function PhotoGallery({ jobId }: PhotoGalleryProps) {
       {lightboxIndex !== null && filtered[lightboxIndex] && (
         <Lightbox
           photo={filtered[lightboxIndex]}
-          publicUrl={getPublicUrl(filtered[lightboxIndex].storage_path)}
+          publicUrl={getSignedUrl(filtered[lightboxIndex].storage_path)}
           currentIndex={lightboxIndex}
           total={filtered.length}
           onClose={closeLightbox}

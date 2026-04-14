@@ -91,7 +91,11 @@ export function PhotoCapture({ onCapture, onSkip, userId }: PhotoCaptureProps) {
       })
 
       const timestamp = Date.now()
-      const path = `clock-photos/${userId}/${timestamp}.jpg`
+      // Audit R5-#4: was `clock-photos/${userId}/${timestamp}.jpg` — the
+      // Supabase client prepends the bucket name, so the old path was
+      // effectively double-prefixed. Clean path to `${userId}/${timestamp}.jpg`
+      // inside the `clock-photos` bucket.
+      const path = `${userId}/${timestamp}.jpg`
 
       const supabase = createClient()
       const { error: uploadError } = await supabase.storage
@@ -100,14 +104,27 @@ export function PhotoCapture({ onCapture, onSkip, userId }: PhotoCaptureProps) {
 
       if (uploadError) throw uploadError
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('clock-photos').getPublicUrl(path)
+      // Audit R5-#4: was calling getPublicUrl() on a private bucket,
+      // which returns a `.../object/public/clock-photos/...` URL that
+      // 400s on the private-bucket endpoint. Every clock-in photo has
+      // been write-only since this shipped — supervisors couldn't
+      // open any photo to verify crew presence. Now creates a real
+      // signed URL with a 7-day TTL (long enough for supervisors to
+      // review overnight + weekend, short enough to limit exposure
+      // if the URL leaks via log or referer).
+      const SEVEN_DAYS = 60 * 60 * 24 * 7
+      const { data: signed, error: signErr } = await supabase.storage
+        .from('clock-photos')
+        .createSignedUrl(path, SEVEN_DAYS)
+
+      if (signErr || !signed?.signedUrl) {
+        throw signErr ?? new Error('Failed to sign clock-in photo URL')
+      }
 
       // Stop camera
       streamRef.current?.getTracks().forEach((t) => t.stop())
 
-      onCapture(publicUrl)
+      onCapture(signed.signedUrl)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed. Try again or skip.')
       setIsUploading(false)
