@@ -178,28 +178,11 @@ export function halfCents(cents: number): number {
   return deposit ?? 0
 }
 
-// ─── Migration helpers (transitional) ────────────────────────────────────────
-
-/**
- * Read a money value from a DB row that may have EITHER the legacy
- * `*_amount` column OR the new `*_cents` column populated. Prefers cents,
- * falls back to the legacy float. Use during the expand-and-contract phase
- * so code is forward/backward compatible with the migration state.
- *
- * Example:
- *   const total = readMoneyFromRow(job.total_amount_cents, job.total_amount)
- */
-export function readMoneyFromRow(
-  cents: number | bigint | null | undefined,
-  legacyDollars: number | null | undefined
-): number {
-  if (cents != null) {
-    const n = typeof cents === 'bigint' ? Number(cents) : cents
-    if (Number.isFinite(n) && n !== 0) return n
-    // If cents is explicitly 0 but legacy is non-zero, the migration may not
-    // have run yet — fall back to legacy.
-    if (legacyDollars != null && legacyDollars !== 0) return dollarsToCents(legacyDollars)
-    return n
-  }
-  return dollarsToCents(legacyDollars)
-}
+// ─── Migration helpers (removed) ─────────────────────────────────────────────
+// The `readMoneyFromRow` transition helper was removed in the round-3 audit
+// cleanup. It served the expand-and-contract soak between migrations 027
+// (cents columns added) and 031 (legacy columns dropped). Every call site
+// was migrated to read `*_cents` directly, so the helper itself became dead
+// code. Keeping it around would tempt future devs to copy the dual-column
+// pattern for new migrations — delete transition helpers on the same commit
+// that finishes the transition.

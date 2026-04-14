@@ -245,9 +245,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                         {inv.invoice_number} &mdash; {(inv.type || 'standard').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
                       </div>
                       <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {/* Audit R3-#2: cents-only — readMoneyFromRow's legacy
-                            fallback referenced inv.total_amount which is dropped
-                            by migration 031. */}
+                        {/* Audit R3-#2: cents-only post-migration 031. */}
                         {formatCents(inv.total_amount_cents ?? 0)}
                       </div>
                       {inv.due_date && (

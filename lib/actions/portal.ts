@@ -191,9 +191,8 @@ export async function getPortalInvoices(token: string) {
   const job = await resolveLiveJobByPortalToken(supabase, token)
   if (!job) return []
 
-  // Audit R3-#2: cents-only — drops legacy `total_amount` so this is
-  // 031-safe. Consumers (portal page) already use total_amount_cents
-  // via formatCents/readMoneyFromRow.
+  // Audit R3-#2: cents-only post-migration 031. Consumers read
+  // `total_amount_cents` directly via formatCents.
   const { data: invoices } = await supabase
     .from('invoices')
     .select('id, invoice_number, type, total_amount_cents, status, due_date, payment_link, pdf_url')
