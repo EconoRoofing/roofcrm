@@ -422,36 +422,71 @@ async function executePostStatusEffects(
   }
 
   // Calendar sync
+  //
+  // Migration 041 split the per-company calendar into estimates vs jobs routing.
+  // The fallback chain matches the schema doc on public.companies:
+  //   estimate events → estimates_calendar_id ?? calendar_id ?? 'primary'
+  //   job events      → jobs_calendar_id      ?? calendar_id ?? 'primary'
+  //
+  // DeHart has only `calendar_id` set (single combined calendar), so both
+  // event types fall through. Econo and Nushake specialize via the split
+  // columns so their estimate and job events land on separate calendars.
+  //
+  // The previous implementation had a latent bug: it fetched `calendar_id`
+  // for update/delete but passed *no* calendarId to createCalendarEvent at
+  // all, so newly-created events always landed on the Google account's
+  // primary calendar regardless of company. The refactor below routes all
+  // four verbs (create/update/delete for both kinds) through the same picker.
   try {
     const { data: companyData } = await supabase
       .from('companies')
-      .select('calendar_id')
+      .select('calendar_id, estimates_calendar_id, jobs_calendar_id')
       .eq('id', currentJob.company_id)
       .single()
-    const calendarId = companyData?.calendar_id ?? 'primary'
+
+    const pickCalendarId = (kind: 'estimate' | 'job'): string => {
+      if (kind === 'estimate') {
+        return companyData?.estimates_calendar_id ?? companyData?.calendar_id ?? 'primary'
+      }
+      return companyData?.jobs_calendar_id ?? companyData?.calendar_id ?? 'primary'
+    }
 
     if (newStatus === 'estimate_scheduled') {
-      const eventId = await createCalendarEvent(userId, currentJob, 'estimate')
+      const eventId = await createCalendarEvent(userId, currentJob, 'estimate', pickCalendarId('estimate'))
       if (eventId) {
         await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', jobId)
       }
     } else if (newStatus === 'sold' || newStatus === 'scheduled') {
+      // Transition from estimate → job: the existing event lives on the
+      // ESTIMATES calendar, but we want the job on the JOBS calendar. Since
+      // Google Calendar doesn't have a native "move event between calendars"
+      // API, we delete-then-create rather than update-in-place. The update
+      // path below is only used when there was no prior calendar event at
+      // all (rare — happens if estimate_scheduled failed to sync).
       if (currentJob.calendar_event_id) {
-        await updateCalendarEvent(userId, currentJob.calendar_event_id, {
-          summary: `Job: ${currentJob.job_number} — ${currentJob.customer_name} (${currentJob.job_type})`,
-        }, calendarId)
+        // Delete from whichever calendar it currently lives on (estimate),
+        // then recreate on the jobs calendar with the new summary.
+        await deleteCalendarEvent(userId, currentJob.calendar_event_id, pickCalendarId('estimate'))
+        const newEventId = await createCalendarEvent(userId, currentJob, 'job', pickCalendarId('job'))
+        await supabase.from('jobs').update({ calendar_event_id: newEventId ?? null }).eq('id', jobId)
       } else {
-        const eventId = await createCalendarEvent(userId, currentJob, 'job')
+        const eventId = await createCalendarEvent(userId, currentJob, 'job', pickCalendarId('job'))
         if (eventId) {
           await supabase.from('jobs').update({ calendar_event_id: eventId }).eq('id', jobId)
         }
       }
     } else if (newStatus === 'completed' && currentJob.calendar_event_id) {
+      // Completed events stay on the jobs calendar — just relabel.
       await updateCalendarEvent(userId, currentJob.calendar_event_id, {
         summary: `[Done] ${currentJob.job_number} — ${currentJob.customer_name}`,
-      }, calendarId)
+      }, pickCalendarId('job'))
     } else if (newStatus === 'cancelled' && currentJob.calendar_event_id) {
-      await deleteCalendarEvent(userId, currentJob.calendar_event_id, calendarId)
+      // Cancelled events need to be deleted from whichever calendar they live
+      // on. If we're cancelling from estimate_scheduled they're on the
+      // estimates calendar; from any later status they're on the jobs
+      // calendar. Use the OLD status to pick the right one.
+      const cancelKind = oldStatus === 'estimate_scheduled' ? 'estimate' : 'job'
+      await deleteCalendarEvent(userId, currentJob.calendar_event_id, pickCalendarId(cancelKind))
       await supabase.from('jobs').update({ calendar_event_id: null }).eq('id', jobId)
     }
   } catch (calError) {

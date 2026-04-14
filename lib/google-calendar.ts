@@ -106,7 +106,6 @@ interface JobForCalendar {
   job_type: string
   scheduled_date?: string | null
   notes?: string | null
-  company_calendar_id?: string | null  // Google Calendar ID for this company's events
 }
 
 function buildEventBody(
@@ -157,23 +156,21 @@ function buildEventBody(
 
 /**
  * Create a Google Calendar event for a job.
- * Uses the company-specific calendar if configured (via job.company_calendar_id),
- * otherwise falls back to 'primary'. This allows events for DeHart, Econo, and
- * Nushake to land on separate, color-coded calendars.
+ * The calendar is resolved by the caller (see pickCalendarId in lib/actions/jobs.ts)
+ * which routes estimates and jobs to different per-company calendars. Defaults to
+ * 'primary' if the caller doesn't specify — matches updateCalendarEvent/deleteCalendarEvent.
  * Returns the event ID, or null if Calendar is not connected for this user.
  */
 export async function createCalendarEvent(
   userId: string,
   job: JobForCalendar,
-  eventType: 'estimate' | 'job'
+  eventType: 'estimate' | 'job',
+  calendarId = 'primary'
 ): Promise<string | null> {
   const accessToken = await getGoogleAccessToken(userId)
   if (!accessToken) return null
 
   const body = buildEventBody(job, eventType)
-
-  // Use company-specific calendar if configured, otherwise fall back to primary
-  const calendarId = job.company_calendar_id ?? 'primary'
 
   const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
@@ -245,6 +242,98 @@ export async function updateCalendarEvent(
   }
 
   return true
+}
+
+/**
+ * Shape of a calendar event as returned by listCalendarEvents.
+ * This is a normalized subset of Google's Events.list response — the raw
+ * response has ~30 fields and we only need a handful for overlay display
+ * and the Days Off guardrail. Both `start` and `end` can be either all-day
+ * (`date: 'YYYY-MM-DD'`) or timed (`dateTime: ISO 8601`), matching Google's
+ * own union.
+ */
+export interface OverlayEvent {
+  id: string
+  summary: string
+  start: { date?: string; dateTime?: string }
+  end: { date?: string; dateTime?: string }
+}
+
+/**
+ * List events from a Google Calendar in a date window.
+ *
+ * Used by the manager calendar view to pull overlay events (Admin/Payroll,
+ * Days Off) from calendars that aren't tied to `jobs` rows. Also used by
+ * the daily cron to mirror the Days Off calendar into the local `days_off`
+ * table for the scheduling guardrail.
+ *
+ * - `timeMin`/`timeMax` are ISO 8601 strings (RFC 3339). Google's
+ *   events.list treats them as UTC unless they carry an explicit offset.
+ * - `singleEvents=true` expands recurring events into individual
+ *   occurrences. Without this, a weekly payroll event would return ONE
+ *   event with a `recurrence` rule the overlay view can't render.
+ * - Google caps at 2500 per page; for a monthly window we're nowhere
+ *   near that, so we don't paginate. If this ever changes we'd need a
+ *   nextPageToken loop.
+ *
+ * Returns an empty array on any failure (best-effort, same convention
+ * as create/update/delete). Callers should render an empty overlay
+ * rather than break the whole calendar view.
+ */
+export async function listCalendarEvents(
+  userId: string,
+  calendarId: string,
+  timeMin: string,
+  timeMax: string
+): Promise<OverlayEvent[]> {
+  const accessToken = await getGoogleAccessToken(userId)
+  if (!accessToken) return []
+
+  const url = new URL(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`)
+  url.searchParams.set('timeMin', timeMin)
+  url.searchParams.set('timeMax', timeMax)
+  url.searchParams.set('singleEvents', 'true')
+  url.searchParams.set('orderBy', 'startTime')
+  url.searchParams.set('maxResults', '250')
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (res.status === 429) {
+    console.warn('Calendar: rate limited by Google on listCalendarEvents', calendarId)
+    return []
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error('Calendar: listCalendarEvents failed', res.status, errText)
+    return []
+  }
+
+  const json = await res.json() as {
+    items?: Array<{
+      id?: string
+      summary?: string
+      start?: { date?: string; dateTime?: string }
+      end?: { date?: string; dateTime?: string }
+    }>
+  }
+
+  const items = json.items ?? []
+  return items
+    .filter((e) => e.id && e.start && e.end)
+    .map((e) => ({
+      id: e.id as string,
+      summary: e.summary ?? '(no title)',
+      start: e.start as { date?: string; dateTime?: string },
+      end: e.end as { date?: string; dateTime?: string },
+    }))
 }
 
 /**

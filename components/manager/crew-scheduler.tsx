@@ -350,10 +350,29 @@ export function CrewScheduler() {
     if (!assignModal) return
     setAssigning(true)
     try {
-      await assignJobToCrewMultiDay(assignModal.jobId, assignModal.crewId, assignModal.date, assignDuration)
+      // The action now returns { success, dayOffWarning } so we can surface
+      // a Days Off overlap without blocking the assignment. The job IS
+      // assigned either way — the warning is just a heads-up that the
+      // target date falls inside a Days Off block from the Days Off
+      // Google Calendar (synced nightly by /api/cron/daily).
+      const result = await assignJobToCrewMultiDay(
+        assignModal.jobId,
+        assignModal.crewId,
+        assignModal.date,
+        assignDuration,
+      )
       await loadData(weekStart)
       setAssignModal(null)
       setError(null)
+      if (result.dayOffWarning) {
+        // Native alert is appropriate here: it's a one-off "are you sure"
+        // moment where we want an explicit acknowledgment from Mario and
+        // don't need persistent UI state. The assignment has already
+        // committed — this is purely notification.
+        window.alert(
+          `Assigned — but heads up: this date overlaps "${result.dayOffWarning}" on the Days Off calendar.`,
+        )
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Assignment failed')
     } finally {

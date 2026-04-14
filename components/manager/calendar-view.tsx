@@ -6,6 +6,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { hexToRgba } from '@/lib/utils'
 import { ChevronLeftIcon, ChevronRightIcon } from '@/components/icons'
 import type { Job } from '@/lib/types/database'
+import type { FlatOverlayEvent } from '@/lib/actions/calendar-overlays'
 
 type JobWithRelations = Job & {
   company: { id: string; name: string; color: string } | null
@@ -14,6 +15,11 @@ type JobWithRelations = Job & {
 
 interface CalendarViewProps {
   jobs: JobWithRelations[]
+  // Overlay events (Admin/Payroll, Days Off) fetched server-side from
+  // Google Calendar via lib/actions/calendar-overlays. Already flattened
+  // into per-day entries — a 3-day Days Off block arrives as 3 separate
+  // entries with the same label but different dateKeys.
+  overlays?: FlatOverlayEvent[]
 }
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -35,7 +41,7 @@ function dateKeyFromYMD(year: number, monthIdx: number, day: number): string {
   return toDateKey(new Date(year, monthIdx, day))
 }
 
-export function CalendarView({ jobs }: CalendarViewProps) {
+export function CalendarView({ jobs, overlays = [] }: CalendarViewProps) {
   const router = useRouter()
   // Capture the mount-time date ONLY for the initial month/year — not for
   // "is this day today?" comparisons. If the tab stays open across midnight,
@@ -76,6 +82,20 @@ export function CalendarView({ jobs }: CalendarViewProps) {
     return map
   }, [jobs])
 
+  // Build overlay map in the same YYYY-MM-DD-keyed shape as jobMap. Each
+  // entry holds the overlay events (Admin/Payroll, Days Off) that fall on
+  // that day. Overlays already arrive flattened per-day from the server
+  // action so this is just a one-pass group-by.
+  const overlayMap = useMemo(() => {
+    const map = new Map<string, FlatOverlayEvent[]>()
+    for (const ov of overlays) {
+      const existing = map.get(ov.dateKey) ?? []
+      existing.push(ov)
+      map.set(ov.dateKey, existing)
+    }
+    return map
+  }, [overlays])
+
   // Calendar grid calculations
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
@@ -105,6 +125,7 @@ export function CalendarView({ jobs }: CalendarViewProps) {
   const todayKey = toDateKey(new Date())
 
   const selectedJobs = selectedDay ? (jobMap.get(selectedDay) ?? []) : []
+  const selectedOverlays = selectedDay ? (overlayMap.get(selectedDay) ?? []) : []
 
   return (
     <div
@@ -256,6 +277,11 @@ export function CalendarView({ jobs }: CalendarViewProps) {
 
             const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
             const dayJobs = jobMap.get(dateKey) ?? []
+            const dayOverlays = overlayMap.get(dateKey) ?? []
+            // Dedupe overlays by category key so two Admin/Payroll events on
+            // the same day render a single chip, not two stacked chips.
+            const uniqueOverlayKeys = Array.from(new Set(dayOverlays.map((o) => o.key)))
+            const overlayByKey = new Map(dayOverlays.map((o) => [o.key, o]))
             const isToday = dateKey === todayKey
             const isSelected = dateKey === selectedDay
 
@@ -309,6 +335,56 @@ export function CalendarView({ jobs }: CalendarViewProps) {
                 >
                   {day}
                 </span>
+
+                {/* Overlay chips (Admin/Payroll, Days Off) — render above
+                    the job dots so they don't compete for the bottom area.
+                    One thin horizontal bar per category that has any event
+                    that day, colored by system_calendars.color. */}
+                {uniqueOverlayKeys.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    {uniqueOverlayKeys.map((k) => {
+                      const ov = overlayByKey.get(k)!
+                      return (
+                        <div
+                          key={k}
+                          title={`${ov.label}: ${ov.summary}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: hexToRgba(ov.color, 0.15),
+                            borderLeft: `2px solid ${ov.color}`,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: '9px',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 600,
+                              color: ov.color,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              letterSpacing: '0.02em',
+                            }}
+                          >
+                            {ov.summary}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
 
                 {/* Job dots */}
                 {dayJobs.length > 0 && (
@@ -394,6 +470,79 @@ export function CalendarView({ jobs }: CalendarViewProps) {
                 {selectedJobs.length} {selectedJobs.length === 1 ? 'job' : 'jobs'}
               </span>
             </div>
+
+            {/* Overlay events section — renders above the job list since
+                overlays usually represent blockers (Days Off) or context
+                (Admin/Payroll) that should frame the jobs below. Each row
+                opens the event in Google Calendar on click — we don't have
+                a CRM detail page for non-job events. */}
+            {selectedOverlays.length > 0 && (
+              <div>
+                {selectedOverlays.map((ov) => (
+                  <a
+                    key={ov.googleEventId}
+                    href={`https://calendar.google.com/calendar/event?eid=${encodeURIComponent(
+                      btoa(`${ov.googleEventId} ${ov.calendarId}`).replace(/=+$/, '')
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                      textDecoration: 'none',
+                      transition: 'background-color 100ms ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      ;(e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'var(--bg-elevated)'
+                    }}
+                    onMouseLeave={(e) => {
+                      ;(e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'
+                    }}
+                  >
+                    {/* Overlay color stripe */}
+                    <div
+                      style={{
+                        width: '3px',
+                        height: '36px',
+                        borderRadius: '2px',
+                        backgroundColor: ov.color,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          color: 'var(--text-primary)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          marginBottom: '2px',
+                        }}
+                      >
+                        {ov.summary}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '10px',
+                          fontFamily: 'var(--font-mono)',
+                          color: ov.color,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                        }}
+                      >
+                        {ov.label}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
 
             {selectedJobs.length === 0 ? (
               <div

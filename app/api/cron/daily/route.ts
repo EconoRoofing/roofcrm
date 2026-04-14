@@ -7,6 +7,7 @@ import { processPostJobAutomation } from '@/lib/actions/post-job'
 import { processFollowUpTasks } from '@/lib/actions/follow-up-tasks'
 import { detectUnclosedClockIns } from '@/lib/actions/time-tracking'
 import { renewExpiringCalendarWatches } from '@/lib/calendar-sync'
+import { syncDaysOff } from '@/lib/actions/days-off-sync'
 
 // Single daily cron that runs all automations sequentially
 // Vercel Hobby plan allows 2 cron jobs — this consolidates 3 into 1
@@ -106,6 +107,20 @@ export async function GET(request: Request) {
   } catch (error) {
     reportError(error, { route: '/api/cron/daily', step: 'calendar-watch-renewal' })
     results.calendarWatchesRenewed = { renewed: 0, failed: -1 }
+  }
+
+  // 9. Mirror the Days Off Google Calendar into public.days_off.
+  // Drives the scheduling guardrail in lib/actions/scheduling.ts and
+  // the overlay chips in the manager calendar view. Pull model: Google
+  // is the source of truth, Supabase is the local replica. Re-running
+  // the sync is idempotent — safe to invoke on every cron tick. See
+  // migration 042 for the table shape and lib/actions/days-off-sync.ts
+  // for the sync logic (upsert by google_event_id + orphan delete).
+  try {
+    results.daysOffSync = await syncDaysOff()
+  } catch (error) {
+    reportError(error, { route: '/api/cron/daily', step: 'days-off-sync' })
+    results.daysOffSync = { synced: 0, deleted: 0, skipped: true, reason: 'threw' }
   }
 
   // 6. Update expired certifications

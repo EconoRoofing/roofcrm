@@ -3,6 +3,46 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, requireManager, verifyJobOwnership, localDateString } from '@/lib/auth-helpers'
 
+/**
+ * Check if a specific date is inside any Days Off block.
+ *
+ * Returns the matching row's label (or a default) if blocked, null if free.
+ * Used as a soft guardrail by assign/schedule actions — callers decide
+ * whether to warn, block, or log. In RoofCRM the convention is WARN:
+ * `console.warn` + return a flag the client surfaces as a banner, so
+ * Mario (owner) can still force-schedule if he needs to.
+ *
+ * Backed by the `days_off` table populated nightly via syncDaysOff in
+ * /api/cron/daily. The composite index (start_date, end_date) from
+ * migration 042 satisfies the range overlap check with a single
+ * index range scan — efficient even at ~100 rows/year.
+ */
+export async function checkDaysOffConflict(date: string): Promise<{
+  blocked: boolean
+  label: string | null
+}> {
+  const supabase = await createClient()
+
+  // Range overlap: a Days Off block (start_date..end_date, both inclusive
+  // after the cron normalizes Google's exclusive end.date) overlaps the
+  // target date iff start_date <= target AND end_date >= target.
+  const { data, error } = await supabase
+    .from('days_off')
+    .select('label')
+    .lte('start_date', date)
+    .gte('end_date', date)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.warn('[scheduling] days_off lookup failed:', error.message)
+    return { blocked: false, label: null }
+  }
+
+  if (!data) return { blocked: false, label: null }
+  return { blocked: true, label: (data as { label: string | null }).label ?? 'Day off' }
+}
+
 interface CrewMember {
   id: string
   name: string
@@ -195,6 +235,12 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
     )
   }
 
+  // Days Off guardrail — warn but don't block. See checkDaysOffConflict
+  // above for the rationale: Mario occasionally force-schedules over a
+  // Days Off block for urgent callbacks, so a hard reject would be worse
+  // UX than a banner he can acknowledge.
+  const dayOff = await checkDaysOffConflict(date)
+
   const { data: updatedJob, error } = await supabase
     .from('jobs')
     .update({
@@ -210,7 +256,19 @@ export async function assignJobToCrew(jobId: string, crewId: string, date: strin
     throw new Error('Failed to assign job to crew')
   }
 
-  return true
+  // Audit-log the force-schedule so Mario can see if anyone on the team
+  // started routinely ignoring Days Off. Best-effort — never fail the
+  // assignment for a log write.
+  if (dayOff.blocked) {
+    console.warn(
+      `[scheduling] job ${jobId} assigned to crew ${crewId} on ${date} — overlaps Days Off "${dayOff.label}"`
+    )
+  }
+
+  return {
+    success: true as const,
+    dayOffWarning: dayOff.blocked ? dayOff.label : null,
+  }
 }
 
 export async function assignJobToCrewMultiDay(
@@ -281,6 +339,27 @@ export async function assignJobToCrewMultiDay(
     )
   }
 
+  // Days Off guardrail — check every day in the range, not just the
+  // start. A 3-day reroof starting Friday should warn if Sunday is a
+  // Days Off block, even though Friday itself is clear. Walk the range
+  // with a cursor and bail on the first hit.
+  let dayOffWarning: string | null = null
+  {
+    const cursor = new Date(newStart)
+    for (let i = 0; i < duration; i++) {
+      const y = cursor.getFullYear()
+      const m = String(cursor.getMonth() + 1).padStart(2, '0')
+      const d = String(cursor.getDate()).padStart(2, '0')
+      const key = `${y}-${m}-${d}`
+      const hit = await checkDaysOffConflict(key)
+      if (hit.blocked) {
+        dayOffWarning = hit.label
+        break
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+  }
+
   const { data: updatedJob, error } = await supabase
     .from('jobs')
     .update({
@@ -297,7 +376,16 @@ export async function assignJobToCrewMultiDay(
     throw new Error('Failed to assign job to crew')
   }
 
-  return true
+  if (dayOffWarning) {
+    console.warn(
+      `[scheduling] job ${jobId} multi-day assign (${duration}d from ${startDate}) — overlaps Days Off "${dayOffWarning}"`
+    )
+  }
+
+  return {
+    success: true as const,
+    dayOffWarning,
+  }
 }
 
 export async function unassignJobFromCrew(jobId: string) {
