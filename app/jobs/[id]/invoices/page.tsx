@@ -134,11 +134,14 @@ export default function JobInvoicesPage() {
         setError('Amount and due date are required')
         return
       }
+      // Audit R3-#2 follow-up: createInvoice is cents-only post-031.
+      // Convert form input (dollars) to cents at the boundary.
+      const amountCents = Math.round(parseFloat(formData.amount) * 100)
       await createInvoice({
         job_id: id,
         type: formData.type,
-        amount: parseFloat(formData.amount),
-        total_amount: parseFloat(formData.amount),
+        amount_cents: amountCents,
+        total_amount_cents: amountCents,
         due_date: formData.due_date,
         notes: formData.notes || undefined,
       })

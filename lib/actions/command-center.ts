@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
-import { centsToDollars, readMoneyFromRow } from '@/lib/money'
+import { centsToDollars } from '@/lib/money'
 
 export interface CommandCenterData {
   // Today
@@ -97,10 +97,11 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
       .order('due_date', { ascending: true })
       .limit(10),
 
-    // Revenue this month (sold/scheduled/in_progress/completed)
+    // Revenue this month (sold/scheduled/in_progress/completed).
+    // Audit R3-#2 follow-up: cents-only, 031-safe.
     supabase
       .from('jobs')
-      .select('total_amount, total_amount_cents')
+      .select('total_amount_cents')
       .eq('company_id', companyId)
       .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
       .gte('created_at', monthStart),
@@ -108,7 +109,7 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     // Pipeline value
     supabase
       .from('jobs')
-      .select('total_amount, total_amount_cents')
+      .select('total_amount_cents')
       .eq('company_id', companyId)
       .in('status', ['lead', 'estimate_scheduled', 'pending', 'sold', 'scheduled', 'in_progress']),
 
@@ -135,23 +136,14 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
   const dueFollowUpCount = dueFollowUpsResult.count ?? 0
   const dueFollowUps = (dueFollowUpsResult.data ?? []) as unknown as CommandCenterData['dueFollowUps']
 
-  // Sums in integer cents, return as dollars at the wire boundary
+  // Sums in integer cents, return as dollars at the wire boundary.
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   const revenueThisMonthCents = (revenueResult.data ?? []).reduce(
-    (sum, j) =>
-      sum +
-      readMoneyFromRow(
-        (j as { total_amount_cents?: number | null }).total_amount_cents,
-        j.total_amount
-      ),
+    (sum, j) => sum + Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0),
     0
   )
   const pipelineValueCents = (pipelineResult.data ?? []).reduce(
-    (sum, j) =>
-      sum +
-      readMoneyFromRow(
-        (j as { total_amount_cents?: number | null }).total_amount_cents,
-        j.total_amount
-      ),
+    (sum, j) => sum + Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0),
     0
   )
   const revenueThisMonth = centsToDollars(revenueThisMonthCents)

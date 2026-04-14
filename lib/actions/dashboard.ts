@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
-import { centsToDollars, readMoneyFromRow } from '@/lib/money'
+import { centsToDollars } from '@/lib/money'
 
 export interface DashboardData {
   // Pipeline KPIs
@@ -40,11 +40,12 @@ export async function getDashboardData(filters?: {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  // Build base job query — always scoped to authenticated user's company
+  // Build base job query — always scoped to authenticated user's company.
+  // Audit R3-#2 follow-up: cents-only post-031.
   let jobQuery = supabase
     .from('jobs')
     .select(
-      'id, status, total_amount, total_amount_cents, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount, commission_amount_cents'
+      'id, status, total_amount_cents, job_type, referred_by, rep_id, created_at, completed_date, company_id, commission_amount_cents'
     )
     .eq('company_id', companyId)
   if (filters?.startDate) {
@@ -69,17 +70,11 @@ export async function getDashboardData(filters?: {
 
   // ── Pipeline KPIs ──────────────────────────────────────────────────────────
 
-  // Helper: per-job total in integer cents (prefer cents, fall back to legacy)
+  // Audit R3-#2 follow-up: cents-only post-031.
   const jobTotalCents = (j: typeof jobs[number]): number =>
-    readMoneyFromRow(
-      (j as { total_amount_cents?: number | null }).total_amount_cents,
-      j.total_amount
-    )
+    Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
   const jobCommissionCents = (j: typeof jobs[number]): number =>
-    readMoneyFromRow(
-      (j as { commission_amount_cents?: number | null }).commission_amount_cents,
-      (j as { commission_amount?: number | null }).commission_amount
-    )
+    Number((j as { commission_amount_cents?: number | null }).commission_amount_cents ?? 0)
 
   const pipelineStatuses = ['pending', 'sold', 'estimate_scheduled', 'lead', 'scheduled', 'in_progress']
   const pipelineValueCents = jobs
@@ -258,7 +253,7 @@ export async function getDashboardData(filters?: {
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')
-        .select('total_cost, total_cost_cents')
+        .select('total_cost_cents')
         .in('job_id', companyJobIds)
         .eq('excluded_from_payroll', false)
         .gte('clock_in', monthStart)
@@ -285,11 +280,9 @@ export async function getDashboardData(filters?: {
       avgHoursPerJob = uniqueJobCount > 0 ? Math.round((totalHoursAll / uniqueJobCount) * 10) / 10 : 0
     }
 
+    // Audit R3-#2 follow-up: cents-only post-031.
     const totalLaborCostCents = (monthlyLaborResult.data ?? []).reduce(
-      (sum, e) => sum + readMoneyFromRow(
-        (e as { total_cost_cents?: number | null }).total_cost_cents,
-        e.total_cost
-      ),
+      (sum, e) => sum + Number((e as { total_cost_cents?: number | null }).total_cost_cents ?? 0),
       0
     )
     totalLaborCostThisMonth = centsToDollars(totalLaborCostCents)

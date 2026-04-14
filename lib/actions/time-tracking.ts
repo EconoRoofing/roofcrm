@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
 import { checkGeofence } from '@/lib/geo'
 import {
-  readMoneyFromRow,
   multiplyCents,
   sumCents,
   centsToDollars,
@@ -136,7 +135,8 @@ export async function clockIn(
   const [existingResult, jobResult, userDataResult] = await Promise.all([
     supabase.from('time_entries').select('id').eq('user_id', userId).is('clock_out', null).maybeSingle(),
     supabase.from('jobs').select('lat, lng, city, status, job_type, company_id').eq('id', jobId).single(),
-    supabase.from('users').select('pay_type, hourly_rate, day_rate, hourly_rate_cents, day_rate_cents').eq('id', userId).single(),
+    // Audit R3-#2 follow-up: cents-only post-031.
+    supabase.from('users').select('pay_type, hourly_rate_cents, day_rate_cents').eq('id', userId).single(),
   ])
 
   if (existingResult.data) throw new Error('Already clocked in. Clock out first.')
@@ -171,16 +171,12 @@ export async function clockIn(
     ? `Clock-in at unusual hour: ${clockInTime.toLocaleTimeString()}`
     : null
 
-  // Snapshot the user's pay rates onto the time entry. Dual-write cents +
-  // legacy dollar columns so both sides of the migration work. Cents is
-  // the source of truth for payroll math at clock-out.
-  const hourlyRateCents = readMoneyFromRow(
-    (userData as { hourly_rate_cents?: number | null }).hourly_rate_cents,
-    userData.hourly_rate
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const hourlyRateCents = Number(
+    (userData as { hourly_rate_cents?: number | null }).hourly_rate_cents ?? 0
   )
-  const dayRateCents = readMoneyFromRow(
-    (userData as { day_rate_cents?: number | null }).day_rate_cents,
-    userData.day_rate
+  const dayRateCents = Number(
+    (userData as { day_rate_cents?: number | null }).day_rate_cents ?? 0
   )
 
   // Create time entry
@@ -195,8 +191,7 @@ export async function clockIn(
       clock_in_distance_ft: distanceFt,
       clock_in_photo_url: photoUrl ?? null,
       pay_type: userData.pay_type ?? 'hourly',
-      hourly_rate: centsToDollars(hourlyRateCents), // legacy dual-write
-      day_rate: centsToDollars(dayRateCents),       // legacy dual-write
+      // Audit R3-#2 follow-up: dropped legacy dual-writes.
       hourly_rate_cents: hourlyRateCents,
       day_rate_cents: dayRateCents,
       weather_conditions: weatherConditions,
@@ -376,18 +371,16 @@ export async function clockOut(
   const elapsedHours = (clockOutMs - clockInMs) / 1000 / 3600
   const workingHours = Math.max(0, elapsedHours - totalBreakMinutes / 60)
 
-  // Cost calculation — prefer cents, fall back to legacy float dollars.
-  // All pay math stays in integer cents until the final write.
+  // Audit R3-#2 follow-up: cents-only post-031.
   const payType = entry.pay_type as string
-  const hourlyRateCents = readMoneyFromRow(
-    (entry as { hourly_rate_cents?: number | null }).hourly_rate_cents,
-    Number(entry.hourly_rate ?? 0)
+  const hourlyRateCents = Number(
+    (entry as { hourly_rate_cents?: number | null }).hourly_rate_cents ?? 0
   )
-  const dayRateCents = readMoneyFromRow(
-    (entry as { day_rate_cents?: number | null }).day_rate_cents,
-    Number(entry.day_rate ?? 0)
+  const dayRateCents = Number(
+    (entry as { day_rate_cents?: number | null }).day_rate_cents ?? 0
   )
-  // Legacy dollar values for any remaining legacy code paths
+  // Legacy dollar shadows kept in scope for downstream callers that still
+  // build dollar-typed payloads (cost_breakdown JSON, etc).
   const hourlyRate = centsToDollars(hourlyRateCents)
   const dayRate = centsToDollars(dayRateCents)
 
@@ -592,8 +585,8 @@ export async function clockOut(
       overtime_hours: overtimeHours,
       doubletime_hours: doubletimeHours,
       total_hours: parseFloat(workingHours.toFixed(4)),
-      total_cost: centsToDollars(totalCostCents),   // legacy dual-write, derived from cents
-      total_cost_cents: totalCostCents,             // authoritative
+      // Audit R3-#2 follow-up: dropped legacy total_cost dual-write.
+      total_cost_cents: totalCostCents,
       flagged,
       flag_reason: flagReason,
       ...(updatedNotes !== undefined ? { notes: updatedNotes } : {}),
@@ -680,9 +673,10 @@ export async function getTimeEntries(filters: TimeEntryFilters = {}): Promise<Ti
   const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
+  // Audit R3-#2 follow-up: cents-only post-031.
   let query = supabase
     .from('time_entries')
-    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, cost_code, pay_type, hourly_rate, day_rate, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
+    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost_cents, cost_code, pay_type, hourly_rate_cents, day_rate_cents, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
     .eq('job.company_id', companyId)
     .order('clock_in', { ascending: false })
 
@@ -710,9 +704,10 @@ export async function getClockedInEntries(): Promise<TimeEntry[]> {
   const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { data, error } = await supabase
     .from('time_entries')
-    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost, total_cost_cents, cost_code, pay_type, hourly_rate, day_rate, hourly_rate_cents, day_rate_cents, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
+    .select('id, user_id, job_id, clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours, total_hours, total_cost_cents, cost_code, pay_type, hourly_rate_cents, day_rate_cents, flagged, flag_reason, weather_conditions, clock_in_distance_ft, clock_in_photo_url, clock_out_photo_url, notes, created_at, job:jobs!inner(job_number, customer_name, address, city, company_id), user:users(id, name, email)')
     .eq('job.company_id', companyId)
     .is('clock_out', null)
     .order('clock_in', { ascending: false })
@@ -734,9 +729,10 @@ export async function getJobLaborCost(jobId: string): Promise<{
 
   // Exclude entries the manager has explicitly marked as non-payroll.
   // `flagged` stays in the result set — it's advisory, not exclusionary.
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { data, error } = await supabase
     .from('time_entries')
-    .select('id, total_hours, total_cost, total_cost_cents')
+    .select('id, total_hours, total_cost_cents')
     .eq('job_id', jobId)
     .eq('excluded_from_payroll', false)
     .order('clock_in', { ascending: true })
@@ -745,13 +741,10 @@ export async function getJobLaborCost(jobId: string): Promise<{
 
   const entries = (data ?? []) as TimeEntry[]
   const totalHours = entries.reduce((sum, e) => sum + (e.total_hours ?? 0), 0)
-  // Sum in integer cents, prefer cents column, fall back to legacy float
+  // Audit R3-#2 follow-up: cents-only post-031.
   const totalCostCents = sumCents(
     entries.map((e) =>
-      readMoneyFromRow(
-        (e as { total_cost_cents?: number | null }).total_cost_cents,
-        e.total_cost
-      )
+      Number((e as { total_cost_cents?: number | null }).total_cost_cents ?? 0)
     )
   )
 
@@ -976,7 +969,8 @@ export async function exportTimeEntriesCSV(startDate: string, endDate: string): 
     const regularHrs = Number(e.regular_hours ?? 0).toFixed(2)
     const otHrs = Number(e.overtime_hours ?? 0).toFixed(2)
     const dtHrs = Number(e.doubletime_hours ?? 0).toFixed(2)
-    const totalPay = Number(e.total_cost ?? 0).toFixed(2)
+    // Audit R3-#2 follow-up: cents-only post-031.
+    const totalPay = (Number(e.total_cost_cents ?? 0) / 100).toFixed(2)
 
     // Look up breaks from the pre-fetched Map — no per-entry DB query
     const entryBreaks = breaksByEntry.get(e.id) ?? []

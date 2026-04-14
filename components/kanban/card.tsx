@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { CompanyTag } from '@/components/company-tag'
-import { formatCents, readMoneyFromRow } from '@/lib/money'
+import { formatCents } from '@/lib/money'
 
 // Minimal shape — only the fields the Kanban board actually renders.
 // company/rep are typed as arrays to match Supabase's join inference;
@@ -17,7 +17,6 @@ export interface KanbanJob {
   company_id: string
   status: string
   job_type: string
-  total_amount: number | null
   total_amount_cents?: number | null
   created_at: string
   company: { id: string; name: string; color: string | null }[] | { id: string; name: string; color: string | null } | null
@@ -121,8 +120,8 @@ export const KanbanCard = React.memo(function KanbanCard({ job }: KanbanCardProp
     router.push(`/jobs/${job.id}`)
   }
 
-  // Total amount: prefer cents, fall back to legacy float dollars
-  const totalCents = readMoneyFromRow(job.total_amount_cents, job.total_amount)
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const totalCents = Number(job.total_amount_cents ?? 0)
   const hasTotal = totalCents > 0
 
   return (

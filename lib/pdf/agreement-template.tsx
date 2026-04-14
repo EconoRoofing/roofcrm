@@ -9,7 +9,7 @@ import {
 } from '@react-pdf/renderer'
 import type { Job, Company, EstimateSpecs } from '@/lib/types/database'
 import { formatMoneyPdf } from '@/lib/utils'
-import { readMoneyFromRow, centsToDollars, halfCents } from '@/lib/money'
+import { centsToDollars, halfCents } from '@/lib/money'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -482,10 +482,8 @@ export function RoofingAgreement({ company, job, repSignature, customerSignature
   // Audit R2-#9: previously both rows rendered the same `deposit` variable,
   // so for odd-cent totals like $10,000.01 the PDF showed $5,000.01 twice,
   // summing to $10,000.02 (one cent over contract).
-  const totalCents = readMoneyFromRow(
-    (job as { total_amount_cents?: number | null }).total_amount_cents,
-    job.total_amount
-  )
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const totalCents = Number((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
   const firstHalfCents = halfCents(totalCents)
   const secondHalfCents = totalCents - firstHalfCents
   const total = centsToDollars(totalCents)

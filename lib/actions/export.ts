@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
 import {
   centsToDollars,
-  readMoneyFromRow,
   formatCentsForPdf,
 } from '@/lib/money'
 
@@ -22,12 +21,13 @@ export async function exportPayrollCSV(filters?: {
 
   if (companyJobIds.length === 0) return ''
 
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   let query = supabase
     .from('time_entries')
     .select(`
       clock_in, clock_out, regular_hours, overtime_hours, doubletime_hours,
-      total_hours, total_cost, total_cost_cents, cost_code, pay_type,
-      hourly_rate, day_rate, hourly_rate_cents, day_rate_cents,
+      total_hours, total_cost_cents, cost_code, pay_type,
+      hourly_rate_cents, day_rate_cents,
       user:users!time_entries_user_id_fkey(name, primary_company_id),
       job:jobs!time_entries_job_id_fkey(job_number, customer_name, company_id)
     `)
@@ -60,18 +60,9 @@ export async function exportPayrollCSV(filters?: {
     const clockIn = new Date(entry.clock_in)
     const clockOut = entry.clock_out ? new Date(entry.clock_out) : null
 
-    const hourlyCents = readMoneyFromRow(
-      (entry as { hourly_rate_cents?: number | null }).hourly_rate_cents,
-      entry.hourly_rate
-    )
-    const dayCents = readMoneyFromRow(
-      (entry as { day_rate_cents?: number | null }).day_rate_cents,
-      entry.day_rate
-    )
-    const totalCostCents = readMoneyFromRow(
-      (entry as { total_cost_cents?: number | null }).total_cost_cents,
-      entry.total_cost
-    )
+    const hourlyCents = Number((entry as { hourly_rate_cents?: number | null }).hourly_rate_cents ?? 0)
+    const dayCents = Number((entry as { day_rate_cents?: number | null }).day_rate_cents ?? 0)
+    const totalCostCents = Number((entry as { total_cost_cents?: number | null }).total_cost_cents ?? 0)
     return [
       user?.name ?? '',
       clockIn.toLocaleDateString('en-US'),
@@ -99,11 +90,12 @@ export async function exportInvoicesQBFormat(dateRange: { start: string; end: st
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   const { data: invoices } = await supabase
     .from('invoices')
     .select(`
-      id, invoice_number, type, amount, total_amount, amount_cents, total_amount_cents, status,
-      due_date, paid_date, paid_amount, paid_amount_cents, payment_method, created_at,
+      id, invoice_number, type, amount_cents, total_amount_cents, status,
+      due_date, paid_date, paid_amount_cents, payment_method, created_at,
       jobs(job_number, customer_name, address, city, state),
       companies(name)
     `)
@@ -129,10 +121,7 @@ export async function exportInvoicesQBFormat(dateRange: { start: string; end: st
     const customerName = job?.customer_name ?? 'Unknown Customer'
     const docNum = inv.invoice_number
     const dateStr = new Date(inv.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-    const totalCents = readMoneyFromRow(
-      (inv as { total_amount_cents?: number | null }).total_amount_cents,
-      inv.total_amount
-    )
+    const totalCents = Number((inv as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
     const amount = formatCentsForPdf(totalCents)
     const memo = `Job #${job?.job_number ?? ''} - ${company?.name ?? ''}`
 
@@ -148,9 +137,10 @@ export async function exportJobsCSV(filters?: { status?: string }): Promise<stri
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   let query = supabase.from('jobs').select(`
     job_number, customer_name, address, city, state, zip, phone, email,
-    status, job_type, total_amount, total_amount_cents, material, material_color, squares,
+    status, job_type, total_amount_cents, material, material_color, squares,
     scheduled_date, completed_date, created_at,
     company:companies(name),
     rep:users!jobs_rep_id_fkey(name)
@@ -172,10 +162,7 @@ export async function exportJobsCSV(filters?: { status?: string }): Promise<stri
   const rows = data.map((job) => {
     const company = (job.company as { name?: string } | null)?.name ?? ''
     const rep = (job.rep as { name?: string } | null)?.name ?? ''
-    const totalCents = readMoneyFromRow(
-      (job as { total_amount_cents?: number | null }).total_amount_cents,
-      job.total_amount
-    )
+    const totalCents = Number((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
     return [
       job.job_number,
       job.customer_name,

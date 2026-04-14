@@ -4,9 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, localDateString, requireJobEditor } from '@/lib/auth-helpers'
 import {
-  dollarsToCents,
   centsToDollars,
-  readMoneyFromRow,
   applyPercentCents,
   sumCents,
 } from '@/lib/money'
@@ -83,16 +81,8 @@ interface UpdateJobData {
   gutter_size?: string | null
   gutter_color?: string | null
   downspout_color?: string | null
-  // Money fields — callers may pass EITHER legacy dollars OR the new cents
-  // counterpart. `updateJob` normalizes to cents and dual-writes both columns.
-  /** @deprecated pass *_cents instead */
-  roof_amount?: number | null
-  /** @deprecated pass *_cents instead */
-  gutters_amount?: number | null
-  /** @deprecated pass *_cents instead */
-  options_amount?: number | null
-  /** @deprecated pass *_cents instead */
-  total_amount?: number | null
+  // Audit R3-#2 follow-up: legacy dollar fields removed. Migration 031 drops
+  // the columns; the dual-write soak is over. Callers must pass *_cents only.
   roof_amount_cents?: number | null
   gutters_amount_cents?: number | null
   options_amount_cents?: number | null
@@ -111,34 +101,14 @@ interface UpdateJobData {
 }
 
 /**
- * Given an UpdateJobData payload that may use either legacy dollar fields or
- * new cents fields, produce a normalized write payload that dual-writes BOTH
- * columns so reports on the legacy column keep working during the migration.
- * Authoritative source is always cents; legacy dollars is derived from cents.
- *
- * NOTE: dual-write is intentionally still in place during the soak period.
- * A future session will drop dual-write + readMoneyFromRow fallback +
- * legacy columns together as one atomic flip (migration 031).
+ * Audit R3-#2 follow-up: the previous version of this helper translated
+ * legacy dollar fields into cents and dual-wrote both columns. With migration
+ * 031 dropping the legacy columns, dual-write is gone. Callers pass *_cents
+ * directly; this is now a passthrough kept for compatibility with the
+ * existing call sites.
  */
 function normalizeJobMoneyFields(data: UpdateJobData): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...data }
-  const pairs: Array<[keyof UpdateJobData, keyof UpdateJobData]> = [
-    ['roof_amount_cents', 'roof_amount'],
-    ['gutters_amount_cents', 'gutters_amount'],
-    ['options_amount_cents', 'options_amount'],
-    ['total_amount_cents', 'total_amount'],
-  ]
-  for (const [centsKey, dollarsKey] of pairs) {
-    const centsProvided = data[centsKey] !== undefined
-    const dollarsProvided = data[dollarsKey] !== undefined
-    if (!centsProvided && !dollarsProvided) continue
-    const cents = centsProvided
-      ? (data[centsKey] as number | null)
-      : dollarsToCents(data[dollarsKey] as number | null)
-    out[centsKey] = cents
-    out[dollarsKey] = cents == null ? null : centsToDollars(cents)
-  }
-  return out
+  return { ...data }
 }
 
 interface JobFilters {
@@ -430,10 +400,10 @@ async function executePostStatusEffects(
       const totalCents = Number(freshJob?.total_amount_cents ?? 0)
       if (repData?.commission_rate && totalCents > 0) {
         const commissionCents = applyPercentCents(totalCents, Number(repData.commission_rate))
+        // Audit R3-#2 follow-up: dropped legacy commission_amount dual-write.
         await supabase.from('jobs').update({
           commission_rate: repData.commission_rate,
           commission_amount_cents: commissionCents,
-          commission_amount: centsToDollars(commissionCents), // legacy dual-write
         }).eq('id', jobId)
       }
     } catch (commErr) {
@@ -556,8 +526,8 @@ export async function updateJobStatus(id: string, newStatus: JobStatus) {
   // cancelled job, otherwise rep commission reports and warranty exports
   // keep listing it. Audit R2-#6.
   if (newStatus === 'cancelled') {
+    // Audit R3-#2 follow-up: dropped legacy commission_amount column.
     updatePayload.commission_amount_cents = null
-    updatePayload.commission_amount = null
     updatePayload.warranty_expiration = null
   }
 
@@ -631,9 +601,10 @@ export async function getJobs(filters?: JobFilters & { scheduled_from?: string; 
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   let query = supabase
     .from('jobs')
-    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, total_amount_cents, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, schedule_duration_days, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount_cents, created_at, updated_at, address, city, phone, email, rep_id, assigned_crew_id, scheduled_date, schedule_duration_days, completed_date, referred_by, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
     .limit(filters?.limit ?? 2000)
@@ -664,10 +635,11 @@ export async function getJobsForPipeline(filters?: { company_id?: string }) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  // Always use authenticated user's companyId — ignore client-supplied value
+  // Always use authenticated user's companyId — ignore client-supplied value.
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   const query = supabase
     .from('jobs')
-    .select('id, job_number, customer_name, company_id, status, job_type, total_amount, total_amount_cents, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
+    .select('id, job_number, customer_name, company_id, status, job_type, total_amount_cents, created_at, company:companies(id, name, color), rep:users!jobs_rep_id_fkey(id, name)')
     .eq('company_id', companyId)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
@@ -738,8 +710,9 @@ export async function getSalesStats(repId: string): Promise<{
   const [pendingResult, revenueResult, staleResult] = await Promise.all([
     // Count pending/lead/estimate_scheduled (lightweight count-only query)
     supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead', 'estimate_scheduled']),
-    // Monthly revenue from sold jobs — fetch both cents and legacy dollars
-    supabase.from('jobs').select('total_amount, total_amount_cents').eq('rep_id', repId).eq('company_id', companyId).eq('status', 'sold').gte('created_at', monthStart),
+    // Monthly revenue from sold jobs.
+    // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
+    supabase.from('jobs').select('total_amount_cents').eq('rep_id', repId).eq('company_id', companyId).eq('status', 'sold').gte('created_at', monthStart),
     // Stale leads: pending/lead, older than 14 days
     supabase.from('jobs').select('id, job_number, customer_name, job_type, created_at, company:companies(name, color)').eq('rep_id', repId).eq('company_id', companyId).in('status', ['pending', 'lead']).lt('created_at', fourteenDaysAgo.toISOString()).order('created_at', { ascending: true }),
   ])
@@ -748,9 +721,8 @@ export async function getSalesStats(repId: string): Promise<{
   // Sum in integer cents, then convert for the return type. Exact totals.
   const monthlyRevenueCents = sumCents(
     (revenueResult.data ?? []).map((j) =>
-      readMoneyFromRow(
-        (j as { total_amount_cents?: number | null }).total_amount_cents,
-        (j as { total_amount?: number | null }).total_amount
+      Number(
+        (j as { total_amount_cents?: number | null }).total_amount_cents ?? 0
       )
     )
   )

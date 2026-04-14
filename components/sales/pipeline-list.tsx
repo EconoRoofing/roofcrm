@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
 import { formatJobType } from '@/lib/utils'
-import { formatCentsOrDash, readMoneyFromRow } from '@/lib/money'
+import { formatCentsOrDash } from '@/lib/money'
 import type { Job, JobStatus } from '@/lib/types/database'
 
 type JobWithCompany = Job & {
@@ -219,7 +219,8 @@ export function PipelineList({ jobs }: PipelineListProps) {
                       color: 'var(--text-secondary)',
                     }}
                   >
-                    {formatCentsOrDash(readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount))}
+                    {/* Audit R3-#2 follow-up: cents-only post-031. */}
+                    {formatCentsOrDash((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)}
                   </span>
                   <StatusBadge status={job.status} />
                 </div>

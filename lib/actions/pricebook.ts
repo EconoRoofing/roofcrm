@@ -5,7 +5,6 @@ import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import {
   dollarsToCents,
   centsToDollars,
-  readMoneyFromRow,
   multiplyCents,
   sumCents,
 } from '@/lib/money'
@@ -55,6 +54,7 @@ export async function addPricebookItem(data: {
   const basePriceCents = dollarsToCents(data.base_price)
   const costCents = data.cost != null ? dollarsToCents(data.cost) : null
 
+  // Audit R3-#2 follow-up: dropped legacy `base_price` / `cost` dual-writes.
   const { data: item, error } = await supabase
     .from('pricebook_items')
     .insert({
@@ -63,9 +63,7 @@ export async function addPricebookItem(data: {
       category: data.category?.trim() || 'general',
       description: data.description?.trim() || null,
       unit: data.unit?.trim() || 'each',
-      base_price: centsToDollars(basePriceCents), // legacy dual-write
       base_price_cents: basePriceCents,
-      cost: costCents == null ? null : centsToDollars(costCents),
       cost_cents: costCents,
       sort_order: data.sort_order ?? 0,
     })
@@ -105,15 +103,12 @@ export async function updatePricebookItem(
   if (data.category !== undefined) updates.category = data.category.trim()
   if (data.description !== undefined) updates.description = data.description?.trim() || null
   if (data.unit !== undefined) updates.unit = data.unit.trim()
+  // Audit R3-#2 follow-up: dropped legacy `base_price` / `cost` dual-writes.
   if (data.base_price !== undefined) {
-    const cents = dollarsToCents(data.base_price)
-    updates.base_price = centsToDollars(cents)
-    updates.base_price_cents = cents
+    updates.base_price_cents = dollarsToCents(data.base_price)
   }
   if (data.cost !== undefined) {
-    const cents = data.cost == null ? null : dollarsToCents(data.cost)
-    updates.cost = cents == null ? null : centsToDollars(cents)
-    updates.cost_cents = cents
+    updates.cost_cents = data.cost == null ? null : dollarsToCents(data.cost)
   }
   if (data.sort_order !== undefined) updates.sort_order = data.sort_order
 
@@ -190,15 +185,11 @@ export async function applyPricebookToEstimate(
 
   if (jobError || !job) throw new Error('Job not found or access denied')
 
-  // Fetch all requested pricebook items (scoped to company).
-  // Audit R2-#15: SELECT was missing `base_price_cents` — readMoneyFromRow
-  // always fell back to legacy, and after migration 031 drops legacy columns
-  // this whole action broke. Now fetches both so readMoneyFromRow works
-  // during the soak AND after the cleanup.
+  // Audit R3-#2 follow-up: cents-only post-031.
   const ids = itemIds.map((i) => i.id)
   const { data: items, error: itemsError } = await supabase
     .from('pricebook_items')
-    .select('id, name, base_price, base_price_cents, unit')
+    .select('id, name, base_price_cents, unit')
     .in('id', ids)
     .eq('company_id', companyId)
     .eq('is_active', true)
@@ -214,9 +205,8 @@ export async function applyPricebookToEstimate(
   const lineTotalsCents: number[] = []
   const lineItems = items.map((item) => {
     const qty = qtyMap.get(item.id) ?? 1
-    const unitPriceCents = readMoneyFromRow(
-      (item as { base_price_cents?: number | null }).base_price_cents,
-      Number(item.base_price)
+    const unitPriceCents = Number(
+      (item as { base_price_cents?: number | null }).base_price_cents ?? 0
     )
     const lineTotalCents = multiplyCents(unitPriceCents, qty)
     lineTotalsCents.push(lineTotalCents)
@@ -224,24 +214,18 @@ export async function applyPricebookToEstimate(
       pricebook_item_id: item.id,
       name: item.name,
       unit: item.unit,
-      unit_price: centsToDollars(unitPriceCents),
       unit_price_cents: unitPriceCents,
       quantity: qty,
-      line_total: centsToDollars(lineTotalCents),
       line_total_cents: lineTotalCents,
     }
   })
   const totalCents = sumCents(lineTotalsCents)
 
-  // Update job total_amount (dual-write cents + legacy dollars).
-  // Audit R2-#15: added `.eq('company_id', companyId)` for defense in
-  // depth. We already verified ownership above, but scoping the UPDATE
-  // itself prevents an accidentally-changed `jobId` (e.g. stale closure,
-  // future refactor) from writing cross-company.
+  // Audit R3-#2 follow-up: dropped legacy `total_amount` dual-write.
+  // R2-#15 company_id scope retained for defense in depth.
   const { error: updateError } = await supabase
     .from('jobs')
     .update({
-      total_amount: centsToDollars(totalCents),
       total_amount_cents: totalCents,
     })
     .eq('id', jobId)

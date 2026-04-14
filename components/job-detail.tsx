@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { formatCurrency, formatJobType } from '@/lib/utils'
-import { readMoneyFromRow, centsToDollars, halfCents, formatCents } from '@/lib/money'
+import { centsToDollars, halfCents, formatCents } from '@/lib/money'
 import type { Job, Company, User } from '@/lib/types/database'
 import { StatusBadge } from '@/components/status-badge'
 import { JobActions } from '@/components/job-actions'
@@ -272,15 +272,7 @@ function fmt(amount: number | null): string {
   return formatCurrency(amount)
 }
 
-/** Format a row's money column, preferring the `*_cents` column. */
-function fmtMoney(
-  centsValue: number | bigint | null | undefined,
-  legacyDollars: number | null | undefined
-): string {
-  const cents = readMoneyFromRow(centsValue, legacyDollars)
-  if (cents === 0 && legacyDollars == null && centsValue == null) return '—'
-  return formatCents(cents)
-}
+/* Audit R3-#2 follow-up: removed fmtMoney helper (cents-only post-031). */
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   if (!value && value !== 0) return null
@@ -366,11 +358,8 @@ export async function JobDetail({ job, role }: JobDetailProps) {
   const fullAddress = [job.address, job.city, job.state, job.zip].filter(Boolean).join(', ')
   const mapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(fullAddress)}`
 
-  // Total in integer cents (prefer cents, fall back to legacy float dollars)
-  const totalCents = readMoneyFromRow(
-    (job as { total_amount_cents?: number | null }).total_amount_cents,
-    job.total_amount
-  )
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const totalCents = Number((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
   const hasFinancials = totalCents > 0
   // 50/50 split in cents — exact, no $0.005 rounding artifacts
   const split50Cents = totalCents > 0 ? halfCents(totalCents) : null
@@ -570,22 +559,23 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             Financials
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {(job.roof_amount != null || (job as { roof_amount_cents?: number | null }).roof_amount_cents != null) && (
+            {/* Audit R3-#2 follow-up: cents-only post-031. */}
+            {(job as { roof_amount_cents?: number | null }).roof_amount_cents != null && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Roof</span>
-                <span style={styles.financialMonoValue}>{fmtMoney((job as { roof_amount_cents?: number | null }).roof_amount_cents, job.roof_amount)}</span>
+                <span style={styles.financialMonoValue}>{formatCents((job as { roof_amount_cents?: number | null }).roof_amount_cents ?? 0)}</span>
               </div>
             )}
-            {(job.gutters_amount != null || (job as { gutters_amount_cents?: number | null }).gutters_amount_cents != null) && (
+            {(job as { gutters_amount_cents?: number | null }).gutters_amount_cents != null && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Gutters</span>
-                <span style={styles.financialMonoValue}>{fmtMoney((job as { gutters_amount_cents?: number | null }).gutters_amount_cents, job.gutters_amount)}</span>
+                <span style={styles.financialMonoValue}>{formatCents((job as { gutters_amount_cents?: number | null }).gutters_amount_cents ?? 0)}</span>
               </div>
             )}
-            {(job.options_amount != null || (job as { options_amount_cents?: number | null }).options_amount_cents != null) && (
+            {(job as { options_amount_cents?: number | null }).options_amount_cents != null && (
               <div style={styles.financialRow}>
                 <span style={styles.financialLabel}>Options</span>
-                <span style={styles.financialMonoValue}>{fmtMoney((job as { options_amount_cents?: number | null }).options_amount_cents, job.options_amount)}</span>
+                <span style={styles.financialMonoValue}>{formatCents((job as { options_amount_cents?: number | null }).options_amount_cents ?? 0)}</span>
               </div>
             )}
             <div style={styles.divider} />
@@ -625,7 +615,7 @@ export async function JobDetail({ job, role }: JobDetailProps) {
                   Commission ({job.commission_rate}%)
                 </span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent)', fontWeight: '500' }}>
-                  {fmtMoney((job as { commission_amount_cents?: number | null }).commission_amount_cents, job.commission_amount)}
+                  {formatCents((job as { commission_amount_cents?: number | null }).commission_amount_cents ?? 0)}
                 </span>
               </div>
             )}
@@ -653,15 +643,36 @@ export async function JobDetail({ job, role }: JobDetailProps) {
             adjusterName={job.adjuster_name ?? undefined}
             adjusterPhone={job.adjuster_phone ?? undefined}
             adjusterEmail={job.adjuster_email ?? undefined}
-            supplementAmount={job.supplement_amount ?? undefined}
+            // Audit R3-#2 follow-up: convert cents → dollars at the boundary
+            // since ClaimWorkflow's prop signature is still dollars-based.
+            supplementAmount={
+              (job as { supplement_amount_cents?: number | null }).supplement_amount_cents != null
+                ? Number((job as { supplement_amount_cents?: number | null }).supplement_amount_cents) / 100
+                : undefined
+            }
           />
           <div style={styles.sectionCard}>
             <h2 style={styles.sectionHeading}>Claim Details</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <DetailRow label="Insurance Carrier" value={job.insurance_company} />
               <DetailRow label="Date of Loss" value={job.date_of_loss ? <MonoValue>{job.date_of_loss}</MonoValue> : null} />
-              <DetailRow label="Deductible" value={job.deductible != null ? <MonoValue>{fmt(job.deductible)}</MonoValue> : null} />
-              <DetailRow label="Insurance Payout" value={job.insurance_payout != null ? <MonoValue>{fmt(job.insurance_payout)}</MonoValue> : null} />
+              {/* Audit R3-#2 follow-up: cents-only post-031. */}
+              <DetailRow
+                label="Deductible"
+                value={
+                  (job as { deductible_cents?: number | null }).deductible_cents != null
+                    ? <MonoValue>{formatCents(Number((job as { deductible_cents?: number | null }).deductible_cents))}</MonoValue>
+                    : null
+                }
+              />
+              <DetailRow
+                label="Insurance Payout"
+                value={
+                  (job as { insurance_payout_cents?: number | null }).insurance_payout_cents != null
+                    ? <MonoValue>{formatCents(Number((job as { insurance_payout_cents?: number | null }).insurance_payout_cents))}</MonoValue>
+                    : null
+                }
+              />
             </div>
           </div>
         </>

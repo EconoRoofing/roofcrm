@@ -13,6 +13,18 @@ export async function sendDailyDigest(): Promise<boolean> {
   const managerEmail = process.env.MANAGER_EMAIL
   if (!resendKey || !managerEmail) return false
 
+  // Audit R3-#17: previously the dashboard link defaulted to
+  // `https://roofcrm-alpha.vercel.app` if NEXT_PUBLIC_APP_URL was unset.
+  // For a production multi-company deploy that fallback would email a
+  // confused-deputy link pointing at the alpha preview. Resolve once at
+  // the top with a clear precedence: NEXT_PUBLIC_APP_URL > VERCEL_URL >
+  // skip the link entirely. Skipping is better than wrong.
+  const appUrl = (() => {
+    if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+    if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+    return ''
+  })()
+
   const data = await getDashboardData()
 
   const html = `
@@ -46,7 +58,7 @@ export async function sendDailyDigest(): Promise<boolean> {
       `).join('')}
 
       <p style="color: #4a5168; font-size: 12px; margin-top: 24px;">
-        <a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://roofcrm-alpha.vercel.app'}/pipeline" style="color: #00e676;">Open RoofCRM Dashboard</a>
+        <a href="${appUrl}/pipeline" style="color: #00e676;">Open RoofCRM Dashboard</a>
       </p>
     </div>
   `

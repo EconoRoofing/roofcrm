@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { updateJob } from '@/lib/actions/jobs'
 import { getPreviousJobAtAddress } from '@/lib/actions/price-memory'
-import { dollarsToCents, centsToDollars, readMoneyFromRow, sumCents } from '@/lib/money'
+import { dollarsToCents, centsToDollars, sumCents } from '@/lib/money'
 import { ChevronLeftNavIcon } from '@/components/icons'
 import { SpecsForm } from './specs-form'
 import type { Job } from '@/lib/types/database'
@@ -104,20 +104,10 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
       warranty_manufacturer_years: (p.warranty_manufacturer_years as number | null) ?? prev.warranty_manufacturer_years,
       warranty_workmanship_years: (p.warranty_workmanship_years as number | null) ?? prev.warranty_workmanship_years,
     }))
-    // Prefer *_cents from the previous job's pricing memory; fall back to
-    // legacy dollar fields if cents are missing (un-migrated row).
-    const prevRoofCents = readMoneyFromRow(
-      p.roof_amount_cents as number | null | undefined,
-      p.roof_amount as number | null | undefined
-    )
-    const prevGuttersCents = readMoneyFromRow(
-      p.gutters_amount_cents as number | null | undefined,
-      p.gutters_amount as number | null | undefined
-    )
-    const prevOptionsCents = readMoneyFromRow(
-      p.options_amount_cents as number | null | undefined,
-      p.options_amount as number | null | undefined
-    )
+    // Audit R3-#2 follow-up: cents-only post-031.
+    const prevRoofCents = Number((p.roof_amount_cents as number | null | undefined) ?? 0)
+    const prevGuttersCents = Number((p.gutters_amount_cents as number | null | undefined) ?? 0)
+    const prevOptionsCents = Number((p.options_amount_cents as number | null | undefined) ?? 0)
     setPricing((prev) => ({
       ...prev,
       roof_amount: prevRoofCents > 0 ? centsToDollars(prevRoofCents) : prev.roof_amount,
@@ -149,13 +139,13 @@ export function EstimateWizard({ job }: EstimateWizardProps) {
     }
   })
 
-  // Pricing UI state is in dollars (form inputs are dollars), but we source
-  // from the authoritative `*_amount_cents` columns. Falls back to legacy
-  // dollar columns if cents are still 0 from an un-migrated row.
+  // Pricing UI state is in dollars (form inputs are dollars), sourced from
+  // the authoritative `*_amount_cents` columns.
+  // Audit R3-#2 follow-up: cents-only post-031.
   const [pricing, setPricing] = useState<PricingData>(() => ({
-    roof_amount: centsToDollars(readMoneyFromRow(job.roof_amount_cents, job.roof_amount)) || null,
-    gutters_amount: centsToDollars(readMoneyFromRow(job.gutters_amount_cents, job.gutters_amount)) || null,
-    options_amount: centsToDollars(readMoneyFromRow(job.options_amount_cents, job.options_amount)) || null,
+    roof_amount: centsToDollars(Number(job.roof_amount_cents ?? 0)) || null,
+    gutters_amount: centsToDollars(Number(job.gutters_amount_cents ?? 0)) || null,
+    options_amount: centsToDollars(Number(job.options_amount_cents ?? 0)) || null,
     notes: job.notes,
   }))
 

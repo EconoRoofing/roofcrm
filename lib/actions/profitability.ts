@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireManager } from '@/lib/auth-helpers'
 import {
   centsToDollars,
-  readMoneyFromRow,
   sumCents,
 } from '@/lib/money'
 
@@ -26,26 +25,21 @@ export async function getJobProfitability(jobId: string): Promise<{
   await verifyJobOwnership(jobId, companyId)
 
   // ── Revenue: sum all invoices for this job — in cents, exact ──
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('total_amount, total_amount_cents, paid_amount, paid_amount_cents, status')
+    .select('total_amount_cents, paid_amount_cents, status')
     .eq('job_id', jobId)
 
   const invoicedCents = sumCents(
     (invoices ?? [])
       .filter((inv) => inv.status !== 'cancelled')
-      .map((inv) => readMoneyFromRow(
-        (inv as { total_amount_cents?: number | null }).total_amount_cents,
-        inv.total_amount
-      ))
+      .map((inv) => Number((inv as { total_amount_cents?: number | null }).total_amount_cents ?? 0))
   )
   const paidCents = sumCents(
     (invoices ?? [])
       .filter((inv) => inv.status === 'paid')
-      .map((inv) => readMoneyFromRow(
-        (inv as { paid_amount_cents?: number | null }).paid_amount_cents,
-        inv.paid_amount
-      ))
+      .map((inv) => Number((inv as { paid_amount_cents?: number | null }).paid_amount_cents ?? 0))
   )
   const outstandingCents = invoicedCents - paidCents
 
@@ -53,17 +47,14 @@ export async function getJobProfitability(jobId: string): Promise<{
   // Exclude entries the manager has marked non-payroll (fraud/duplicates).
   const { data: timeEntries } = await supabase
     .from('time_entries')
-    .select('total_hours, total_cost, total_cost_cents, hourly_rate, hourly_rate_cents')
+    .select('total_hours, total_cost_cents, hourly_rate_cents')
     .eq('job_id', jobId)
     .eq('excluded_from_payroll', false)
     .not('clock_out', 'is', null)
 
   const laborCostCents = sumCents(
     (timeEntries ?? []).map((te) =>
-      readMoneyFromRow(
-        (te as { total_cost_cents?: number | null }).total_cost_cents,
-        te.total_cost
-      )
+      Number((te as { total_cost_cents?: number | null }).total_cost_cents ?? 0)
     )
   )
   let laborHours = 0
@@ -71,42 +62,34 @@ export async function getJobProfitability(jobId: string): Promise<{
   let rateCount = 0
   for (const te of timeEntries ?? []) {
     laborHours += Number(te.total_hours ?? 0)
-    rateSumCents += readMoneyFromRow(
-      (te as { hourly_rate_cents?: number | null }).hourly_rate_cents,
-      te.hourly_rate
-    )
+    rateSumCents += Number((te as { hourly_rate_cents?: number | null }).hourly_rate_cents ?? 0)
     rateCount++
   }
   const avgLaborRateCents = rateCount > 0 ? Math.round(rateSumCents / rateCount) : 0
 
   // ── Material costs: from material_lists + purchase_orders ──
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   const [{ data: materialLists }, { data: purchaseOrders }] = await Promise.all([
     supabase
       .from('material_lists')
-      .select('total_estimated_cost, total_estimated_cost_cents')
+      .select('total_estimated_cost_cents')
       .eq('job_id', jobId),
     supabase
       .from('purchase_orders')
-      .select('total_estimated_cost, total_estimated_cost_cents, status')
+      .select('total_estimated_cost_cents, status')
       .eq('job_id', jobId),
   ])
 
   const materialListsCents = sumCents(
     (materialLists ?? []).map((ml) =>
-      readMoneyFromRow(
-        (ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
-        ml.total_estimated_cost
-      )
+      Number((ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents ?? 0)
     )
   )
   const poCents = sumCents(
     (purchaseOrders ?? [])
       .filter((po) => po.status !== 'draft')
       .map((po) =>
-        readMoneyFromRow(
-          (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
-          po.total_estimated_cost
-        )
+        Number((po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents ?? 0)
       )
   )
   const materialCostCents = materialListsCents + poCents
@@ -193,23 +176,24 @@ export async function getCompanyProfitSummary(): Promise<{
     { data: allMaterialLists },
     { data: allPurchaseOrders },
   ] = await Promise.all([
+    // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
     supabase
       .from('invoices')
-      .select('job_id, total_amount, total_amount_cents, paid_amount, paid_amount_cents, status')
+      .select('job_id, total_amount_cents, paid_amount_cents, status')
       .in('job_id', jobIds),
     supabase
       .from('time_entries')
-      .select('job_id, total_cost, total_cost_cents')
+      .select('job_id, total_cost_cents')
       .in('job_id', jobIds)
       .eq('excluded_from_payroll', false)
       .not('clock_out', 'is', null),
     supabase
       .from('material_lists')
-      .select('job_id, total_estimated_cost, total_estimated_cost_cents')
+      .select('job_id, total_estimated_cost_cents')
       .in('job_id', jobIds),
     supabase
       .from('purchase_orders')
-      .select('job_id, total_estimated_cost, total_estimated_cost_cents, status')
+      .select('job_id, total_estimated_cost_cents, status')
       .in('job_id', jobIds),
   ])
 
@@ -220,39 +204,27 @@ export async function getCompanyProfitSummary(): Promise<{
   // Revenue per job (paid invoices only)
   for (const inv of allInvoices ?? []) {
     if (inv.status === 'paid') {
-      const cents = readMoneyFromRow(
-        (inv as { paid_amount_cents?: number | null }).paid_amount_cents,
-        inv.paid_amount
-      )
+      const cents = Number((inv as { paid_amount_cents?: number | null }).paid_amount_cents ?? 0)
       revenueMap.set(inv.job_id, (revenueMap.get(inv.job_id) ?? 0) + cents)
     }
   }
 
   // Labor costs per job
   for (const te of allTimeEntries ?? []) {
-    const cents = readMoneyFromRow(
-      (te as { total_cost_cents?: number | null }).total_cost_cents,
-      te.total_cost
-    )
+    const cents = Number((te as { total_cost_cents?: number | null }).total_cost_cents ?? 0)
     costMap.set(te.job_id, (costMap.get(te.job_id) ?? 0) + cents)
   }
 
   // Material costs per job
   for (const ml of allMaterialLists ?? []) {
-    const cents = readMoneyFromRow(
-      (ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
-      ml.total_estimated_cost
-    )
+    const cents = Number((ml as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents ?? 0)
     costMap.set(ml.job_id, (costMap.get(ml.job_id) ?? 0) + cents)
   }
 
   // Purchase order costs per job (non-draft)
   for (const po of allPurchaseOrders ?? []) {
     if (po.status !== 'draft') {
-      const cents = readMoneyFromRow(
-        (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
-        po.total_estimated_cost
-      )
+      const cents = Number((po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents ?? 0)
       costMap.set(po.job_id, (costMap.get(po.job_id) ?? 0) + cents)
     }
   }
@@ -320,10 +292,10 @@ export async function getRepCommissions(
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
-  // Fetch sold/completed jobs for the company — pull cents + legacy dollars
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   let query = supabase
     .from('jobs')
-    .select('id, rep_id, total_amount, total_amount_cents, commission_amount, commission_amount_cents, status, completed_date')
+    .select('id, rep_id, total_amount_cents, commission_amount_cents, status, completed_date')
     .eq('company_id', companyId)
     .in('status', ['sold', 'completed'])
 
@@ -346,13 +318,11 @@ export async function getRepCommissions(
       commissionAmountCents: 0,
       jobCount: 0,
     }
-    existing.totalRevenueCents += readMoneyFromRow(
-      (job as { total_amount_cents?: number | null }).total_amount_cents,
-      job.total_amount
+    existing.totalRevenueCents += Number(
+      (job as { total_amount_cents?: number | null }).total_amount_cents ?? 0
     )
-    existing.commissionAmountCents += readMoneyFromRow(
-      (job as { commission_amount_cents?: number | null }).commission_amount_cents,
-      job.commission_amount
+    existing.commissionAmountCents += Number(
+      (job as { commission_amount_cents?: number | null }).commission_amount_cents ?? 0
     )
     existing.jobCount++
     repMap.set(job.rep_id, existing)
@@ -421,11 +391,11 @@ export async function getCommissionDetail(
   const repCompany = rep.primary_company_id ?? rep.company_id
   if (repCompany !== companyId) throw new Error('Rep does not belong to your company')
 
-  // Fetch jobs for this rep — pull cents + legacy
+  // Audit R3-#2 follow-up: cents-only after migration 031 cleanup.
   let query = supabase
     .from('jobs')
     .select(
-      'job_number, customer_name, total_amount, total_amount_cents, commission_amount, commission_amount_cents, commission_rate, status, completed_date'
+      'job_number, customer_name, total_amount_cents, commission_amount_cents, commission_rate, status, completed_date'
     )
     .eq('company_id', companyId)
     .eq('rep_id', repId)
@@ -443,13 +413,9 @@ export async function getCommissionDetail(
   let rateCount = 0
 
   const mapped = (jobs ?? []).map((j) => {
-    const totalCents = readMoneyFromRow(
-      (j as { total_amount_cents?: number | null }).total_amount_cents,
-      j.total_amount
-    )
-    const commissionCents = readMoneyFromRow(
-      (j as { commission_amount_cents?: number | null }).commission_amount_cents,
-      j.commission_amount
+    const totalCents = Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
+    const commissionCents = Number(
+      (j as { commission_amount_cents?: number | null }).commission_amount_cents ?? 0
     )
     const rate = Number(j.commission_rate ?? 0)
 

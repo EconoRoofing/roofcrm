@@ -7,7 +7,7 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer'
 import type { Company } from '@/lib/types/database'
-import { formatCents, readMoneyFromRow, sumCents, applyPercentCents } from '@/lib/money'
+import { formatCents, sumCents, applyPercentCents } from '@/lib/money'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -321,12 +321,12 @@ const s = StyleSheet.create({
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: InvoiceProps) {
-  // All totals computed in integer cents, then formatted for display once.
-  const invoiceAmountCents = readMoneyFromRow(invoice.amount_cents, invoice.amount)
-  const invoiceTotalCents = readMoneyFromRow(invoice.total_amount_cents, invoice.total_amount)
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const invoiceAmountCents = Number((invoice.amount_cents as number | null | undefined) ?? 0)
+  const invoiceTotalCents = Number((invoice.total_amount_cents as number | null | undefined) ?? 0)
 
   const subtotalCents = lineItems.length > 0
-    ? sumCents(lineItems.map((item) => readMoneyFromRow(item.total_cents, item.total)))
+    ? sumCents(lineItems.map((item) => Number((item.total_cents as number | null | undefined) ?? 0)))
     : invoiceAmountCents
 
   const taxAmountCents = taxRate ? applyPercentCents(subtotalCents, taxRate * 100) : 0
@@ -401,8 +401,9 @@ export function InvoicePDF({ company, invoice, job, lineItems = [], taxRate }: I
 
         {lineItems.length > 0 ? (
           lineItems.map((item, idx) => {
-            const unitCents = readMoneyFromRow(item.unit_price_cents, item.unit_price)
-            const totalCents = readMoneyFromRow(item.total_cents, item.total)
+            // Audit R3-#2 follow-up: cents-only post-031.
+            const unitCents = Number((item.unit_price_cents as number | null | undefined) ?? 0)
+            const totalCents = Number((item.total_cents as number | null | undefined) ?? 0)
             return (
               <View key={item.id} style={idx % 2 === 0 ? s.tableRow : s.tableRowAlt}>
                 <Text style={[s.cellText, s.colDesc]}>{item.description}</Text>

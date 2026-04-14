@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/core'
 import { updateJobStatus } from '@/lib/actions/jobs'
 import { KanbanColumn } from './column'
-import { formatCents, readMoneyFromRow, sumCents } from '@/lib/money'
+import { formatCents, sumCents } from '@/lib/money'
 import type { KanbanJob } from './card'
 import type { Company, JobStatus } from '@/lib/types/database'
 
@@ -162,10 +162,9 @@ export function KanbanBoard({ jobs: serverJobs, companies: _companies }: KanbanB
   }, [localJobs, handleMoveJob])
 
   // Revenue totals — sum in integer cents, format once at the boundary.
-  // Reads `*_cents` first, falls back to legacy float dollars for un-migrated rows.
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { pendingRevenueCents, soldRevenueCents } = useMemo(() => {
-    const cents = (j: KanbanJob): number =>
-      readMoneyFromRow(j.total_amount_cents, j.total_amount)
+    const cents = (j: KanbanJob): number => Number(j.total_amount_cents ?? 0)
     return {
       pendingRevenueCents: sumCents(
         filteredJobs.filter((j) => j.status === 'pending').map(cents)

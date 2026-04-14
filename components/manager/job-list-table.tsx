@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { CompanyTag } from '@/components/company-tag'
 import { StatusBadge } from '@/components/status-badge'
 import { hexToRgba } from '@/lib/utils'
-import { formatCentsOrDash, readMoneyFromRow } from '@/lib/money'
+import { formatCentsOrDash } from '@/lib/money'
 import { SortAscIcon, SortDescIcon, SortNeutralIcon, DownloadIcon } from '@/components/icons'
 import { exportJobsCSV } from '@/lib/actions/export'
 import type { Job, Company, JobStatus } from '@/lib/types/database'
@@ -93,9 +93,9 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
           bv = b.job_type ?? ''
           break
         case 'total_amount':
-          // Sort by cents (authoritative); fall back to legacy float dollars
-          av = readMoneyFromRow((a as { total_amount_cents?: number | null }).total_amount_cents, a.total_amount) || -1
-          bv = readMoneyFromRow((b as { total_amount_cents?: number | null }).total_amount_cents, b.total_amount) || -1
+          // Audit R3-#2 follow-up: cents-only post-031.
+          av = ((a as { total_amount_cents?: number | null }).total_amount_cents ?? 0) || -1
+          bv = ((b as { total_amount_cents?: number | null }).total_amount_cents ?? 0) || -1
           break
         case 'status':
           av = a.status ?? ''
@@ -486,12 +486,14 @@ export function JobListTable({ jobs, companies }: JobListTableProps) {
                         fontFamily: 'var(--font-mono)',
                         fontSize: '12px',
                         fontWeight: 500,
-                        color: readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount) > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+                        // Audit R3-#2 follow-up: cents-only post-031.
+                        color: (((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0) > 0)
+                          ? 'var(--text-primary)' : 'var(--text-muted)',
                         textAlign: 'right',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {formatCentsOrDash(readMoneyFromRow((job as { total_amount_cents?: number | null }).total_amount_cents, job.total_amount))}
+                      {formatCentsOrDash((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)}
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                       <StatusBadge status={job.status} />

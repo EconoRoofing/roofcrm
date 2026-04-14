@@ -60,10 +60,6 @@ export interface User {
   default_maps_app: string | null
   google_refresh_token: string | null
   pay_type: string | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(hourly_rate_cents, hourly_rate) */
-  hourly_rate: number | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(day_rate_cents, day_rate) */
-  day_rate: number | null
   /** Integer cents — authoritative source for hourly pay */
   hourly_rate_cents: number | null
   /** Integer cents — authoritative source for day rate */
@@ -105,14 +101,6 @@ export interface Job {
   gutter_size: string | null
   gutter_color: string | null
   downspout_color: string | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(roof_amount_cents, roof_amount) */
-  roof_amount: number | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(gutters_amount_cents, gutters_amount) */
-  gutters_amount: number | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(options_amount_cents, options_amount) */
-  options_amount: number | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(total_amount_cents, total_amount) */
-  total_amount: number | null
   /** Integer cents — authoritative */
   roof_amount_cents: number | null
   /** Integer cents — authoritative */
@@ -138,8 +126,6 @@ export interface Job {
   lat: number | null
   lng: number | null
   commission_rate: number | null
-  /** @deprecated legacy float dollars — read via readMoneyFromRow(commission_amount_cents, commission_amount) */
-  commission_amount: number | null
   /** Integer cents — authoritative */
   commission_amount_cents: number | null
   insurance_claim: boolean | null
@@ -151,12 +137,6 @@ export interface Job {
   adjuster_email: string | null
   date_of_loss: string | null
   claim_status: string | null
-  /** @deprecated legacy float dollars */
-  deductible: number | null
-  /** @deprecated legacy float dollars */
-  insurance_payout: number | null
-  /** @deprecated legacy float dollars */
-  supplement_amount: number | null
   /** Integer cents — authoritative */
   deductible_cents: number | null
   /** Integer cents — authoritative */
@@ -175,8 +155,6 @@ export interface MaterialList {
   job_id: string
   items: import('@/lib/material-calculator').MaterialItem[]
   waste_factor: number
-  /** @deprecated legacy float dollars */
-  total_estimated_cost: number
   /** Integer cents — authoritative */
   total_estimated_cost_cents: number
   supplier_name: string | null

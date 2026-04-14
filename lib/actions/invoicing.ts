@@ -8,7 +8,6 @@ import { logActivity } from '@/lib/actions/activity'
 import {
   dollarsToCents,
   centsToDollars,
-  readMoneyFromRow,
   multiplyCents,
   formatCents,
 } from '@/lib/money'
@@ -21,28 +20,23 @@ interface Invoice {
   job_id: string
   invoice_number: string
   type: string
-  amount: number
-  total_amount: number
+  amount_cents: number
+  total_amount_cents: number
   status: string
   due_date: string | null
   paid_date: string | null
-  paid_amount: number
+  paid_amount_cents: number
   payment_method: string | null
   notes: string | null
   created_at: string
 }
 
+// Audit R3-#2 follow-up: cents-only post-031. Removed legacy dollar fields.
 export interface CreateInvoiceData {
   job_id: string
   type?: 'standard' | 'deposit' | 'supplement' | 'change_order'
-  /** @deprecated pass amount_cents instead — will be converted if provided */
-  amount?: number
-  /** @deprecated pass total_amount_cents instead */
-  total_amount?: number
-  /** Integer cents — authoritative */
-  amount_cents?: number
-  /** Integer cents — authoritative */
-  total_amount_cents?: number
+  amount_cents: number
+  total_amount_cents: number
   due_date: string
   notes?: string
 }
@@ -63,12 +57,9 @@ export async function createInvoice(data: CreateInvoiceData) {
   const { companyId, role } = await getUserWithCompany()
   requireEstimateEditor(role)
 
-  // Normalize to cents. Callers may still pass legacy `amount` dollars during
-  // the migration; we convert to cents once and do all validation in integer.
-  const amountCents =
-    data.amount_cents != null ? data.amount_cents : dollarsToCents(data.amount ?? 0)
-  const totalAmountCentsInput =
-    data.total_amount_cents != null ? data.total_amount_cents : dollarsToCents(data.total_amount ?? 0)
+  // Audit R3-#2 follow-up: cents-only post-031. Callers must pass *_cents.
+  const amountCents = data.amount_cents
+  const totalAmountCentsInput = data.total_amount_cents
 
   if (amountCents <= 0) throw new Error('Invoice amount must be greater than zero')
 
@@ -103,12 +94,9 @@ export async function createInvoice(data: CreateInvoiceData) {
   const jobNum = job.job_number || 'JOB'
   const invoiceNumber = `INV-${jobNum}-${crypto.randomUUID().slice(0, 8)}`
 
-  // Total defaults to: caller's total → job's total → this invoice's amount.
-  // All three coerce to integer cents before comparison/store.
-  const jobTotalCents = readMoneyFromRow(
-    (job as { total_amount_cents?: number | null }).total_amount_cents,
-    job.total_amount
-  )
+  // Audit R3-#2 follow-up: cents-only post-031. Dropped the legacy
+  // `amount` / `total_amount` dual-write columns entirely.
+  const jobTotalCents = Number((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
   const totalAmountCents = totalAmountCentsInput || jobTotalCents || amountCents
 
   const { data: invoice, error } = await supabase
@@ -118,8 +106,6 @@ export async function createInvoice(data: CreateInvoiceData) {
       job_id: data.job_id,
       invoice_number: invoiceNumber,
       type: data.type || 'standard',
-      amount: centsToDollars(amountCents),              // legacy dual-write
-      total_amount: centsToDollars(totalAmountCents),   // legacy dual-write
       amount_cents: amountCents,
       total_amount_cents: totalAmountCents,
       due_date: data.due_date,
@@ -170,10 +156,8 @@ export async function createInvoiceFromEstimate(jobId: string) {
 
   const job = await verifyJobOwnership(jobId, companyId)
 
-  const amountCents = readMoneyFromRow(
-    (job as { total_amount_cents?: number | null }).total_amount_cents,
-    job.total_amount
-  )
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const amountCents = Number((job as { total_amount_cents?: number | null }).total_amount_cents ?? 0)
   if (amountCents <= 0) {
     throw new Error('Job has no estimate amount to convert')
   }
@@ -244,12 +228,12 @@ export async function markInvoicePaid(
   if (existing.status === 'paid') throw new Error('Invoice is already marked as paid')
   if (existing.status === 'cancelled') throw new Error('Cannot mark a cancelled invoice as paid. Re-draft it first.')
 
+  // Audit R3-#2 follow-up: dropped legacy `paid_amount` dual-write.
   const { data: invoice, error } = await supabase
     .from('invoices')
     .update({
       status: 'paid',
       paid_date: localDateString(),
-      paid_amount: centsToDollars(paidCents),  // legacy dual-write
       paid_amount_cents: paidCents,
       payment_method: payment_method,
       updated_at: new Date().toISOString(),
@@ -405,13 +389,13 @@ export async function addLineItem(
   const unitPriceCents = dollarsToCents(unitPrice)
   const totalCents = multiplyCents(unitPriceCents, quantity)
 
+  // Audit R3-#2 follow-up: dropped legacy `unit_price` dual-write.
   const { data, error } = await supabase
     .from('invoice_line_items')
     .insert({
       invoice_id: invoiceId,
       description: description.trim(),
       quantity,
-      unit_price: centsToDollars(unitPriceCents),     // legacy dual-write
       unit_price_cents: unitPriceCents,
       total_cents: totalCents,
     })
@@ -496,12 +480,12 @@ export async function updateLineItem(
   const unitPriceCents = dollarsToCents(unitPrice)
   const totalCents = multiplyCents(unitPriceCents, quantity)
 
+  // Audit R3-#2 follow-up: dropped legacy `unit_price` dual-write.
   const { data, error } = await supabase
     .from('invoice_line_items')
     .update({
       description: description.trim(),
       quantity,
-      unit_price: centsToDollars(unitPriceCents),  // legacy dual-write
       unit_price_cents: unitPriceCents,
       total_cents: totalCents,
     })
@@ -587,10 +571,9 @@ export async function sendInvoiceWithPDF(invoiceId: string): Promise<{ sent: boo
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
 
-  // Prefer cents, fall back to legacy dollar column
-  const invoiceTotalCents = readMoneyFromRow(
-    (invoice as { total_amount_cents?: number | null }).total_amount_cents,
-    invoice.total_amount
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const invoiceTotalCents = Number(
+    (invoice as { total_amount_cents?: number | null }).total_amount_cents ?? 0
   )
   const invoiceTotalDisplay = formatCents(invoiceTotalCents)
 
@@ -817,9 +800,9 @@ export async function processInvoiceReminders(): Promise<{ sent: number }> {
       ? new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : 'a past date'
 
-    const invoiceCents = readMoneyFromRow(
-      (invoice as { total_amount_cents?: number | null }).total_amount_cents,
-      invoice.total_amount
+    // Audit R3-#2 follow-up: cents-only post-031.
+    const invoiceCents = Number(
+      (invoice as { total_amount_cents?: number | null }).total_amount_cents ?? 0
     )
     const amount = formatCents(invoiceCents)
 
@@ -905,9 +888,9 @@ export async function sendInvoiceEmail(invoice_id: string) {
   const safeInvoiceNumber = escapeHtml(invoice.invoice_number || '')
   const safeJobNumber = escapeHtml(job.job_number || '')
 
-  const invoiceCents = readMoneyFromRow(
-    (invoice as { total_amount_cents?: number | null }).total_amount_cents,
-    invoice.total_amount
+  // Audit R3-#2 follow-up: cents-only post-031.
+  const invoiceCents = Number(
+    (invoice as { total_amount_cents?: number | null }).total_amount_cents ?? 0
   )
   const invoiceTotalDisplay = formatCents(invoiceCents)
 

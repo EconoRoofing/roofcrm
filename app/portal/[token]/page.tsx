@@ -8,7 +8,7 @@ import {
   sendPortalMessage,
   getPortalPhotos,
 } from '@/lib/actions/portal'
-import { formatCents, dollarsToCents, readMoneyFromRow } from '@/lib/money'
+import { formatCents, dollarsToCents } from '@/lib/money'
 
 const STATUS_STEPS = [
   { key: 'lead', label: 'Lead' },

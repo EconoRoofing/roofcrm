@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
 import {
   centsToDollars,
-  readMoneyFromRow,
   multiplyCents,
   formatCentsForPdf,
 } from '@/lib/money'
@@ -79,30 +78,19 @@ export async function exportInvoicesToQBO(startDate?: string, endDate?: string) 
   for (const inv of invoices) {
     const job = (inv as any).jobs
     const items = lineItemMap.get(inv.id)
+    // Audit R3-#2 follow-up: cents-only post-031.
     const invoiceTotalCents =
-      readMoneyFromRow(
-        (inv as { total_amount_cents?: number | null }).total_amount_cents,
-        inv.total_amount
-      ) ||
-      readMoneyFromRow(
-        (inv as { amount_cents?: number | null }).amount_cents,
-        inv.amount
-      )
+      Number((inv as { total_amount_cents?: number | null }).total_amount_cents ?? 0) ||
+      Number((inv as { amount_cents?: number | null }).amount_cents ?? 0)
     totalAmountCents += invoiceTotalCents
     const invoiceTotalStr = formatCentsForPdf(invoiceTotalCents)
 
     if (items && items.length > 0) {
       for (const item of items) {
         const itemCents =
-          readMoneyFromRow(
-            (item as { total_cents?: number | null }).total_cents,
-            item.total
-          ) ||
+          Number((item as { total_cents?: number | null }).total_cents ?? 0) ||
           multiplyCents(
-            readMoneyFromRow(
-              (item as { unit_price_cents?: number | null }).unit_price_cents,
-              item.unit_price
-            ),
+            Number((item as { unit_price_cents?: number | null }).unit_price_cents ?? 0),
             Number(item.quantity)
           )
         rows.push(csvRow([
@@ -177,10 +165,8 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
     const dateKey = new Date(entry.clock_in).toISOString().split('T')[0]
     const key = `${entry.user_id}|${dateKey}`
     const existing = byEmployeeDate.get(key) || []
-    const rateCents = readMoneyFromRow(
-      user.hourly_rate_cents,
-      Number(user.hourly_rate) || 0
-    )
+    // Audit R3-#2 follow-up: cents-only post-031.
+    const rateCents = Number(user.hourly_rate_cents ?? 0)
     existing.push({ ...entry, _userName: user.full_name, _rateCents: rateCents })
     byEmployeeDate.set(key, existing)
   }
@@ -293,9 +279,9 @@ export async function exportExpensesToCSV(startDate?: string, endDate?: string) 
   let totalAmountCents = 0
 
   for (const po of orders) {
-    const amountCents = readMoneyFromRow(
-      (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents,
-      po.total_estimated_cost
+    // Audit R3-#2 follow-up: cents-only post-031.
+    const amountCents = Number(
+      (po as { total_estimated_cost_cents?: number | null }).total_estimated_cost_cents ?? 0
     )
     totalAmountCents += amountCents
     const job = (po as any).jobs

@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany } from '@/lib/auth-helpers'
-import { centsToDollars, readMoneyFromRow } from '@/lib/money'
+import { centsToDollars } from '@/lib/money'
 
 export async function getRevenueReport(
   startDate: string,
@@ -12,9 +12,10 @@ export async function getRevenueReport(
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('total_amount, total_amount_cents, completed_date, status')
+    .select('total_amount_cents, completed_date, status')
     .eq('company_id', companyId)
     .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
     .gte('completed_date', startDate)
@@ -44,9 +45,8 @@ export async function getRevenueReport(
     }
 
     const existing = periodMap.get(periodKey) ?? { revenueCents: 0, jobCount: 0 }
-    existing.revenueCents += readMoneyFromRow(
-      (job as { total_amount_cents?: number | null }).total_amount_cents,
-      job.total_amount
+    existing.revenueCents += Number(
+      (job as { total_amount_cents?: number | null }).total_amount_cents ?? 0
     )
     existing.jobCount += 1
     periodMap.set(periodKey, existing)
@@ -182,27 +182,23 @@ export async function getCrewProductivityReport(startDate: string, endDate: stri
     existing.hours += Number(entry.total_hours) || 0
     existing.overtime += (Number(entry.overtime_hours) || 0) + (Number(entry.doubletime_hours) || 0)
     existing.jobs.add(entry.job_id)
-    existing.costCents += readMoneyFromRow(
-      (entry as { total_cost_cents?: number | null }).total_cost_cents,
-      entry.total_cost
+    existing.costCents += Number(
+      (entry as { total_cost_cents?: number | null }).total_cost_cents ?? 0
     )
     crewMap.set(uid, existing)
   }
 
-  // Get job revenue for revenue-per-hour calc — in cents
+  // Audit R3-#2 follow-up: cents-only post-031.
   const completedJobIds = [...new Set(entries.map((e) => e.job_id))]
   const { data: completedJobs } = await supabase
     .from('jobs')
-    .select('id, total_amount, total_amount_cents')
+    .select('id, total_amount_cents')
     .in('id', completedJobIds)
 
   const jobRevenueCentsMap = new Map(
     (completedJobs ?? []).map((j) => [
       j.id,
-      readMoneyFromRow(
-        (j as { total_amount_cents?: number | null }).total_amount_cents,
-        j.total_amount
-      ),
+      Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0),
     ])
   )
 
@@ -227,9 +223,10 @@ export async function getJobTypeReport(startDate: string, endDate: string) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('job_type, total_amount, total_amount_cents, status')
+    .select('job_type, total_amount_cents, status')
     .eq('company_id', companyId)
     .in('status', ['sold', 'scheduled', 'in_progress', 'completed'])
     .gte('created_at', startDate)
@@ -243,18 +240,14 @@ export async function getJobTypeReport(startDate: string, endDate: string) {
     const type = job.job_type ?? 'other'
     const existing = typeMap.get(type) ?? { count: 0, revenueCents: 0 }
     existing.count += 1
-    existing.revenueCents += readMoneyFromRow(
-      (job as { total_amount_cents?: number | null }).total_amount_cents,
-      job.total_amount
+    existing.revenueCents += Number(
+      (job as { total_amount_cents?: number | null }).total_amount_cents ?? 0
     )
     typeMap.set(type, existing)
   }
 
   const totalRevenueCents = jobs.reduce(
-    (sum, j) => sum + readMoneyFromRow(
-      (j as { total_amount_cents?: number | null }).total_amount_cents,
-      j.total_amount
-    ),
+    (sum, j) => sum + Number((j as { total_amount_cents?: number | null }).total_amount_cents ?? 0),
     0
   )
 
@@ -273,9 +266,10 @@ export async function getSourceROIReport(startDate: string, endDate: string) {
   const supabase = await createClient()
   const { companyId } = await getUserWithCompany()
 
+  // Audit R3-#2 follow-up: cents-only post-031.
   const { data: jobs } = await supabase
     .from('jobs')
-    .select('referred_by, total_amount, total_amount_cents, status')
+    .select('referred_by, total_amount_cents, status')
     .eq('company_id', companyId)
     .gte('created_at', startDate)
     .lte('created_at', endDate)
@@ -293,9 +287,8 @@ export async function getSourceROIReport(startDate: string, endDate: string) {
     existing.count += 1
     if (['sold', 'scheduled', 'in_progress', 'completed'].includes(job.status)) {
       existing.converted += 1
-      existing.revenueCents += readMoneyFromRow(
-        (job as { total_amount_cents?: number | null }).total_amount_cents,
-        job.total_amount
+      existing.revenueCents += Number(
+        (job as { total_amount_cents?: number | null }).total_amount_cents ?? 0
       )
     }
     sourceMap.set(source, existing)

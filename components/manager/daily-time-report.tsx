@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { getTimeEntries, exportTimeEntriesCSV } from '@/lib/actions/time-tracking'
 import { formatTime, formatTimeOrDash } from '@/lib/utils'
-import { formatCents, readMoneyFromRow, dollarsToCents } from '@/lib/money'
+import { formatCents, dollarsToCents } from '@/lib/money'
 import { DownloadIcon, FlagIcon } from '@/components/icons'
 import type { TimeEntry } from '@/lib/types/time-tracking'
 
@@ -170,9 +170,10 @@ function ExpandedRow({ entry }: { entry: EntryWithRelations }) {
                 color: 'var(--text-secondary)',
               }}
             >
+              {/* Audit R3-#2 follow-up: cents-only post-031. */}
               {entry.pay_type === 'day_rate'
-                ? `Day Rate: ${formatCents(readMoneyFromRow((entry as { day_rate_cents?: number | null }).day_rate_cents, entry.day_rate))}`
-                : `Hourly: ${formatCents(readMoneyFromRow((entry as { hourly_rate_cents?: number | null }).hourly_rate_cents, entry.hourly_rate))}/hr`}
+                ? `Day Rate: ${formatCents((entry as { day_rate_cents?: number | null }).day_rate_cents ?? 0)}`
+                : `Hourly: ${formatCents((entry as { hourly_rate_cents?: number | null }).hourly_rate_cents ?? 0)}/hr`}
             </span>
           </div>
         </div>
@@ -329,7 +330,8 @@ function EntryRow({
             borderBottom: expanded ? 'none' : '1px solid var(--border-subtle)',
           }}
         >
-          {mono(formatCents(readMoneyFromRow((entry as { total_cost_cents?: number | null }).total_cost_cents, entry.total_cost)), 'var(--text-primary)')}
+          {/* Audit R3-#2 follow-up: cents-only post-031. */}
+          {mono(formatCents((entry as { total_cost_cents?: number | null }).total_cost_cents ?? 0), 'var(--text-primary)')}
         </td>
 
         {/* Flags */}
