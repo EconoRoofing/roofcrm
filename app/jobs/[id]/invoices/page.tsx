@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import {
   getJobInvoices,
   createInvoice,
@@ -14,6 +15,7 @@ import {
 } from '@/lib/actions/invoicing'
 import { exportInvoicesQBFormat } from '@/lib/actions/export'
 import { formatCents, dollarsToCents } from '@/lib/money'
+import { ChevronLeftNavIcon } from '@/components/icons'
 
 interface Invoice {
   id: string
@@ -301,6 +303,27 @@ export default function JobInvoicesPage() {
 
   return (
     <div style={{ padding: '24px', maxWidth: '1000px' }}>
+      {/* Refinement Task 4: back-to-job link. Previously the invoices
+          subpage had no escape hatch — users had to use the browser back
+          button or the bottom nav. Matches the pattern used by wizard,
+          sign, and materials pages. */}
+      <Link
+        href={`/jobs/${id}`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          marginBottom: '16px',
+          color: 'var(--text-secondary)',
+          fontSize: 'var(--text-base)',
+          textDecoration: 'none',
+          transition: 'color var(--transition-fast)',
+        }}
+      >
+        <ChevronLeftNavIcon />
+        Back to Job
+      </Link>
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 600, margin: 0 }}>Invoices</h1>

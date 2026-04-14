@@ -18,12 +18,21 @@ const baseInputStyle: React.CSSProperties = {
   fontSize: '16px',
   outline: 'none',
   boxSizing: 'border-box',
-  transition: 'border-color 0.15s ease',
+  // Refinement Task 3: animate both border-color AND box-shadow so the
+  // focus ring fades in smoothly. Using the motion token (globals.css)
+  // keeps timing consistent with the rest of the app.
+  transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
 }
 
+// Refinement Task 3: visible focus ring. Previously focus only changed
+// border color — a 1px green border on a dark background is easy to miss,
+// especially on an iPhone glance. Now the focus state adds a 2px glow
+// outside the border via box-shadow, which reads as a proper focus ring
+// without moving the element's layout box (outline would).
 const focusedInputStyle: React.CSSProperties = {
   ...baseInputStyle,
   borderColor: 'var(--accent)',
+  boxShadow: '0 0 0 2px var(--accent-glow)',
 }
 
 export const labelStyle: React.CSSProperties = {

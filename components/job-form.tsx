@@ -390,11 +390,32 @@ export function JobForm({ companies, currentUserRole, currentUserId, salesUsers 
           fontSize: '15px',
           fontWeight: 700,
           cursor: loading ? 'not-allowed' : 'pointer',
-          transition: 'all 0.15s ease',
+          transition: 'all var(--transition-fast)',
           letterSpacing: '0.3px',
+          // Refinement Task 3: inline spinner next to the label during
+          // async save. Previously the button just said "Saving..." with
+          // no motion, which on a slow network felt broken. The spinner
+          // gives immediate motion feedback that the app is working.
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '10px',
         }}
       >
-        {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Lead'}
+        {loading && (
+          <span
+            aria-hidden="true"
+            style={{
+              width: '14px',
+              height: '14px',
+              border: '2px solid var(--text-muted)',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+        )}
+        <span>{loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Lead'}</span>
       </button>
     </form>
   )

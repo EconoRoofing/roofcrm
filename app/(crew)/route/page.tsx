@@ -7,6 +7,7 @@ import { WeatherWidget } from '@/components/crew/weather-widget'
 import { StatsBar } from '@/components/crew/stats-bar'
 import { DayTimeline } from '@/components/crew/day-timeline'
 import { SimpleMode } from '@/components/crew/simple-mode'
+import { EmptyState } from '@/components/ui/empty-state'
 import { formatDisplayDate } from '@/lib/utils'
 import type { Job, UserRole } from '@/lib/types/database'
 
@@ -156,12 +157,24 @@ export default async function RoutePage() {
         estimatedDone={estimatedDone}
       />
 
-      {/* Day timeline */}
-      <DayTimeline
-        jobs={jobs as unknown as JobWithCompany[]}
-        activeTimeEntry={activeTimeEntry}
-        userId={user.id}
-      />
+      {/* Day timeline — or empty state when no jobs today.
+          Refinement Task 5: previously DayTimeline would render its
+          internal "no jobs" placeholder, but the empty-state component
+          has better visual hierarchy + a CTA back to the home tab so
+          crew members aren't stuck staring at an empty schedule. */}
+      {jobCount === 0 ? (
+        <EmptyState
+          title="No jobs today"
+          description="You're not scheduled on any jobs for today. Check back tomorrow or talk to your manager."
+          action={{ label: 'Back to Home', href: '/home' }}
+        />
+      ) : (
+        <DayTimeline
+          jobs={jobs as unknown as JobWithCompany[]}
+          activeTimeEntry={activeTimeEntry}
+          userId={user.id}
+        />
+      )}
     </div>
   )
 }

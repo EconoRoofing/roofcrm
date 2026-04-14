@@ -24,7 +24,13 @@
   --bg-nav: #0a0c12;
   --text-nav-inactive: #6b7294;
 
-  /* ─── Typography scale ─── */
+  /* ─── Typography scale ───
+     Refinement Task 2: single source of truth for font sizes across
+     the app. Components reference these via
+     `style={{ fontSize: 'var(--text-base)' }}`. Also mapped into
+     Tailwind's @theme block below so `className="text-base"` utilities
+     resolve to the same tokens — use Tailwind utilities for new code,
+     inline vars for existing code that already uses style objects. */
   --text-xs: 9px;
   --text-sm: 11px;
   --text-base: 13px;
@@ -32,6 +38,14 @@
   --text-lg: 18px;
   --text-xl: 22px;
   --text-2xl: 28px;
+
+  /* ─── Motion tokens ───
+     Refinement Task 3: centralize transition timing so hover/press
+     feedback is consistent across the app. 0.15s is fast enough to
+     feel responsive on an iPhone but slow enough to actually register
+     visually — the sweet spot for tap feedback. */
+  --transition-fast: 0.15s ease;
+  --transition-medium: 0.25s ease;
 
   /* ─── Static accent colors (company / status — never shift) ─── */
   --accent-blue: #448aff;
@@ -78,6 +92,13 @@
   /* Typography */
   --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+  /* NOTE: The project-specific type scale lives in :root above as
+     --text-xs etc. Reference those via `style={{ fontSize: 'var(--text-sm)' }}`
+     in inline style objects. We deliberately DO NOT map them into the
+     Tailwind @theme here because (a) the codebase uses inline styles
+     almost exclusively for font sizes and (b) overriding Tailwind's
+     default `text-*` utilities would change the resolved value of any
+     future `className="text-xs"` usage, causing subtle regressions. */
 
   /* Border radius */
   --radius-sm: 8px;

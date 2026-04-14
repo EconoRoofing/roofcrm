@@ -28,10 +28,15 @@ const inputStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '12px',
   color: 'var(--text-primary)',
-  fontSize: '15px',
+  // Refinement task 1: was 15px, which triggered iOS Safari's auto-zoom
+  // on focus. 16px is the minimum threshold below which iOS decides the
+  // user needs help reading the field. Matches the shared FormInput in
+  // components/ui/form-field.tsx for consistency.
+  fontSize: '16px',
   outline: 'none',
   boxSizing: 'border-box',
   fontFamily: 'var(--font-sans)',
+  transition: 'border-color 0.15s ease',
 }
 
 const inputFocusStyle: React.CSSProperties = {
