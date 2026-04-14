@@ -50,10 +50,12 @@ export async function getJobProfitability(jobId: string): Promise<{
   const outstandingCents = invoicedCents - paidCents
 
   // ── Labor costs: sum time_entries total_cost_cents for this job ──
+  // Exclude entries the manager has marked non-payroll (fraud/duplicates).
   const { data: timeEntries } = await supabase
     .from('time_entries')
     .select('total_hours, total_cost, total_cost_cents, hourly_rate, hourly_rate_cents')
     .eq('job_id', jobId)
+    .eq('excluded_from_payroll', false)
     .not('clock_out', 'is', null)
 
   const laborCostCents = sumCents(
@@ -195,6 +197,7 @@ export async function getCompanyProfitSummary(): Promise<{
       .from('time_entries')
       .select('job_id, total_cost, total_cost_cents')
       .in('job_id', jobIds)
+      .eq('excluded_from_payroll', false)
       .not('clock_out', 'is', null),
     supabase
       .from('material_lists')

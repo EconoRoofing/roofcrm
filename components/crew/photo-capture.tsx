@@ -34,8 +34,23 @@ export function PhotoCapture({ onCapture, onSkip, userId }: PhotoCaptureProps) {
         streamRef.current = stream
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          videoRef.current.play()
-          setIsStreaming(true)
+          // video.play() returns a Promise that can reject on iOS Safari
+          // (autoplay policy, interrupted by page transition, stream ended).
+          // Previously we ignored the Promise — a rejection silently left
+          // `isStreaming` false and the UI stuck on "Starting camera...".
+          // Now we await it and surface the error to the user.
+          try {
+            await videoRef.current.play()
+          } catch (playErr) {
+            if (!cancelled) {
+              console.error('[photo-capture] video.play() failed', playErr)
+              setError('Could not start camera preview. You can skip and continue.')
+              stream.getTracks().forEach((t) => t.stop())
+              streamRef.current = null
+              return
+            }
+          }
+          if (!cancelled) setIsStreaming(true)
         }
       } catch {
         if (!cancelled) {

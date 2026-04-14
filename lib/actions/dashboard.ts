@@ -231,16 +231,19 @@ export async function getDashboardData(filters?: {
     // Skip time tracking queries if no jobs exist for this company
     if (companyJobIds.length === 0) throw new Error('no jobs')
 
+    // All three time-entry rollups exclude entries marked non-payroll.
     const [timeEntriesResult, monthlyLaborResult, weeklyOTResult] = await Promise.all([
       supabase
         .from('time_entries')
         .select('job_id, total_hours')
         .in('job_id', companyJobIds)
+        .eq('excluded_from_payroll', false)
         .not('clock_out', 'is', null),
       supabase
         .from('time_entries')
         .select('total_cost, total_cost_cents')
         .in('job_id', companyJobIds)
+        .eq('excluded_from_payroll', false)
         .gte('clock_in', monthStart)
         .lte('clock_in', monthEnd)
         .not('clock_out', 'is', null),
@@ -248,6 +251,7 @@ export async function getDashboardData(filters?: {
         .from('time_entries')
         .select('overtime_hours, doubletime_hours')
         .in('job_id', companyJobIds)
+        .eq('excluded_from_payroll', false)
         .gte('clock_in', weekStart.toISOString())
         .not('clock_out', 'is', null),
     ])

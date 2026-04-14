@@ -4,6 +4,56 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, verifyJobOwnership, requireEstimateEditor } from '@/lib/auth-helpers'
 import { randomBytes } from 'crypto'
 
+// ─── Portal rate limiting ────────────────────────────────────────────────────
+// Audit finding #35. `/portal/[token]` is unauthenticated (token-gated), so a
+// token holder could previously flood `sendPortalMessage` / `requestBooking`
+// with arbitrary content. This module-level sliding-window limiter caps
+// writes per token to LIMIT requests per WINDOW_MS.
+//
+// Module state is per-serverless-instance — Vercel spreads traffic across
+// instances, so the effective cap is roughly LIMIT × instance_count. At the
+// current scale (a handful of customers per portal) this is plenty. If this
+// ever becomes insufficient, move to a Supabase-backed counter.
+
+const WINDOW_MS = 60 * 1000 // 1 minute
+const LIMIT_PER_WINDOW = 5   // messages or booking requests per token per minute
+
+type RateLimitBucket = { timestamps: number[] }
+const rateLimitBuckets = new Map<string, RateLimitBucket>()
+
+/**
+ * Record a portal write attempt and return `true` if it's within the limit,
+ * `false` if the token has hit its cap. Sliding 60-second window: the entry
+ * expires from the bucket once 60 seconds have passed.
+ */
+function checkPortalRateLimit(token: string): boolean {
+  const now = Date.now()
+  const cutoff = now - WINDOW_MS
+  const bucket = rateLimitBuckets.get(token) ?? { timestamps: [] }
+  // Drop expired entries
+  bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff)
+  if (bucket.timestamps.length >= LIMIT_PER_WINDOW) {
+    rateLimitBuckets.set(token, bucket)
+    return false
+  }
+  bucket.timestamps.push(now)
+  rateLimitBuckets.set(token, bucket)
+
+  // Opportunistic cleanup — purge buckets that are fully expired, so a burst
+  // of one-time portal visits doesn't leak memory forever.
+  if (rateLimitBuckets.size > 500) {
+    for (const [key, b] of rateLimitBuckets.entries()) {
+      if (b.timestamps.every((t) => t <= cutoff)) rateLimitBuckets.delete(key)
+    }
+  }
+  return true
+}
+
+// Max characters for any user-generated portal content. Prevents a token
+// holder from inserting megabytes of text into the messages / tasks tables.
+const MAX_PORTAL_MESSAGE_CHARS = 2000
+const MAX_PORTAL_NOTES_CHARS = 500
+
 export async function generatePortalToken(jobId: string, forceRegenerate = false): Promise<string> {
   const { companyId, role } = await getUserWithCompany()
 
@@ -117,7 +167,17 @@ export async function getPortalMessages(token: string) {
 export async function sendPortalMessage(token: string, messageText: string): Promise<boolean> {
   const supabase = await createClient()
 
-  if (!messageText.trim()) return false
+  const trimmed = messageText.trim()
+  if (!trimmed) return false
+
+  // Cap length — a portal token shouldn't be able to write megabytes
+  const body = trimmed.slice(0, MAX_PORTAL_MESSAGE_CHARS)
+
+  // Rate-limit per token. If the token is flooding, silently drop.
+  if (!checkPortalRateLimit(token)) {
+    console.warn('[portal] rate limit hit for sendPortalMessage')
+    return false
+  }
 
   const { data: job } = await supabase
     .from('jobs')
@@ -127,13 +187,14 @@ export async function sendPortalMessage(token: string, messageText: string): Pro
 
   if (!job) return false
 
-  const companyName = (job as any).companies?.name || 'the team'
+  // companyName kept for future notification fan-out; not used here yet
+  void (job as { companies?: { name?: string } }).companies?.name
 
   await supabase.from('messages').insert({
     job_id: job.id,
     direction: 'inbound',
     channel: 'portal',
-    body: messageText.trim(),
+    body,
     status: 'received',
     auto_generated: false,
     from_number: null,
@@ -237,6 +298,19 @@ export async function requestBooking(
 
   if (!preferredDate || !preferredTime) return false
 
+  // Basic format validation — reject anything that isn't a plausible date/time
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(preferredDate)) return false
+  if (preferredTime.length > 32) return false
+
+  // Cap notes length
+  const safeNotes = notes?.trim().slice(0, MAX_PORTAL_NOTES_CHARS) ?? ''
+
+  // Rate-limit per token
+  if (!checkPortalRateLimit(token)) {
+    console.warn('[portal] rate limit hit for requestBooking')
+    return false
+  }
+
   const { data: job } = await supabase
     .from('jobs')
     .select('id, customer_name, rep_id, company_id')
@@ -245,7 +319,8 @@ export async function requestBooking(
 
   if (!job) return false
 
-  // Create a follow-up task for the assigned rep
+  // Create a follow-up task for the assigned rep.
+  // Notes are already trimmed and capped above; dates are format-validated.
   const { error } = await supabase.from('tasks').insert({
     job_id: job.id,
     company_id: (job as any).company_id,
@@ -255,7 +330,7 @@ export async function requestBooking(
       `Customer requested a follow-up visit via portal.`,
       `Preferred date: ${preferredDate}`,
       `Preferred time: ${preferredTime}`,
-      notes ? `Notes: ${notes}` : '',
+      safeNotes ? `Notes: ${safeNotes}` : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -274,7 +349,7 @@ export async function requestBooking(
     job_id: job.id,
     direction: 'inbound',
     channel: 'portal',
-    body: `Booking request: ${preferredDate} at ${preferredTime}${notes ? ` — ${notes}` : ''}`,
+    body: `Booking request: ${preferredDate} at ${preferredTime}${safeNotes ? ` — ${safeNotes}` : ''}`,
     status: 'received',
     auto_generated: false,
     from_number: null,

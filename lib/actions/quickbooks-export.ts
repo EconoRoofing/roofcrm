@@ -150,12 +150,14 @@ export async function exportPayrollToCSV(startDate: string, endDate: string) {
   const { companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
-  // Fetch time entries with user info, scoped to company via jobs
+  // Fetch time entries with user info, scoped to company via jobs.
+  // Exclude entries manually marked non-payroll (#33).
   const { data: entries, error } = await supabase
     .from('time_entries')
     .select('*, users!inner(full_name, hourly_rate, hourly_rate_cents, primary_company_id), jobs!inner(job_number, company_id)')
     .eq('users.primary_company_id', companyId)
     .eq('jobs.company_id', companyId)
+    .eq('excluded_from_payroll', false)
     .gte('clock_in', startDate)
     .lte('clock_in', endDate)
     .not('clock_out', 'is', null)

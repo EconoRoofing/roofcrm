@@ -41,7 +41,58 @@
 
 - Q: Should `/schedule` (weekly crew assignment grid) also be visible to crew/sales? **A: User confirmed yes — they want crew/sales to view the calendar.** I'll interpret this conservatively as `/calendar` only for now, since `/schedule` is the drag-and-drop assignment editor and giving it to crew/sales could be confusing. If they want `/schedule` access too, we'll add it later.
 
-## Calendar webhook + iOS perf + iPhone kanban (current session)
+## Audit items 28–41 + LOW items (current session)
+
+### Mario must run this in Supabase SQL Editor
+```sql
+-- supabase/migrations/029_payroll_exclusion.sql
+-- Adds excluded_from_payroll BOOLEAN to time_entries (default false).
+```
+Defensive, safe to re-run.
+
+### Security hardening
+- **#36 security headers** — `next.config.ts` now sets HSTS, X-Frame-Options (SAMEORIGIN, blocks portal clickjacking), X-Content-Type-Options, Referrer-Policy (strict-origin-when-cross-origin), Permissions-Policy (camera=self, mic=none, geolocation=self), legacy X-XSS-Protection. CSP deliberately deferred until the app's inline-style footprint is audited.
+- **#35 portal rate limiting** — `sendPortalMessage` and `requestBooking` now run through a sliding-window limiter (5 requests per token per minute). Message/notes bodies capped at 2000/500 chars. `requestBooking` also validates date format to reject garbage. Limiter is module-level in-memory (per serverless instance × region) — plenty for current scale, move to Supabase-backed counter if it ever saturates.
+
+### PIN entry hardening
+- **#28 paste support** — window paste listener: if clipboard contains exactly 4 digits (after stripping non-digits), fill all four dots and auto-submit. Password managers and iPad Smart Keyboards now work.
+- **#29 scoped keydown** — the global window keydown handler checks `document.activeElement` first. If focus is in an INPUT/TEXTAREA/SELECT/contentEditable, the handler is a no-op. Typing digits into other search boxes no longer advances the PIN.
+- **#30 unmount cancellation** — new `mountedRef` gates every post-await setState in `handleSubmit`. Tapping Back during an in-flight `verifyPin` no longer warns about setState on unmounted or fires stray `router.push` calls.
+
+### Cron cleanup
+- **#37 dead cron routes deleted** — `/api/cron/digest`, `/api/cron/follow-ups`, `/api/cron/post-job` were thin wrappers around functions that `/api/cron/daily` already calls sequentially. Deleted (47 → 44 routes). `vercel.json` still wires only `daily`.
+
+### Payroll exclusion (real #33 fix)
+- Migration 029: `time_entries.excluded_from_payroll BOOLEAN DEFAULT false`
+- New server action `excludeFromPayroll(entryId, excluded)` — manager-only, company-scoped
+- Every payroll rollup now filters `excluded_from_payroll = false`:
+  - `getJobLaborCost` + `getWeeklyHours` in time-tracking.ts
+  - `getJobProfitability` + `getCompanyProfitSummary` in profitability.ts
+  - Dashboard's 3 parallel time-entry queries
+  - `reporting.ts` crew productivity report
+  - `exportPayrollCSV` (export.ts) + `exportPayrollToCSV` (quickbooks-export.ts)
+- `flagged` keeps its advisory semantics — "shift > 12 hours" and other auto-flags still count. Only manual exclusion removes from payroll.
+
+### Scheduling + job-detail bug fixes
+- **#32 `unassignJobFromCrew` data loss** — no longer nulls `scheduled_date` and `schedule_duration_days`. Unassign now means "open the slot," not "delete the schedule." Jobs stay on the calendar as unassigned after the crew leaves them.
+- **#39 `getJob` error handling** — uses `maybeSingle()` + throws on real DB errors. Previously returned `null` on any error, which `notFound()` in the page handler silently rendered as "job not found" during DB outages.
+
+### iOS robustness
+- **#41 `video.play()` not caught** — `photo-capture.tsx` now awaits + catches. iOS Safari autoplay rejections show a real error message instead of leaving the viewfinder stuck on "Starting camera…".
+- **#40 photos-grid unreachable branch** — `fetchProjectPhotos` now throws on HTTP errors (previously swallowed everything into `[]`). Component tracks `loading | error | ok` state so the "CompanyCam not connected" branch is actually reachable.
+- **LOW broken thumbnail fallback** — raw `<img>` now has `onError` handler that swaps to a camera icon placeholder, keeping layout stable when a thumbnail 404s.
+
+### LOW items
+- **Calendar "today" captured at mount** — `todayKey` now derives from a fresh `new Date()` on each render. If the tab stays open across midnight, the today highlight moves.
+- **`pathname.startsWith` null safety** — fixed in `crew-bottom-nav.tsx`, `sales-bottom-nav.tsx`, and 3 spots in `manager-top-nav.tsx`. `usePathname()` can return null during initial hydration.
+
+### Verification
+- `npx next build` clean across all 44 routes
+- 3 dead cron routes removed (`digest`, `follow-ups`, `post-job`)
+
+---
+
+## Calendar webhook + iOS perf + iPhone kanban (previous session)
 
 ### Mario must run this in Supabase SQL Editor
 ```sql

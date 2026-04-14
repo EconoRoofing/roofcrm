@@ -26,10 +26,16 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
   const [submitting, setSubmitting] = useState(false)
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // `mountedRef` gates all post-await setState in handleSubmit so a user
+  // who taps Back while the verify call is in flight doesn't trigger the
+  // "setState on unmounted component" React warning.
+  const mountedRef = useRef(true)
   const router = useRouter()
 
   useEffect(() => {
+    mountedRef.current = true
     return () => {
+      mountedRef.current = false
       if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current)
       if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current)
     }
@@ -41,25 +47,27 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
     setSubmitting(true)
     try {
       const valid = await verifyPin(profileId, pin)
+      if (!mountedRef.current) return
       if (valid) {
         await selectProfile(profileId)
-        // Check if user has no PIN set (first-time)
-        // verifyPin returns true for no-PIN users
+        if (!mountedRef.current) return
         router.push(getRoleRoute())
       } else {
         setShaking(true)
         setError('Incorrect PIN')
         shakeTimerRef.current = setTimeout(() => {
+          if (!mountedRef.current) return
           setShaking(false)
           setDigits([])
           setError('')
         }, 700)
       }
     } catch {
+      if (!mountedRef.current) return
       setError('Something went wrong. Try again.')
       setDigits([])
     } finally {
-      setSubmitting(false)
+      if (mountedRef.current) setSubmitting(false)
     }
   }, [profileId, profileRole, router])
 
@@ -82,15 +90,56 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
     setError('')
   }, [submitting])
 
-  // Keyboard support
+  // Submit all 4 digits at once (used for paste + password-manager autofill)
+  const setAllDigits = useCallback((raw: string) => {
+    if (submitting) return
+    const only = raw.replace(/\D/g, '').slice(0, 4)
+    if (only.length !== 4) return
+    setDigits(only.split(''))
+    autoSubmitTimerRef.current = setTimeout(() => handleSubmit(only), 50)
+  }, [submitting, handleSubmit])
+
+  // Keyboard + paste support — scoped so it doesn't hijack OTHER inputs
+  // on the page. Previously, a global window keydown handler would advance
+  // the PIN when the user typed digits into ANY text field (e.g. a search
+  // box on a parent layout). Check `document.activeElement` and bail if
+  // focus is inside an editable element.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    function focusIsInInput(): boolean {
+      const el = document.activeElement as HTMLElement | null
+      if (!el) return false
+      const tag = el.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+      if (el.isContentEditable) return true
+      return false
+    }
+
+    const keyHandler = (e: KeyboardEvent) => {
+      if (focusIsInInput()) return
       if (e.key >= '0' && e.key <= '9') pressDigit(e.key)
       else if (e.key === 'Backspace') pressBackspace()
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [pressDigit, pressBackspace])
+
+    // Paste support: password managers and iPad Smart Keyboards send the
+    // whole PIN in one paste event. Accept only if it produces exactly 4
+    // digits after stripping non-digits.
+    const pasteHandler = (e: ClipboardEvent) => {
+      if (focusIsInInput()) return
+      const text = e.clipboardData?.getData('text') ?? ''
+      const only = text.replace(/\D/g, '').slice(0, 4)
+      if (only.length === 4) {
+        e.preventDefault()
+        setAllDigits(only)
+      }
+    }
+
+    window.addEventListener('keydown', keyHandler)
+    window.addEventListener('paste', pasteHandler)
+    return () => {
+      window.removeEventListener('keydown', keyHandler)
+      window.removeEventListener('paste', pasteHandler)
+    }
+  }, [pressDigit, pressBackspace, setAllDigits])
 
   const keypad = [
     ['1', '2', '3'],

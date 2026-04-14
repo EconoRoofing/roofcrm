@@ -33,22 +33,19 @@ function fetchProjectPhotos(projectId: string): Promise<CompanyCamPhoto[]> {
   const existing = inFlight.get(projectId)
   if (existing) return existing
 
-  const promise = fetch(`/api/companycam/photos?projectId=${encodeURIComponent(projectId)}`)
-    .then((r) => r.json())
-    .then((data: CompanyCamPhoto[]) => {
-      const arr = Array.isArray(data) ? data : []
-      resolved.set(projectId, { data: arr, expiresAt: Date.now() + PHOTO_CACHE_TTL_MS })
-      return arr
-    })
-    .catch(() => {
-      // Cache empty result briefly so we don't hammer a failing endpoint
-      const empty: CompanyCamPhoto[] = []
-      resolved.set(projectId, { data: empty, expiresAt: Date.now() + 5000 })
-      return empty
-    })
-    .finally(() => {
-      inFlight.delete(projectId)
-    })
+  const promise = (async () => {
+    // Not-ok HTTP (401, 404, 500, CompanyCam not connected) is an error,
+    // not an empty result. Propagate so the component can distinguish
+    // "no photos yet" from "CompanyCam not connected".
+    const res = await fetch(`/api/companycam/photos?projectId=${encodeURIComponent(projectId)}`)
+    if (!res.ok) throw new Error(`photos fetch ${res.status}`)
+    const json = await res.json()
+    const arr = Array.isArray(json) ? json : []
+    resolved.set(projectId, { data: arr, expiresAt: Date.now() + PHOTO_CACHE_TTL_MS })
+    return arr
+  })().finally(() => {
+    inFlight.delete(projectId)
+  })
 
   inFlight.set(projectId, promise)
   return promise
@@ -112,6 +109,7 @@ function PlaceholderPhoto({ index }: { index: number }) {
 function RealPhoto({ photo }: { photo: CompanyCamPhoto }) {
   const dateLabel = formatPhotoDate(photo.created_at)
   const thumbUrl = photo.urls?.thumbnail ?? photo.urls?.original ?? ''
+  const [failed, setFailed] = useState(false)
 
   return (
     <div
@@ -124,18 +122,37 @@ function RealPhoto({ photo }: { photo: CompanyCamPhoto }) {
         backgroundColor: '#0e1117',
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={thumbUrl}
-        alt="Job photo"
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          display: 'block',
-        }}
-        loading="lazy"
-      />
+      {failed ? (
+        // Broken thumbnail fallback — keeps layout stable instead of showing
+        // the browser's broken-image glyph
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            opacity: 0.4,
+          }}
+        >
+          <CameraIcon />
+        </div>
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={thumbUrl}
+          alt="Job photo"
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
+          }}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      )}
       {dateLabel && (
         <span
           style={{
@@ -159,28 +176,32 @@ function RealPhoto({ photo }: { photo: CompanyCamPhoto }) {
   )
 }
 
+type FetchState = 'loading' | 'error' | 'ok'
+
 function JobPhotoSection({ job }: { job: JobWithCompany }) {
-  const [photos, setPhotos] = useState<CompanyCamPhoto[] | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [photos, setPhotos] = useState<CompanyCamPhoto[]>([])
+  const [state, setState] = useState<FetchState>('loading')
 
   const projectId = job.companycam_project_id!
   const deepLink = getProjectDeepLink(projectId)
 
+  // Track the actual fetch outcome in 3 states instead of guessing from an
+  // undefined/null/array triple. `error` gives us a real branch for
+  // "CompanyCam not connected / API failed" (previously unreachable because
+  // the catch set photos to [], making it indistinguishable from "no photos").
   useEffect(() => {
     let cancelled = false
 
     fetchProjectPhotos(projectId)
       .then((data) => {
-        if (!cancelled) {
-          setPhotos(data)
-          setLoading(false)
-        }
+        if (cancelled) return
+        setPhotos(data)
+        setState('ok')
       })
       .catch(() => {
-        if (!cancelled) {
-          setPhotos([])
-          setLoading(false)
-        }
+        if (cancelled) return
+        setPhotos([])
+        setState('error')
       })
 
     return () => {
@@ -188,8 +209,9 @@ function JobPhotoSection({ job }: { job: JobWithCompany }) {
     }
   }, [projectId])
 
-  const hasPhotos = photos && photos.length > 0
-  const displayPhotos = photos?.slice(0, 6) ?? []
+  const loading = state === 'loading'
+  const hasPhotos = state === 'ok' && photos.length > 0
+  const displayPhotos = photos.slice(0, 6)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -250,7 +272,7 @@ function JobPhotoSection({ job }: { job: JobWithCompany }) {
             textAlign: 'center',
           }}
         >
-          {photos === null ? 'CompanyCam not connected' : 'No photos yet'}
+          {state === 'error' ? 'CompanyCam not connected' : 'No photos yet'}
         </span>
       )}
 

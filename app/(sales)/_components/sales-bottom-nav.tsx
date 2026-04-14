@@ -28,7 +28,8 @@ export default function SalesBottomNav() {
       }}
     >
       {NAV_ITEMS.map(({ href, label, icon, isFab }) => {
-        const isActive = !isFab && (pathname === href || pathname.startsWith(href + '/'))
+        const isActive =
+          !isFab && pathname != null && (pathname === href || pathname.startsWith(href + '/'))
         return (
           <Link
             key={href}

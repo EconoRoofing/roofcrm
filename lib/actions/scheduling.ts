@@ -304,14 +304,18 @@ export async function unassignJobFromCrew(jobId: string) {
   requireManager(role)
   await verifyJobOwnership(jobId, companyId)
 
+  // Intentionally PRESERVE scheduled_date and schedule_duration_days.
+  // Previous behavior nulled them, which had two bad side effects:
+  //   1. The job disappeared from the calendar entirely (no date → no cell)
+  //   2. If the manager just wanted to re-assign a different crew member,
+  //      they lost the schedule and had to re-enter it.
+  // Now "unassign" means "open the slot back up" — the date stays so the
+  // job still shows in the day's dispatch list as unassigned.
   const { error } = await supabase
     .from('jobs')
-    .update({
-      assigned_crew_id: null,
-      scheduled_date: null,
-      schedule_duration_days: null,
-    })
+    .update({ assigned_crew_id: null })
     .eq('id', jobId)
+    .eq('company_id', companyId)
 
   if (error) {
     console.error('Unassignment error:', error)

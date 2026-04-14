@@ -32,6 +32,7 @@ export async function exportPayrollCSV(filters?: {
       job:jobs!time_entries_job_id_fkey(job_number, customer_name, company_id)
     `)
     .in('job_id', companyJobIds)
+    .eq('excluded_from_payroll', false)
     .not('clock_out', 'is', null)
     .order('clock_in', { ascending: true })
     .limit(10000)

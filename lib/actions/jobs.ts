@@ -528,10 +528,18 @@ export async function getJob(id: string) {
     `)
     .eq('id', id)
     .eq('company_id', companyId)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) return null
+  // Differentiate "not found" from "DB error". PostgREST returns
+  // code 'PGRST116' when `.single()` gets zero rows — that's a genuine
+  // not-found. Any other error is an outage; throw so callers (and
+  // app/jobs/[id]/page.tsx's notFound()) don't silently mask it as 404.
+  if (error) {
+    console.error('[getJob] query failed', { id, code: error.code, message: error.message })
+    throw new Error(`Failed to fetch job: ${error.message}`)
+  }
 
+  // maybeSingle() returns null for zero rows without an error
   return data
 }
 

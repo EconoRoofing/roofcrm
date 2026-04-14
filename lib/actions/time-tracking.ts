@@ -684,10 +684,13 @@ export async function getJobLaborCost(jobId: string): Promise<{
   await verifyJobOwnership(jobId, companyId)
   const supabase = await createClient()
 
+  // Exclude entries the manager has explicitly marked as non-payroll.
+  // `flagged` stays in the result set — it's advisory, not exclusionary.
   const { data, error } = await supabase
     .from('time_entries')
     .select('id, total_hours, total_cost, total_cost_cents')
     .eq('job_id', jobId)
+    .eq('excluded_from_payroll', false)
     .order('clock_in', { ascending: true })
 
   if (error) throw new Error(`Failed to fetch job labor cost: ${error.message}`)
@@ -740,6 +743,7 @@ export async function getWeeklyHours(
     .from('time_entries')
     .select('total_hours')
     .eq('user_id', userId)
+    .eq('excluded_from_payroll', false)
     .gte('clock_in', start.toISOString())
     .lte('clock_in', end.toISOString())
     .not('clock_out', 'is', null)
@@ -779,6 +783,37 @@ export async function flagEntry(entryId: string, reason: string): Promise<void> 
     .eq('id', entryId)
 
   if (error) throw new Error(`Failed to flag entry: ${error.message}`)
+}
+
+/**
+ * Exclude / un-exclude a time entry from payroll. Unlike `flagEntry` (which
+ * is advisory — flagged entries still count in payroll), this actually
+ * removes the entry from all payroll and profitability rollups. Use when a
+ * manager identifies a fraudulent or duplicate entry that shouldn't pay out.
+ *
+ * Audit finding #33. Migration 029 added the `excluded_from_payroll` column.
+ */
+export async function excludeFromPayroll(entryId: string, excluded: boolean): Promise<void> {
+  const { companyId, role } = await getUserWithCompany()
+  requireManager(role)
+  const supabase = await createClient()
+
+  // Verify the entry's job belongs to the manager's company
+  const { data: entry } = await supabase
+    .from('time_entries')
+    .select('id, job:jobs!inner(company_id)')
+    .eq('id', entryId)
+    .eq('job.company_id', companyId)
+    .single()
+
+  if (!entry) throw new Error('Time entry not found or access denied')
+
+  const { error } = await supabase
+    .from('time_entries')
+    .update({ excluded_from_payroll: excluded })
+    .eq('id', entryId)
+
+  if (error) throw new Error(`Failed to update payroll exclusion: ${error.message}`)
 }
 
 export async function unflagEntry(entryId: string): Promise<void> {

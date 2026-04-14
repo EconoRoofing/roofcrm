@@ -47,7 +47,7 @@ export default function ManagerTopNav() {
       <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <nav style={{ display: 'flex', gap: '2px', overflowX: 'auto', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', flexShrink: 1, minWidth: 0 }}>
           {NAV_LINKS.map(({ href, label }) => {
-            const isActive = pathname === href || pathname.startsWith(href + '/')
+            const isActive = pathname != null && (pathname === href || pathname.startsWith(href + '/'))
             return (
               <Link key={href} href={href} style={{
                 padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
@@ -74,7 +74,7 @@ export default function ManagerTopNav() {
         paddingBottom: 'env(safe-area-inset-bottom)', height: '60px',
       }}>
         {MOBILE_TABS.map(({ href, label, icon }) => {
-          const isActive = pathname === href || pathname.startsWith(href + '/')
+          const isActive = pathname != null && (pathname === href || pathname.startsWith(href + '/'))
           return (
             <Link key={href} href={href} style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
@@ -122,7 +122,7 @@ export default function ManagerTopNav() {
             paddingBottom: `calc(8px + env(safe-area-inset-bottom))`,
           }}>
             {MORE_LINKS.map(({ href, label }) => {
-              const isActive = pathname === href || pathname.startsWith(href + '/')
+              const isActive = pathname != null && (pathname === href || pathname.startsWith(href + '/'))
               return (
                 <Link key={href} href={href} onClick={() => setMoreOpen(false)} style={{
                   padding: '12px 16px', borderRadius: '8px', textDecoration: 'none',

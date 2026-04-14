@@ -27,7 +27,10 @@ export default function CrewBottomNav() {
       }}
     >
       {NAV_ITEMS.map(({ href, label, icon }) => {
-        const isActive = pathname === href || pathname.startsWith(href + '/')
+        // Guard: usePathname() can return null during SSR / initial hydration.
+        // Previously `pathname.startsWith(...)` would throw in that window.
+        const isActive =
+          pathname != null && (pathname === href || pathname.startsWith(href + '/'))
         return (
           <Link
             key={href}

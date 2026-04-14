@@ -37,9 +37,12 @@ function dateKeyFromYMD(year: number, monthIdx: number, day: number): string {
 
 export function CalendarView({ jobs }: CalendarViewProps) {
   const router = useRouter()
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth()) // 0-indexed
+  // Capture the mount-time date ONLY for the initial month/year — not for
+  // "is this day today?" comparisons. If the tab stays open across midnight,
+  // we still want today's cell to move. The `todayKey` derivation below uses
+  // a fresh `new Date()` on every render so it ticks with wall-clock time.
+  const [year, setYear] = useState(() => new Date().getFullYear())
+  const [month, setMonth] = useState(() => new Date().getMonth()) // 0-indexed
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
   // Build job map: date key → jobs
@@ -97,7 +100,9 @@ export function CalendarView({ jobs }: CalendarViewProps) {
     setSelectedDay(null)
   }
 
-  const todayKey = toDateKey(today)
+  // Fresh `new Date()` on each render so the today highlight moves across
+  // midnight if the tab stays open overnight.
+  const todayKey = toDateKey(new Date())
 
   const selectedJobs = selectedDay ? (jobMap.get(selectedDay) ?? []) : []
 

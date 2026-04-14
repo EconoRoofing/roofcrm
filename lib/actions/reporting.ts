@@ -146,6 +146,7 @@ export async function getCrewProductivityReport(startDate: string, endDate: stri
     .from('time_entries')
     .select('user_id, job_id, total_hours, overtime_hours, doubletime_hours, total_cost, total_cost_cents')
     .in('job_id', jobIds)
+    .eq('excluded_from_payroll', false)
     .gte('clock_in', startDate)
     .lte('clock_in', endDate)
     .not('clock_out', 'is', null)
