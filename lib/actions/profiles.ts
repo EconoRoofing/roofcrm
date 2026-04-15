@@ -246,6 +246,18 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 
     return true
   } catch (err) {
+    // TEMPORARY DIAGNOSTIC — log anything that lands here. Mario is locked
+    // out and we're seeing a 500 with only 1 log line, which means something
+    // is throwing between the "called" log and the "user row" log. This
+    // surfaces the error before we decide to re-throw or return false.
+    console.error('[verifyPin] caught error', {
+      userId,
+      isError: err instanceof Error,
+      errorName: err instanceof Error ? err.name : typeof err,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      errorStack: err instanceof Error ? err.stack : undefined,
+    })
+
     // Re-throw rate-limit, "no PIN configured", and the R3-#7 missing-salt
     // misconfig error so callers can show the message. Everything else is
     // fail-closed — return false without leaking state.
