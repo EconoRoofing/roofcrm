@@ -126,20 +126,6 @@ export async function unlockAccount(userId: string) {
 
 // Verify a PIN
 export async function verifyPin(userId: string, pin: string): Promise<boolean> {
-  // TEMPORARY DIAGNOSTIC — delete after PIN login is restored.
-  // Mario is locked out of production. The /api/debug/pin-hash endpoint
-  // produces a hash that matches the stored pin_hash, but verifyPin
-  // produces a non-matching hash from ostensibly identical inputs. One of
-  // pin / userId / serverSalt must differ at runtime — log all three so
-  // we can compare against the diagnostic side-by-side in Vercel logs.
-  // Rotate PIN immediately after this ships + the fix lands.
-  console.log('[verifyPin] called', {
-    userId,
-    pin,
-    pinLen: pin.length,
-    pinCharCodes: Array.from(pin).map((c) => c.charCodeAt(0)),
-  })
-
   try {
     const supabase = await createClient()
 
@@ -149,15 +135,6 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
       .select('pin_hash, pin_failed_attempts, pin_locked_until')
       .eq('id', userId)
       .single()
-
-    console.log('[verifyPin] user row', {
-      userId,
-      found: !!user,
-      hasPinHash: !!user?.pin_hash,
-      storedHash: user?.pin_hash ?? null,
-      failedAttempts: user?.pin_failed_attempts ?? null,
-      lockedUntil: user?.pin_locked_until ?? null,
-    })
 
     if (!user) return false
 
@@ -184,24 +161,11 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
     if (!serverSalt || serverSalt.length < 16) {
       throw new Error('PIN_HASH_SALT is not configured. Contact your administrator.')
     }
-    console.log('[verifyPin] salt fingerprint', {
-      saltLen: serverSalt.length,
-      saltStart: serverSalt.slice(0, 4),
-      saltEnd: serverSalt.slice(-4),
-    })
-
     const encoder = new TextEncoder()
     const data = encoder.encode(pin + userId + serverSalt)
     const hashBuffer = await crypto.subtle.digest('SHA-256', data)
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-
-    console.log('[verifyPin] hash compare', {
-      concatLen: (pin + userId + serverSalt).length,
-      computedHash: pinHash,
-      storedHash: user.pin_hash,
-      equal: pinHash === user.pin_hash,
-    })
 
     // Timing-safe comparison to prevent timing attacks
     const storedBuf = Buffer.from(user.pin_hash, 'hex')
@@ -246,18 +210,6 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
 
     return true
   } catch (err) {
-    // TEMPORARY DIAGNOSTIC — log anything that lands here. Mario is locked
-    // out and we're seeing a 500 with only 1 log line, which means something
-    // is throwing between the "called" log and the "user row" log. This
-    // surfaces the error before we decide to re-throw or return false.
-    console.error('[verifyPin] caught error', {
-      userId,
-      isError: err instanceof Error,
-      errorName: err instanceof Error ? err.name : typeof err,
-      errorMessage: err instanceof Error ? err.message : String(err),
-      errorStack: err instanceof Error ? err.stack : undefined,
-    })
-
     // Re-throw rate-limit, "no PIN configured", and the R3-#7 missing-salt
     // misconfig error so callers can show the message. Everything else is
     // fail-closed — return false without leaking state.
