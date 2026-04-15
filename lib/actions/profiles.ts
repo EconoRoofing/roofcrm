@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/auth'
 import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
 // INTENTIONAL: No auth on getCompanies/getProfiles — these are used by the
 // Netflix-style shared-device profile picker. All profiles must be shown so
@@ -365,12 +366,29 @@ export async function createProfile(name: string, role: string, pin?: string, pr
   return data
 }
 
-// Sign out the Google auth session and clear active profile
+// Sign out the Google auth session and clear active profile.
+//
+// Previously the action cleared cookies, signed out Supabase, and returned
+// normally — which let Next.js revalidate the *current* page before the
+// client-side `router.push('/login')` fired. That revalidation re-ran the
+// server component that the user was about to leave, and since auth was
+// now null, every helper on the page that throws on missing auth (e.g.
+// getUserWithCompany → "Not authenticated") crashed and bounced the user
+// into app/error.tsx's "We hit a snag" boundary.
+//
+// Fix: call `redirect('/login')` inside the action itself. Next.js
+// intercepts redirect() via a special NEXT_REDIRECT throw and navigates
+// the client WITHOUT revalidating the old page, so the server component
+// that was about to throw never re-renders in the first place.
+//
+// Note: redirect() must be called OUTSIDE any try/catch that catches all
+// errors — otherwise the NEXT_REDIRECT signal gets swallowed.
 export async function signOutAndClear() {
   const cookieStore = await cookies()
   cookieStore.delete('active_profile_id')
   const supabase = await createClient()
   await supabase.auth.signOut()
+  redirect('/login')
 }
 
 // Update an existing profile (manager only, target must be in same company)
