@@ -2,13 +2,29 @@ import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-// Sign out the current user (server-side)
+// Sign out the current user (server-side).
+//
+// Must call redirect('/login') so Next.js navigates directly instead of
+// revalidating the current page. Without the redirect, control returns
+// normally, Next.js re-renders the authenticated layout the user was
+// just on, that layout's server components call getUserWithCompany(),
+// auth is now null, and the whole tree throws "Not authenticated" into
+// app/error.tsx's "We hit a snag" boundary (digest 2082836210).
+//
+// redirect() throws NEXT_REDIRECT which the framework intercepts — it
+// must be called OUTSIDE any try/catch that catches all errors.
+//
+// There's a sibling `signOutAndClear()` in lib/actions/profiles.ts used
+// by the profile picker — it has the same fix. Both functions exist
+// because the codebase evolved two parallel sign-out paths; consolidating
+// them is a follow-up.
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   // Also clear the active profile cookie
   const cookieStore = await cookies()
   cookieStore.delete('active_profile_id')
+  redirect('/login')
 }
 
 // Get the current user server-side
