@@ -156,3 +156,147 @@ node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/
 The plugin validator's "MANDATORY: read external docs" suggestions point to
 WRONG external URLs as often as they're correct. The local docs are
 authoritative for the version installed.
+
+---
+
+## 7. Opaque UI errors amplify every backend bug (the April 2026 PIN saga)
+
+**Symptom:** User reports "Something went wrong" or "It won't let me log in"
+with no other detail. Hours spent chasing wrong hypotheses.
+
+**Hits (all same root cause — opaque catch block):**
+- "Hash mismatch" thought to be PIN typo → actually `PIN_HASH_SALT` rotation
+- "Can't log in" thought to be verifyPin crash → actually `pin_failed_attempts = 5`
+  lockout masked as generic error
+- "Something went wrong" thought to be auth bug → actually
+  `No companies associated with this account` from missing `owner_id` column
+- "OAuth redirect loop" (2026-04-19) thought to be Next.js cookie issue →
+  actually Mario mistyping his PIN — logs showed 3 POST `/select-profile`
+  attempts per reload, identical visually to an OAuth loop
+
+**Root cause:** `components/auth/pin-entry.tsx` catch block swallowed the
+thrown error's `message` and replaced it with generic text. Every backend
+failure looked identical to the user AND to me when debugging from their
+description.
+
+**Rule:**
+- **Never swallow thrown error messages in user-facing catch blocks.** Pass
+  `err.message` through to `setError`. If a throw site might leak internals,
+  harden the message at the throw, not at the display. Context is richest
+  at the throw.
+- **When a user reports a generic "can't log in" error, FIRST pull logs
+  via MCP** (Vercel runtime logs, Supabase auth logs, Postgres logs) before
+  guessing. You have `mcp__a321ee8d-*__get_runtime_logs` and
+  `mcp__1087ceb8-*__get_logs` — use them. In the April 2026 saga I spent
+  40 minutes guessing before I pulled logs; once I did, diagnosis was 2 min.
+- **When investigating a reported "loop," count the actual request events
+  in logs.** An OAuth loop has repeated `/authorize` → `/callback` cycles.
+  A user mistyping a PIN has a single `/auth/callback` + multiple
+  `POST /select-profile` attempts. Different signature, different fix.
+
+---
+
+## 8. Zsh vs bash: `read -p` doesn't work in zsh
+
+**Symptom:** Mario pastes a shell snippet I wrote, gets
+`read: -p: no coprocess` errors, shell produces wrong output because
+variables end up empty.
+
+**Root cause:** I wrote `read -s -p "prompt" VAR` which is bash syntax.
+macOS has defaulted to zsh since Catalina (2019). In zsh, `read -p` means
+"coprocess pipe reference," not "prompt."
+
+**Rule:**
+- Default to **zsh-native syntax** for any macOS shell snippet:
+  `read "VAR?prompt text"` (or `read -s "VAR?prompt text"` for hidden input).
+- When mixing platforms, wrap in `bash -c '...'` explicitly.
+- Test the snippet format in a throwaway Bash tool call if uncertain.
+
+---
+
+## 9. Hash-oracle bugs need production-runtime verification
+
+**Symptom:** User computes a salted hash locally with what they believe is
+the production salt; hash doesn't match; no way to debug without leaking
+the salt or shipping code.
+
+**Hit (2026-04-19):** Mario pulled `PIN_HASH_SALT` from Vercel env dashboard,
+computed `sha256(pin + userId + salt)` locally via `shasum -a 256`. Hash
+produced `39f6c83c...` but production's `verifyPin` computed `77f0d570...`
+for the same inputs. Eventually traced to salt copy-paste producing a
+different value than `process.env.PIN_HASH_SALT` at runtime — exact cause
+(wrong env scope / whitespace / truncation) never confirmed but clearly
+different values.
+
+**Rule:**
+- **For salted-hash reconciliation bugs, don't trust local computation
+  against a copy-pasted secret.** Only production's runtime can authoritatively
+  compute the hash.
+- **Ship a minimal auth-gated admin endpoint** that accepts the inputs and
+  returns the production hash + salt fingerprint (first4...last4 + length).
+  The fingerprint reveals WHAT differs without leaking the salt itself.
+- **The endpoint must include its own self-cleanup plan in the commit
+  message** — "DELETE after X is restored." Delete immediately after use.
+- **Verify the cryptographic primitives match.** I verified `shasum -a 256`
+  on UTF-8 input produces byte-identical output to
+  `TextEncoder().encode() → crypto.subtle.digest('SHA-256')` by running
+  both on a test input. If the algorithms don't match, you're chasing the
+  wrong bug.
+
+---
+
+## 10. Two parallel implementations of the same thing — grep for ALL before fixing
+
+**Symptom:** Fix lands, user reports same bug with same error digest, I
+assume my fix didn't deploy. Actually the fix was to the wrong function.
+
+**Hit (2026-04-18):** Sign-out button threw "Not authenticated" (digest
+`2082836210`). Patched `signOutAndClear()` in `lib/actions/profiles.ts`.
+Same digest. Actually, Mario's manager-layout sign-out calls `signOut()`
+in `lib/auth.ts` — a *different* function with the same purpose. Codebase
+grew two parallel sign-out paths over time.
+
+**Rule:**
+- **Before fixing an auth/session bug, grep for ALL implementations of the
+  operation** (not just the one you found first). Example: `grep -rn
+  "signOut\|signOutAndClear\|logOut\|logout"`.
+- **Check call sites:** `grep -rn "await signOut("` shows which layouts/pages
+  actually use which implementation. Fix the one the user is hitting.
+- **Consolidate duplicate implementations on the way out** — file a follow-up
+  to merge them. Two functions doing the same thing is a recurring bug source.
+
+---
+
+## 11. Lockout counters during debugging — clear them between attempts
+
+**Symptom:** I ship a fix, ask user to retry, their retry fails because
+they've already burned their attempt budget from testing earlier. Rate
+limits stack while debugging.
+
+**Rule:** Before asking user to re-test a rate-limited flow (PIN, login,
+password), **reset the counter via SQL/MCP first**. Two lines of prevention
+beats 40 minutes of "it's still broken."
+```sql
+UPDATE users SET pin_failed_attempts = 0, pin_locked_until = NULL
+WHERE id = '…';
+```
+
+---
+
+## 12. MCP logs > asking the user to paste logs
+
+**Symptom:** I ask user to paste Vercel/Supabase logs. They paste partial
+output, I ask for more, they get frustrated.
+
+**Rule:** **Use MCP tools directly.** Both Vercel and Supabase have log
+access MCPs available (`mcp__a321ee8d-*__get_runtime_logs` and
+`mcp__1087ceb8-*__get_logs`). Pull logs myself:
+- Full context in one shot
+- No redaction errors
+- No back-and-forth
+- No chance Mario filters out the relevant line
+
+The ONLY time to ask the user to paste is if the MCP doesn't cover the
+log source (e.g. browser console logs, client-side network tab). Even then,
+the `mcp__Claude_in_Chrome__read_console_messages` tool exists if the user
+has the extension.
