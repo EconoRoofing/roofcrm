@@ -206,7 +206,20 @@ export const config = {
   // auth (webhooks, crons) verify their own credentials. Middleware's
   // session-refresh responsibility only matters for user-facing pages,
   // which still go through this matcher.
+  //
+  // Audit 2026-04-19: also exclude /manifest.webmanifest and /sw.js.
+  // Browsers fetch BOTH without credentials by default (PWA manifest
+  // fetches are anonymous unless <link rel="manifest" crossOrigin=
+  // "use-credentials">; service worker registration checks are
+  // credentialless on every page load). Running middleware on these
+  // treated every fetch as "no user" and redirected to /login, so the
+  // browser burned TWO extra round-trips on EVERY page navigation:
+  //   1. GET /manifest.webmanifest → 307 /login → 304
+  //   2. GET /sw.js                → 307 /login → 304
+  // On mobile networks that's 200-400ms of pure waste per navigation.
+  // These files are static and contain no user data — middleware has
+  // no reason to touch them.
   matcher: [
-    '/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
