@@ -283,6 +283,61 @@ WHERE id = '…';
 
 ---
 
+## 12a. Supabase RLS is TWO steps — policies without ENABLE are no-ops
+
+**Symptom:** `supabase.from('X').select()` returns rows it shouldn't.
+Supabase dashboard shows policies on table X. Advisor says
+`policy_exists_rls_disabled`.
+
+**Root cause:** Supabase RLS has two independent switches:
+1. `CREATE POLICY` — defines the rule
+2. `ALTER TABLE X ENABLE ROW LEVEL SECURITY` — activates RLS at the
+   table level
+
+**Without step 2, step 1 does nothing.** The policy sits dormant. The
+table falls back to standard role grants (which default to permissive
+for `anon`/`authenticated`/`service_role`). Result: anyone with the
+public anon key can CRUD the table via the REST API.
+
+**Hit (2026-04-19):** 6 tables (`invoices`, `invoice_line_items`,
+`purchase_orders`, `supplier_contacts`, `automation_rules`,
+`crew_unavailability`) had `authed_floor` policies but RLS disabled —
+fully readable via the anon key. Migration 044 flipped the switch.
+
+**Rule:**
+- **Every new migration that adds a table MUST include `ALTER TABLE
+  X ENABLE ROW LEVEL SECURITY;`** immediately after the `CREATE TABLE`,
+  even before adding policies. Default to fail-closed.
+- **Run Supabase security advisors after any schema migration** via
+  `mcp__supabase__get_advisors({type: "security"})`. It catches this
+  silent-failure in seconds.
+- **Even tables that look "internal" need RLS on.** `job_number_sequence`
+  is just a counter but was publicly exposed. Either enable RLS and
+  access it via `SECURITY DEFINER` RPC, or block grants explicitly.
+
+## 12b. Multiple PERMISSIVE RLS policies are OR'd — strictest doesn't win
+
+**Symptom:** You add a restrictive policy alongside an existing
+permissive one, expecting tightening. Nothing tightens.
+
+**Root cause:** PostgreSQL RLS policies are evaluated as OR of all
+matching PERMISSIVE policies. Adding `WITH CHECK (true)` alongside a
+stricter policy makes the overall gate as loose as `true`, not as
+strict as the strictest.
+
+**Hit (2026-04-19):** `users` and `activity_log` both had `authed_floor`
+(`auth.uid() IS NOT NULL`) for ALL commands, plus per-command policies
+with `WITH CHECK (true)` for INSERT. The `true` defeated the floor.
+
+**Rule:**
+- **To tighten, RESTRICTIVE policies, not PERMISSIVE.** Use `CREATE
+  POLICY ... AS RESTRICTIVE`. Multiple restrictive policies AND
+  together.
+- **Or**: drop the overlap. If you already have a `FOR ALL` floor, a
+  redundant `FOR INSERT` PERMISSIVE policy can only loosen. Remove it.
+- **Or**: combine into a single, fully-specified PERMISSIVE policy per
+  command and drop the floor.
+
 ## 12. MCP logs > asking the user to paste logs
 
 **Symptom:** I ask user to paste Vercel/Supabase logs. They paste partial
