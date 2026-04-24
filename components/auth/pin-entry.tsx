@@ -67,9 +67,24 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           setError('')
         }, 700)
       }
-    } catch {
+    } catch (err) {
+      // Audit 2026-04: previously this swallowed the thrown Error and showed
+      // a generic "Something went wrong. Try again." — which made four very
+      // different failure modes look identical to the user:
+      //   1. Lockout ("Too many PIN attempts...")
+      //   2. Missing/unconfigured PIN ("No PIN configured...")
+      //   3. Server misconfig ("PIN_HASH_SALT is not configured...")
+      //   4. selectProfile downstream throws ("Not authenticated", etc.)
+      // During the April 2026 PIN debugging saga, that opacity cost hours —
+      // we repeatedly chased "OAuth redirect loop" ghosts when the actual
+      // error on the server was a clear "No companies associated" throw.
+      //
+      // verifyPin + selectProfile throw user-friendly strings by design
+      // (see lib/actions/profiles.ts). Pass them through. If any throw site
+      // later leaks internal detail, harden the message at the throw (where
+      // context is richest), not here.
       if (!mountedRef.current) return
-      setError('Something went wrong. Try again.')
+      setError(err instanceof Error ? err.message : 'Sign-in error. Try again.')
       setDigits([])
     } finally {
       if (mountedRef.current) setSubmitting(false)
@@ -260,12 +275,16 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
         ))}
       </div>
 
-      {/* Error message */}
+      {/* Error message — minHeight keeps the layout stable when empty
+          while allowing multi-line messages like "Too many PIN attempts.
+          Try again in 5 minutes." to render without clipping. */}
       <div
         style={{
-          height: '16px',
+          minHeight: '16px',
+          padding: '0 8px',
           fontFamily: 'var(--font-mono)',
           fontSize: '11px',
+          lineHeight: '1.4',
           color: 'var(--accent-red)',
           textAlign: 'center',
           marginTop: '-16px',
