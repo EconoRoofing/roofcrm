@@ -200,3 +200,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Hover effect for section-card links rendered inside Server Components.
+   Replaces inline JS onMouseEnter/onMouseLeave handlers that violated the
+   Next.js 16 Server→Client handler-prop rule. CSS :hover does not require
+   a Client Component boundary. Used by job-detail.tsx. */
+.job-detail-link-hover:hover {
+  background-color: var(--surface-hover);
+}

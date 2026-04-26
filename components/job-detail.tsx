@@ -734,14 +734,15 @@ export async function JobDetail({ job, role }: JobDetailProps) {
           />
         )}
 
-        {/* Photo annotator — shown when a primary photo URL is present */}
+        {/* Photo annotator — shown when a primary photo URL is present.
+            Audit 2026-04-25: was passing an inline onSaveAnnotations callback
+            for placeholder console.log. That's a Server→Client handler-prop
+            violation in Next.js 16. PhotoAnnotator's own internal save logic
+            persists the annotations; the callback was never load-bearing.
+            Removed. If we need parent-side reaction in the future, wrap this
+            usage in a small `'use client'` component. */}
         {(job as any).photo_url && (
-          <PhotoAnnotator
-            imageUrl={(job as any).photo_url}
-            onSaveAnnotations={(annotations, category) => {
-              console.log('[job-detail] photo annotations saved', { jobId: job.id, count: annotations.length, category })
-            }}
-          />
+          <PhotoAnnotator imageUrl={(job as any).photo_url} />
         )}
       </div>
 
@@ -793,21 +794,23 @@ export async function JobDetail({ job, role }: JobDetailProps) {
         </div>
       )}
 
-      {/* Invoices section */}
+      {/* Invoices section
+          Audit 2026-04-25: was using inline onMouseEnter/onMouseLeave to swap
+          background color on hover. Inline event handlers on a Server Component
+          throw "Event handlers cannot be passed to Client Component props" in
+          Next.js 16, crashing every job detail page with digest 1407542458.
+          Replaced JS hover with the `job-detail-link-hover` CSS class (defined
+          in app/globals.css) which uses :hover for the same effect, no JS needed,
+          works inside a Server Component. */}
       <Link
         href={`/jobs/${job.id}/invoices`}
+        className="job-detail-link-hover"
         style={{
           ...styles.sectionCard,
           textDecoration: 'none',
           color: 'inherit',
           transition: 'all 0.15s',
           cursor: 'pointer',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'var(--surface-hover)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = 'var(--bg-card)'
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
