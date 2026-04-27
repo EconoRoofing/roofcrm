@@ -283,6 +283,65 @@ WHERE id = '…';
 
 ---
 
+## 13. Calendar-write integrations need a dry-run env flag from day one
+
+**Symptom:** Mario thought the calendar integration was broken because
+"only days off show up" — actually it was correctly running for weeks
+in `CALENDAR_DRY_RUN=true` mode that shipped during dev verification
+and was never flipped off after launch. Synthetic `dry-run-<id>` event
+IDs were being persisted to `jobs.calendar_event_id` so the rest of the
+app behaved as if events existed; Google itself was never touched.
+
+**Hits (2026-04-26):**
+- ~30 minutes diagnosing "calendar broken" before noticing the synthetic
+  ID prefix in `calendar_event_id`.
+- A second 15 minutes after Mario "flipped" the env var but the empty
+  redeploy commit fired BEFORE he actually changed the value — Vercel
+  only re-reads env vars at build time, so we deployed with the OLD
+  value and got fooled into thinking the flip didn't take.
+
+**Rules:**
+- **Every external-write integration ships with a `<INTEGRATION>_DRY_RUN`
+  env flag from day 1**, with a clear log signature when it's on
+  (`[CALENDAR_DRY_RUN] createGoogleEvent: ...`). Cheaper than building
+  a fake Google for tests AND prevents accidental writes during early
+  deploys.
+- **Synthetic IDs from dry-run mode have a recognizable prefix**
+  (`dry-run-<ts>-<rnd>`). Easy to grep production data for "are we
+  still synthesizing instead of really syncing?"
+- **Vercel env-var changes require a fresh build to take effect.**
+  Sequence with humans in the loop: have user flip → user confirms
+  flipped → THEN trigger redeploy → wait READY → user re-tests. Don't
+  parallelize the env flip with the redeploy.
+
+## 14. Server Components can't pass event handlers to Client Components
+
+**Symptom:** A page with conditional or always-rendered inline event
+handlers crashes with "Event handlers cannot be passed to Client
+Component props" — Next.js error boundary fires (`app/error.tsx`),
+user sees "We hit a snag" with a digest like `1407542458`.
+
+**Hit (2026-04-26):** `components/job-detail.tsx` (a Server Component)
+had `onMouseEnter`/`onMouseLeave` on a `<Link>` for hover styling, AND
+an `onSaveAnnotations` callback passed to `<PhotoAnnotator>` (Client
+Component) for placeholder console.log. Every job detail page crashed
+on load. Mario only noticed when he opened his FIRST non-cancelled job
+during calendar verification — bug had been latent for weeks.
+
+**Rules:**
+- **CSS `:hover` instead of inline JS hover handlers** in Server
+  Components. No `'use client'` boundary needed.
+- **If you genuinely need a handler, wrap in a small `'use client'`
+  component.** The wrapper owns the handler; the parent passes only
+  serializable data.
+- **Make placeholder/optional handler props actually optional**
+  (`onWhatever?: ...`) on the receiving Client Component, and just
+  don't pass them from Server contexts. PhotoAnnotator's
+  `onSaveAnnotations?` was already optional — we just had to remove
+  the call site.
+- **ESLint `eslint-plugin-react-server-components`** would catch this
+  class of bug at lint time. Worth adding when convenient.
+
 ## 12a. Supabase RLS is TWO steps — policies without ENABLE are no-ops
 
 **Symptom:** `supabase.from('X').select()` returns rows it shouldn't.
