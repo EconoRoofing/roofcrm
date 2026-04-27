@@ -2,13 +2,21 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { verifyPin, selectProfile } from '@/lib/actions/profiles'
+import { verifyPin, selectProfile, selfResetPin } from '@/lib/actions/profiles'
 import { BackspaceIcon, BackArrowIcon } from '@/components/icons'
 
 interface PinEntryProps {
   profileId: string
   profileName: string
   profileRole: string
+  /** Email on the profile being unlocked. If it matches `callerGoogleEmail`,
+   *  the "Forgot PIN?" link becomes interactive (self-service reset).
+   *  If null or non-matching, the link falls back to "Ask your manager." */
+  profileEmail?: string | null
+  /** Email on the currently signed-in Google account. Used to gate self-
+   *  service reset eligibility on the client; the server gates again
+   *  inside selfResetPin(). */
+  callerGoogleEmail?: string | null
   onBack: () => void
 }
 
@@ -19,11 +27,28 @@ const ROLE_ROUTES: Record<string, string> = {
   crew: '/route',
 }
 
-export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEntryProps) {
+export function PinEntry({
+  profileId,
+  profileName,
+  profileRole,
+  profileEmail,
+  callerGoogleEmail,
+  onBack,
+}: PinEntryProps) {
   const [digits, setDigits] = useState<string[]>([])
   const [error, setError] = useState('')
   const [shaking, setShaking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+
+  // Self-service PIN reset is offered only when the profile's email
+  // exactly matches the signed-in Google account email. The server gates
+  // the same way inside selfResetPin — this client check is purely UX
+  // hygiene (don't show a button that would just error).
+  const canSelfReset =
+    !!profileEmail &&
+    !!callerGoogleEmail &&
+    profileEmail.toLowerCase() === callerGoogleEmail.toLowerCase()
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // `mountedRef` gates all post-await setState in handleSubmit so a user
@@ -385,7 +410,297 @@ export function PinEntry({ profileId, profileName, profileRole, onBack }: PinEnt
           textAlign: 'center',
         }}
       >
-        Forgot PIN? Ask your manager to reset it.
+        {canSelfReset ? (
+          <>
+            Forgot PIN?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setError('')
+                setResetOpen(true)
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--accent)',
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+                cursor: 'pointer',
+                padding: 0,
+                textDecoration: 'underline',
+              }}
+            >
+              Reset it.
+            </button>
+          </>
+        ) : (
+          'Forgot PIN? Ask your manager to reset it.'
+        )}
+      </div>
+
+      {resetOpen && (
+        <ResetPinModal
+          profileId={profileId}
+          profileName={profileName}
+          callerEmail={callerGoogleEmail ?? ''}
+          onClose={() => setResetOpen(false)}
+          onSuccess={() => {
+            setResetOpen(false)
+            setError('')
+            setDigits([])
+            // The PIN entry view stays mounted so the user can immediately
+            // type their new PIN to sign in.
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Reset PIN modal — opened from the "Forgot PIN?" link when the signed-in
+ * Google account matches the profile's email. Two-step PIN entry (PIN +
+ * confirm) to catch typos. On submit, calls selfResetPin server action;
+ * server enforces the same email-match gate as the client.
+ *
+ * Kept inline in pin-entry.tsx because the modal is tightly coupled to
+ * the entry flow — only used here, shares state ergonomics, no
+ * public-API value to extract.
+ */
+function ResetPinModal({
+  profileId,
+  profileName,
+  callerEmail,
+  onClose,
+  onSuccess,
+}: {
+  profileId: string
+  profileName: string
+  callerEmail: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [newPin, setNewPin] = useState('')
+  const [confirmPin, setConfirmPin] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!/^\d{4}$/.test(newPin)) {
+      setError('PIN must be exactly 4 digits.')
+      return
+    }
+    if (newPin !== confirmPin) {
+      setError('PINs do not match.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await selfResetPin(profileId, newPin)
+      setDone(true)
+      // Brief success flash, then close so the user can enter the new PIN.
+      setTimeout(() => onSuccess(), 1200)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset PIN.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reset-pin-title"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+        zIndex: 100,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '20px',
+          padding: '24px',
+          maxWidth: '360px',
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+        }}
+      >
+        <h2
+          id="reset-pin-title"
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: '18px',
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+            margin: 0,
+          }}
+        >
+          Reset PIN
+        </h2>
+
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            lineHeight: 1.4,
+          }}
+        >
+          Setting a new PIN for <strong>{profileName}</strong>.<br />
+          Verified via your Google account: {callerEmail}
+        </div>
+
+        {done ? (
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '12px',
+              color: 'var(--accent-green, #4ade80)',
+              textAlign: 'center',
+              padding: '24px 0',
+            }}
+          >
+            ✓ PIN reset. Sign in with your new PIN.
+          </div>
+        ) : (
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+          >
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              maxLength={4}
+              value={newPin}
+              onChange={e =>
+                setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+              }
+              placeholder="New 4-digit PIN"
+              autoFocus
+              disabled={submitting}
+              style={{
+                width: '100%',
+                padding: '14px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '18px',
+                letterSpacing: '8px',
+                textAlign: 'center',
+                backgroundColor: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '12px',
+                outline: 'none',
+              }}
+            />
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              maxLength={4}
+              value={confirmPin}
+              onChange={e =>
+                setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+              }
+              placeholder="Confirm PIN"
+              disabled={submitting}
+              style={{
+                width: '100%',
+                padding: '14px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '18px',
+                letterSpacing: '8px',
+                textAlign: 'center',
+                backgroundColor: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '12px',
+                outline: 'none',
+              }}
+            />
+
+            {error && (
+              <div
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '11px',
+                  color: 'var(--accent-red)',
+                  textAlign: 'center',
+                  lineHeight: 1.4,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '12px',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.5 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || newPin.length !== 4 || confirmPin.length !== 4}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--bg-deep)',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor:
+                    submitting || newPin.length !== 4 || confirmPin.length !== 4
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    submitting || newPin.length !== 4 || confirmPin.length !== 4
+                      ? 0.5
+                      : 1,
+                }}
+              >
+                {submitting ? 'Saving…' : 'Reset PIN'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   )

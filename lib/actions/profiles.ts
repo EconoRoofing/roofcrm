@@ -2,7 +2,6 @@
 
 import { timingSafeEqual } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
-import { getUser } from '@/lib/auth'
 import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -26,18 +25,151 @@ export async function getCompanies() {
 }
 
 // Get all active team members
+//
+// Returns `email` per profile so the self-service PIN reset flow on the
+// profile picker can show the "Forgot PIN?" link only on profiles whose
+// email matches the signed-in Google account. The actual security check
+// happens server-side in selfResetPin — the client-side conditional is
+// just UX hygiene.
 export async function getProfiles() {
   try {
     const supabase = await createClient()
     const { data } = await supabase
       .from('users')
-      .select('id, name, role, avatar_url, is_active')
+      .select('id, name, role, avatar_url, email, is_active')
       .eq('is_active', true)
       .order('name')
     return data ?? []
   } catch {
     return []
   }
+}
+
+// Returns the email on the caller's Google session, if any. Used by the
+// profile picker to decide which profiles offer self-service PIN reset.
+// Returns null if no Google session — caller is responsible for handling
+// that case (typically by hiding the reset UI entirely).
+export async function getCallerGoogleEmail(): Promise<string | null> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    return user?.email ?? null
+  } catch {
+    return null
+  }
+}
+
+// Self-service PIN reset for a Google-authed user resetting their OWN
+// profile. The security gate is: the caller must be Google-authenticated
+// AND the profile being reset must have an email field that matches the
+// caller's Google account email (case-insensitive).
+//
+// Why this is safe (threat model):
+//   - The caller has already passed Google OAuth, so we know they own the
+//     Google account they're signed in as.
+//   - PIN reset only succeeds if the profile is "theirs" by email match.
+//   - The profile email is set when the profile was created (typically by
+//     the company owner via the Team page, or by Google sign-up flow).
+//   - This means a crew member without a linked Google email CAN'T use
+//     this to reset their own PIN — they have to ask a manager (existing
+//     ResetPinModal in /team). That's correct: we have no way to verify
+//     it's actually them otherwise.
+//
+// Why this is needed (the April 2026 saga):
+//   - Mario forgot his PIN. The setPin/ResetPinModal path is gated behind
+//     getUserWithCompany(), which requires an active session — which
+//     requires already being logged in via PIN. Chicken and egg.
+//   - We had to ship a temporary CRON_SECRET-protected admin endpoint,
+//     compute a hash via curl, SQL it in. Whole adventure was 30 min.
+//   - This action eliminates that path entirely. Mario forgets his PIN
+//     → he's still Google-authed → "Forgot PIN?" → enters new PIN →
+//     done. Zero admin involvement, zero ops dance.
+//
+// The new PIN is hashed identically to setPin's path. PIN_HASH_SALT
+// fail-closed checks match — same audit lineage as setPin (R3-#7).
+export async function selfResetPin(
+  profileId: string,
+  newPin: string
+): Promise<void> {
+  // 1. Caller must be Google-authed
+  const supabase = await createClient()
+  const { data: { user: googleUser }, error: authErr } =
+    await supabase.auth.getUser()
+  if (authErr || !googleUser?.email) {
+    throw new Error('Sign in with Google before resetting your PIN.')
+  }
+
+  // 2. Validate PIN format BEFORE any DB lookups (cheap input sanitation)
+  if (!/^\d{4}$/.test(newPin)) {
+    throw new Error('PIN must be exactly 4 digits.')
+  }
+
+  // 3. Look up the target profile + its email
+  const { data: profile, error: profileErr } = await supabase
+    .from('users')
+    .select('id, email, name')
+    .eq('id', profileId)
+    .eq('is_active', true)
+    .maybeSingle()
+  if (profileErr || !profile) {
+    throw new Error('Profile not found.')
+  }
+  if (!profile.email) {
+    throw new Error(
+      'This profile has no email on file. Ask your manager to reset your PIN.'
+    )
+  }
+
+  // 4. SECURITY GATE: caller's Google email must match the profile's email.
+  //    Case-insensitive — Google emails are case-insensitive in practice.
+  const callerEmail = googleUser.email.toLowerCase()
+  const profileEmail = profile.email.toLowerCase()
+  if (callerEmail !== profileEmail) {
+    throw new Error(
+      'You can only reset your own PIN. Ask your manager to reset this one.'
+    )
+  }
+
+  // 5. Hash. Identical to setPin's algorithm (R3-#7 fail-closed salt check).
+  const serverSalt = process.env.PIN_HASH_SALT
+  if (!serverSalt || serverSalt.length < 16) {
+    throw new Error(
+      'PIN_HASH_SALT is not configured. Contact your administrator.'
+    )
+  }
+  const encoder = new TextEncoder()
+  const data = encoder.encode(newPin + profileId + serverSalt)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const pinHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+  // 6. Update + clear lockout state in one statement so a previously
+  //    locked-out account becomes immediately usable with the new PIN.
+  const { error: updateErr } = await supabase
+    .from('users')
+    .update({
+      pin_hash: pinHash,
+      pin_failed_attempts: 0,
+      pin_locked_until: null,
+    })
+    .eq('id', profileId)
+  if (updateErr) {
+    throw new Error(`Failed to set PIN: ${updateErr.message}`)
+  }
+
+  // 7. Audit trail. Reuses activity_log even though this isn't job-scoped
+  //    — the job_id column is overloaded for non-job entities (matches
+  //    setPin's existing pattern). Wrapped because audit logging must
+  //    never block the primary operation.
+  try {
+    await supabase.from('activity_log').insert({
+      job_id: profileId,
+      user_id: googleUser.id,
+      action: 'pin_self_reset',
+      old_value: null,
+      new_value: `PIN reset via self-service by Google account ${callerEmail}`,
+    })
+  } catch {}
 }
 
 // Set a user's PIN (manager only, or self-service for own PIN)

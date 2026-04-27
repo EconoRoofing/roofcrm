@@ -4,13 +4,19 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProfileCard } from '@/components/auth/profile-card'
 import { PinEntry } from '@/components/auth/pin-entry'
-import { getProfiles, createProfile, signOutAndClear } from '@/lib/actions/profiles'
+import {
+  getProfiles,
+  createProfile,
+  signOutAndClear,
+  getCallerGoogleEmail,
+} from '@/lib/actions/profiles'
 
 interface Profile {
   id: string
   name: string
   role: string
   avatar_url: string | null
+  email: string | null
 }
 
 // --- Setup form for first-time ---
@@ -200,12 +206,19 @@ export default function SelectProfilePage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Profile | null>(null)
+  // Self-service PIN reset (the April 2026 lockout-saga fix) compares this
+  // against each profile's email to decide whether to offer the reset link.
+  const [callerGoogleEmail, setCallerGoogleEmail] = useState<string | null>(null)
 
   const loadProfiles = async () => {
     setLoading(true)
     try {
-      const data = await getProfiles()
+      const [data, email] = await Promise.all([
+        getProfiles(),
+        getCallerGoogleEmail(),
+      ])
       setProfiles(data as Profile[])
+      setCallerGoogleEmail(email)
     } finally {
       setLoading(false)
     }
@@ -262,6 +275,8 @@ export default function SelectProfilePage() {
           profileId={selected.id}
           profileName={selected.name}
           profileRole={selected.role}
+          profileEmail={selected.email}
+          callerGoogleEmail={callerGoogleEmail}
           onBack={() => setSelected(null)}
         />
       </div>

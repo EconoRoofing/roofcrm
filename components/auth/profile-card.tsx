@@ -5,6 +5,10 @@ interface Profile {
   name: string
   role: string
   avatar_url: string | null
+  // email is read by the self-service PIN reset flow downstream of selection;
+  // ProfileCard itself doesn't render it, but the type must include it so
+  // the parent's setState callback type-matches.
+  email: string | null
 }
 
 interface ProfileCardProps {
