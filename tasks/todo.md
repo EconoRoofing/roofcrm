@@ -1,3 +1,76 @@
+# Stage 2 Calendar Sync — follow-ups + cert renewals (2026-04-26)
+
+## Goal
+
+Two new event types appear on Mario's company calendars automatically as he uses the app:
+1. **Follow-ups** — when one's created, an event lands on the relevant company's job calendar at the due_date. Cleared when marked complete.
+2. **Cert renewals** — when a cert with an expiry_date is added/edited, an event lands 30 days before expiry as an actionable reminder.
+
+## Context already verified
+
+- `follow_ups` table: `(id, job_id, assigned_to, due_date, note, completed_at, created_at)`. No `calendar_event_id` yet.
+- `certifications` table: `(id, user_id, company_id, name, cert_number, issued_date, expiry_date, document_url, status, created_at)`. No `calendar_event_id` yet.
+- Existing `createCalendarEvent` in `lib/google-calendar.ts` is hardcoded to job-shaped data (`JobForCalendar`). Needs a generalized path.
+- Existing wiring: `companies.jobs_calendar_id` already used for jobs. Reuse for follow-ups (work tasks). Cert renewals reuse the same calendar.
+- Stage 1 (2026-04-26) proved end-to-end Google API works with the current refresh token.
+
+## Plan
+
+### Phase A — refactor calendar lib for a 2nd entity type (no behavior change)
+
+- [ ] In `lib/google-calendar.ts`, extract the raw Google API HTTP call into private `createGoogleEventLow(userId, calendarId, body)` / `update*Low` / `delete*Low`. Body is just the Google Calendar event JSON.
+- [ ] Refactor `createCalendarEvent` / `updateCalendarEvent` / `deleteCalendarEvent` to be thin wrappers that build the job body then call the low-level versions.
+- [ ] `CALENDAR_DRY_RUN` short-circuit moves to the low-level functions so it covers all entity types automatically.
+- [ ] Confirm jobs flow still works (no schema change, no behavior change) by re-running through eslint and rebuilding.
+
+### Phase B — schema migration 045
+
+- [ ] Add `calendar_event_id text` to `follow_ups` (nullable).
+- [ ] Add `calendar_event_id text` to `certifications` (nullable).
+- [ ] No backfill — existing rows can stay un-synced; only new mutations sync going forward.
+
+### Phase C — follow-up sync
+
+- [ ] In `lib/actions/follow-up-tasks.ts::createFollowUp`, after the DB insert, call `syncFollowUpToCalendar(followUp)` helper that:
+  - Resolves the company via `follow_up.job.company_id`
+  - Uses that company's `jobs_calendar_id` (or fallback `calendar_id`, then `primary`)
+  - Builds an all-day event on `due_date` with summary `"Follow-up: <customer> — <note truncated 60ch>"` and a description deep-link to the job
+  - Calls `createGoogleEventLow`, writes returned event_id back to `follow_ups.calendar_event_id`
+- [ ] In `completeFollowUp`, after marking `completed_at`, call delete using stored `calendar_event_id`.
+- [ ] Both sync calls wrapped in try/catch + log — never block the primary action if Calendar fails.
+
+### Phase D — cert renewal sync
+
+- [ ] Find cert mutation sites (`lib/actions/safety.ts` is the leading candidate).
+- [ ] After cert insert/update with `expiry_date`, call `syncCertReminderToCalendar(cert)`:
+  - Computes reminder date = `expiry_date - 30 days`
+  - If reminder date is in the past → skip
+  - Routes to cert's `company_id` calendar
+  - Summary: `"⚠️ Renew: <cert.name> — expires <expiry_date>"`
+  - Description includes `cert_number` and link to `document_url` if present
+  - Stores returned `calendar_event_id` on the cert row
+- [ ] If `expiry_date` changes, update the existing event (not delete+recreate).
+- [ ] If cert is deleted or `expiry_date` cleared, delete the event.
+
+### Phase E — verification
+
+- [ ] `npx eslint` on touched files — zero new errors.
+- [ ] Mario manually creates a follow-up → confirm event on Econo job calendar.
+- [ ] Mario marks complete → confirm event disappears.
+- [ ] Mario adds a cert with expiry 35 days out → confirm reminder event 5 days from now.
+- [ ] Update `tasks/lessons.md` if anything new comes up.
+- [ ] Commit + push.
+
+## Out of scope (NOT this stage)
+
+- Daily reconciler cron (catches drift, handles orphans). Real-time only for Stage 2.
+- Backfilling existing follow-ups/certs into the calendar.
+- Cert renewal "X days out" being configurable (hardcoded to 30 for now).
+- Per-company calendar settings UI for follow-ups (reuses existing `jobs_calendar_id`).
+- Customer appointments (tracked as Stage 3+ if Mario wants).
+
+---
+
 # Role cleanup + calendar access for crew/sales
 
 ## Goal

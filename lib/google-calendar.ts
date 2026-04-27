@@ -159,6 +159,164 @@ async function getGoogleAccessToken(userId: string): Promise<string | null> {
   return accessToken
 }
 
+// =============================================================================
+// LOW-LEVEL GOOGLE CALENDAR HELPERS
+//
+// These deal in raw Google Calendar event bodies — no entity-specific knowledge.
+// Use them when adding a new entity type that needs calendar sync (follow-ups,
+// cert renewals, customer appointments, etc.). Build the body in your entity-
+// specific module, then call createGoogleEvent / updateGoogleEvent / deleteGoogleEvent.
+//
+// `contextLabel` is for logs only — it tags every entry with what kind of entity
+// triggered the call ('job', 'estimate', 'follow_up', 'cert_renewal') so you can
+// trace a single entity through Vercel logs even when many event types coexist.
+//
+// CALENDAR_DRY_RUN handled here so EVERY entity type honors it, not just jobs.
+// =============================================================================
+
+export interface GoogleEventBody {
+  summary: string
+  location?: string
+  description?: string
+  start: { date?: string; dateTime?: string; timeZone?: string }
+  end: { date?: string; dateTime?: string; timeZone?: string }
+  colorId?: string
+}
+
+export async function createGoogleEvent(
+  userId: string,
+  calendarId: string,
+  body: GoogleEventBody,
+  contextLabel: string
+): Promise<string | null> {
+  if (isDryRun()) {
+    const syntheticId = `dry-run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    console.log(
+      `[CALENDAR_DRY_RUN] createGoogleEvent: userId=${userId} type=${contextLabel} calendarId=${calendarId} → synthetic eventId=${syntheticId} summary="${body.summary}"`
+    )
+    return syntheticId
+  }
+
+  const accessToken = await getGoogleAccessToken(userId)
+  if (!accessToken) return null
+
+  const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
+    method: 'POST',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (res.status === 429) {
+    console.warn(`Calendar: rate limited on createGoogleEvent (${contextLabel})`)
+    return null
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error(`Calendar: createGoogleEvent failed (${contextLabel})`, res.status, errText)
+    return null
+  }
+
+  const event = await res.json()
+  return event.id ?? null
+}
+
+export async function updateGoogleEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  updates: Partial<GoogleEventBody>,
+  contextLabel: string
+): Promise<boolean> {
+  if (isDryRun()) {
+    console.log(
+      `[CALENDAR_DRY_RUN] updateGoogleEvent: userId=${userId} type=${contextLabel} eventId=${eventId} calendarId=${calendarId} updates=${JSON.stringify(updates)}`
+    )
+    return true
+  }
+
+  const accessToken = await getGoogleAccessToken(userId)
+  if (!accessToken) return false
+
+  const res = await fetch(
+    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    }
+  )
+
+  if (res.status === 429) {
+    console.warn(`Calendar: rate limited on updateGoogleEvent (${contextLabel})`)
+    return false
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error(`Calendar: updateGoogleEvent failed (${contextLabel})`, res.status, errText)
+    return false
+  }
+
+  return true
+}
+
+export async function deleteGoogleEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  contextLabel: string
+): Promise<boolean> {
+  if (isDryRun()) {
+    console.log(
+      `[CALENDAR_DRY_RUN] deleteGoogleEvent: userId=${userId} type=${contextLabel} eventId=${eventId} calendarId=${calendarId}`
+    )
+    return true
+  }
+
+  const accessToken = await getGoogleAccessToken(userId)
+  if (!accessToken) return false
+
+  const res = await fetch(
+    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  )
+
+  if (res.status === 429) {
+    console.warn(`Calendar: rate limited on deleteGoogleEvent (${contextLabel})`)
+    return false
+  }
+
+  // 404 = already gone, treat as success (e.g. user manually deleted in Google,
+  // or we're cleaning up a stale dry-run synthetic ID)
+  if (!res.ok && res.status !== 404) {
+    const errText = await res.text()
+    console.error(`Calendar: deleteGoogleEvent failed (${contextLabel})`, res.status, errText)
+    return false
+  }
+
+  return true
+}
+
+// =============================================================================
+// JOB-SPECIFIC WRAPPERS (kept for backward compat; thin wrappers over low-level)
+// =============================================================================
+
 interface JobForCalendar {
   id: string
   job_number: string
@@ -230,42 +388,7 @@ export async function createCalendarEvent(
   calendarId = 'primary'
 ): Promise<string | null> {
   const body = buildEventBody(job, eventType)
-
-  if (isDryRun()) {
-    const syntheticId = `dry-run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    console.log(
-      `[CALENDAR_DRY_RUN] createCalendarEvent: userId=${userId} job=${job.job_number} eventType=${eventType} calendarId=${calendarId} → synthetic eventId=${syntheticId} summary="${body.summary}"`
-    )
-    return syntheticId
-  }
-
-  const accessToken = await getGoogleAccessToken(userId)
-  if (!accessToken) return null
-
-  const res = await fetch(`${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
-    method: 'POST',
-    cache: 'no-store', // Calendar mutations must never be cached
-    signal: AbortSignal.timeout(8000),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (res.status === 429) {
-    console.warn('Calendar: rate limited by Google')
-    return null
-  }
-
-  if (!res.ok) {
-    const errText = await res.text()
-    console.error('Calendar sync: createCalendarEvent failed', res.status, errText)
-    return null
-  }
-
-  const event = await res.json()
-  return event.id ?? null
+  return createGoogleEvent(userId, calendarId, body, `${eventType}:${job.job_number}`)
 }
 
 /**
@@ -283,42 +406,7 @@ export async function updateCalendarEvent(
   },
   calendarId = 'primary'
 ): Promise<boolean> {
-  if (isDryRun()) {
-    console.log(
-      `[CALENDAR_DRY_RUN] updateCalendarEvent: userId=${userId} eventId=${eventId} calendarId=${calendarId} updates=${JSON.stringify(updates)}`
-    )
-    return true
-  }
-
-  const accessToken = await getGoogleAccessToken(userId)
-  if (!accessToken) return false
-
-  const res = await fetch(
-    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    {
-      method: 'PATCH',
-      cache: 'no-store', // Calendar mutations must never be cached
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(updates),
-    }
-  )
-
-  if (res.status === 429) {
-    console.warn('Calendar: rate limited by Google')
-    return false
-  }
-
-  if (!res.ok) {
-    const errText = await res.text()
-    console.error('Calendar sync: updateCalendarEvent failed', res.status, errText)
-    return false
-  }
-
-  return true
+  return updateGoogleEvent(userId, calendarId, eventId, updates, 'job-update')
 }
 
 /**
@@ -517,38 +605,5 @@ export async function listCalendarEventsDebug(
  * Returns true on success, false on failure.
  */
 export async function deleteCalendarEvent(userId: string, eventId: string, calendarId = 'primary'): Promise<boolean> {
-  if (isDryRun()) {
-    console.log(
-      `[CALENDAR_DRY_RUN] deleteCalendarEvent: userId=${userId} eventId=${eventId} calendarId=${calendarId}`
-    )
-    return true
-  }
-
-  const accessToken = await getGoogleAccessToken(userId)
-  if (!accessToken) return false
-
-  const res = await fetch(
-    `${GOOGLE_CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    {
-      method: 'DELETE',
-      cache: 'no-store', // Calendar mutations must never be cached
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  )
-
-  if (res.status === 429) {
-    console.warn('Calendar: rate limited by Google')
-    return false
-  }
-
-  if (!res.ok && res.status !== 404) {
-    const errText = await res.text()
-    console.error('Calendar sync: deleteCalendarEvent failed', res.status, errText)
-    return false
-  }
-
-  return true
+  return deleteGoogleEvent(userId, calendarId, eventId, 'job-delete')
 }
