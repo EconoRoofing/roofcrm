@@ -3,6 +3,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/twilio'
 import { getUserWithCompany, verifyJobOwnership } from '@/lib/auth-helpers'
+import {
+  syncFollowUpToCalendar,
+  removeFollowUpFromCalendar,
+} from '@/lib/calendar-sync-follow-ups'
 
 export interface FollowUp {
   id: string
@@ -23,7 +27,7 @@ export async function createFollowUp(
   dueDate: string,
   note: string
 ): Promise<FollowUp> {
-  const { companyId } = await getUserWithCompany()
+  const { userId, companyId } = await getUserWithCompany()
   await verifyJobOwnership(jobId, companyId)
 
   const supabase = await createClient()
@@ -35,6 +39,20 @@ export async function createFollowUp(
     .single()
 
   if (error) throw new Error(`Failed to create follow-up: ${error.message}`)
+
+  // Calendar sync: best-effort, doesn't block the primary insert.
+  // Stage 2 (2026-04-26): adds an event to the relevant company's jobs
+  // calendar at due_date. Caller's userId is used to resolve the Google
+  // refresh token; if the caller has no Calendar connected, the sync
+  // logs a warning and the follow-up still saves.
+  await syncFollowUpToCalendar({
+    followUpId: data.id,
+    jobId,
+    dueDate,
+    note,
+    userId,
+  })
+
   return data as FollowUp
 }
 
@@ -96,7 +114,7 @@ export async function getDueFollowUps(): Promise<FollowUp[]> {
 }
 
 export async function completeFollowUp(id: string): Promise<void> {
-  const { companyId } = await getUserWithCompany()
+  const { userId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   // Verify the follow-up's job belongs to the user's company
@@ -107,7 +125,10 @@ export async function completeFollowUp(id: string): Promise<void> {
     .single()
 
   if (!followUp) throw new Error('Follow-up not found')
-  const jobCompanyId = (followUp.job as any)?.company_id
+  // Supabase nested join types loosely as object | object[] | null; pick out
+  // company_id defensively in either shape so we don't lean on `any`.
+  const jobRel = followUp.job as { company_id?: string } | { company_id?: string }[] | null
+  const jobCompanyId = Array.isArray(jobRel) ? jobRel[0]?.company_id : jobRel?.company_id
   if (jobCompanyId !== companyId) throw new Error('Follow-up not found or access denied')
 
   const { error } = await supabase
@@ -116,6 +137,11 @@ export async function completeFollowUp(id: string): Promise<void> {
     .eq('id', id)
 
   if (error) throw new Error(`Failed to complete follow-up: ${error.message}`)
+
+  // Calendar sync: remove the event when the follow-up is done so it
+  // disappears from the calendar (the action is no longer pending).
+  // Best-effort; never blocks completion.
+  await removeFollowUpFromCalendar(id, userId)
 }
 
 // CRON-ONLY: Called by daily cron — sends SMS reminders for today's due follow-ups.
