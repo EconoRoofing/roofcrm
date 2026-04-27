@@ -3,6 +3,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { getUserWithCompany, requireManager } from '@/lib/auth-helpers'
 import { ROOFING_CHECKLIST_ITEMS } from '@/lib/safety-constants'
+import {
+  syncCertReminderToCalendar,
+  removeCertReminderFromCalendar,
+} from '@/lib/calendar-sync-certs'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -459,7 +463,7 @@ export async function addCertification(data: {
   expiryDate?: string
   documentUrl?: string
 }): Promise<Certification> {
-  const { companyId } = await getUserWithCompany()
+  const { userId: callerId, companyId } = await getUserWithCompany()
   const supabase = await createClient()
 
   // Verify target user belongs to same company
@@ -498,6 +502,23 @@ export async function addCertification(data: {
     .single()
 
   if (error || !cert) throw new Error(`Failed to add certification: ${error?.message}`)
+
+  // Calendar sync: best-effort, doesn't block insert. Drops a single reminder
+  // event 30 days before expiry on the company calendar. Skips silently if
+  // expiry_date is null or the reminder date would be in the past.
+  // Stage 2 (2026-04-26): see lib/calendar-sync-certs.ts.
+  if (data.expiryDate) {
+    await syncCertReminderToCalendar({
+      certId: cert.id,
+      companyId,
+      certName: data.name,
+      certNumber: data.certNumber ?? null,
+      expiryDate: data.expiryDate,
+      documentUrl: data.documentUrl ?? null,
+      userId: callerId,
+    })
+  }
+
   return cert as Certification
 }
 
@@ -598,9 +619,19 @@ export async function checkRequiredCerts(userId: string): Promise<{ valid: boole
 }
 
 export async function deleteCertification(id: string): Promise<void> {
-  const { companyId, role } = await getUserWithCompany()
+  const { userId: callerId, companyId, role } = await getUserWithCompany()
   requireManager(role)
   const supabase = await createClient()
+
+  // Read calendar_event_id BEFORE deleting the row so we can clean up the
+  // Google Calendar event afterwards. The row is gone after the DELETE,
+  // so we can't look this up later.
+  const { data: existing } = await supabase
+    .from('certifications')
+    .select('calendar_event_id')
+    .eq('id', id)
+    .eq('company_id', companyId)
+    .single()
 
   const { error } = await supabase
     .from('certifications')
@@ -608,6 +639,17 @@ export async function deleteCertification(id: string): Promise<void> {
     .eq('id', id)
     .eq('company_id', companyId)
   if (error) throw new Error(`Failed to delete certification: ${error.message}`)
+
+  // Calendar cleanup: remove the reminder event if one was created.
+  // Best-effort; never throws.
+  if (existing?.calendar_event_id) {
+    await removeCertReminderFromCalendar({
+      certId: id,
+      calendarEventId: existing.calendar_event_id,
+      companyId,
+      userId: callerId,
+    })
+  }
 }
 
 // ─── MISSING TOOLBOX TALK DETECTION ──────────────────────────────────────────
