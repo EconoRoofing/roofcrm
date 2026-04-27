@@ -5,6 +5,74 @@ mistake. Review at the start of every session.
 
 ---
 
+## 15. RLS policies that subquery related tables can recurse
+
+**Symptom:** A new policy that looks correct in isolation throws
+`ERROR: 42P17 infinite recursion detected in policy for relation "X"` —
+sometimes for X you didn't even directly touch in the new policy. Every
+SELECT/INSERT/UPDATE on the affected table errors for authenticated users
+in production. Service-role queries (cron, auth callback) keep working
+because they bypass RLS entirely, which can mask the impact during
+verification if you only test from a service-role context.
+
+**Hit (2026-04-27, migration 046):** I added `users.users_owner_scoped`
+which subqueried `companies` (`SELECT id FROM companies WHERE owner_id =
+auth.uid()`). Companies has a pre-existing `companies_write` policy with
+a USING clause that does `EXISTS (SELECT 1 FROM users WHERE users.id =
+auth.uid() AND users.role = 'manager')`. Cycle: users-policy →
+companies → users-policy → ... Postgres detected and refused. Worse,
+the SAME cycle hit the 4 other tables in 046 (invoices,
+invoice_line_items, purchase_orders, supplier_contacts) because they
+all subqueried companies, which then triggered companies_write on
+users → cycle.
+
+**Rule:**
+- **Never let an RLS policy on table A subquery table B if any policy
+  on B references A.** Postgres can't break ties — both policies
+  trigger each other forever.
+- **Use `SECURITY DEFINER` helper functions to break the cycle.** A
+  function declared SECURITY DEFINER bypasses RLS during its own
+  execution (runs as the function owner, typically `postgres`). Wrap
+  the cross-table subquery in such a function and call it from the
+  policy.
+- **Restrict the helper's grants:** `REVOKE EXECUTE FROM PUBLIC` and
+  `GRANT EXECUTE TO authenticated` so only signed-in users can invoke
+  it. Anon callers shouldn't be enumerating ownership graphs.
+- **`STABLE` is appropriate** for these helpers — same input always
+  yields the same output within a transaction, so Postgres can cache.
+
+**Fixed-policy template:**
+```sql
+CREATE OR REPLACE FUNCTION public.owned_company_ids_for(p_user_id uuid)
+  RETURNS SETOF uuid
+  LANGUAGE sql
+  SECURITY DEFINER
+  STABLE
+  SET search_path = public, pg_temp
+AS $$
+  SELECT id FROM public.companies WHERE owner_id = p_user_id
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.owned_company_ids_for(uuid) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.owned_company_ids_for(uuid) TO authenticated;
+
+CREATE POLICY my_table_owner_scoped ON public.my_table
+  FOR ALL
+  USING (company_id IN (SELECT owned_company_ids_for(auth.uid())))
+  WITH CHECK (company_id IN (SELECT owned_company_ids_for(auth.uid())));
+```
+
+**Verification gotcha:** rollback-transaction testing (`BEGIN; …; ROLLBACK;`)
+catches FUNCTIONAL bugs but doesn't trip recursion the same way an
+applied policy does — Postgres's policy validation differs slightly
+between transient and persisted policy state. **After applying any
+policy migration, always run a query as the `authenticated` role**
+(`SET LOCAL ROLE authenticated; SELECT … FROM affected_table; RESET
+ROLE`) to confirm it actually works under the live policy. Don't
+trust the apply step's success as proof.
+
+---
+
 ## 1. Schema drift: codebase columns ≠ production DB columns
 
 **Symptom:** Migration fails with `ERROR: 42703: column "X" does not exist`
