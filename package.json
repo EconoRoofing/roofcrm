@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint && npm run lint:rsc",
+    "lint:rsc": "node scripts/check-rsc-handlers.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
